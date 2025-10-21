@@ -1,1 +1,125 @@
+# ========================================
+# FPGA 项目 .gitignore
+# 紫光同创 Pango Design Suite
+# ========================================
+
+# ============ 日志文件 ============
 *.log
+*.rpt
+pds.log
+run.log
+
+# ============ 数据库文件 ============
+*.db
+*.pds.lock
+
+# ============ 备份文件 ============
+bak/
+**/bak/
+logbackup/
+**/logbackup/
+*.bak
+*~
+
+# ============ 编译产物 ============
+# 综合产物
+synthesize/*.adf
+synthesize/*.vm
+synthesize/*.snr
+synthesize/*.pvf
+synthesize/*.txt
+synthesize/snr.db
+synthesize/add_sub_carrychain.log
+synthesize/apm_drm_lutram_utilization.log
+
+# 编译产物
+compile/*.adf
+compile/*.cmr
+compile/*.pvf
+compile/cmr.db
+compile/parse_design/screen.pds
+compile/parse_design/screen.tcl
+
+# 布局布线产物
+place_route/*.adf
+place_route/*.netlist
+place_route/*.prr
+place_route/*.prt
+place_route/*.txt
+place_route/prr.db
+
+# 设备映射产物
+device_map/*.adf
+device_map/*.dmr
+device_map/*.pcf
+device_map/*.prt
+device_map/*.pvf
+device_map/dmr.db
+
+# 约束检查产物
+constraint_check/*.ccr
+
+# 时序报告产物
+report_timing/*.adf
+report_timing/*.rtr
+
+# 功耗报告产物
+report_power/
+
+# 比特流生成产物
+generate_bitstream/*.bgr
+generate_bitstream/*.sbit
+generate_bitstream/*.smsk
+
+# ============ 临时文件 ============
+*.tmp
+*.temp
+*.swp
+*~
+.DS_Store
+Thumbs.db
+
+# ============ 项目配置临时文件 ============
+impl.tcl
+multiseed_summary.csv
+msg_level.txt
+
+# ============ IDE 相关 ============
+.vscode/
+.idea/
+*.suo
+*.user
+*.userosscache
+*.sln.docstates
+
+# ============ 仿真文件 ============
+work/
+transcript
+vsim.wlf
+*.wlf
+*.vcd
+*.saif
+
+# ============ IP 核备份 ============
+# ip_backup/
+
+# ============ 保留的文件 ============
+# 源代码必须保留
+!source/**/*.v
+!source/**/*.sv
+!source/**/*.vhd
+!source/**/*.vhdl
+
+# 约束文件必须保留
+!source/**/*.fdc
+!source/**/*.sdc
+
+# IP 核定义文件保留
+!source/**/*.idf
+
+# 项目文件保留
+!*.pds
+!README.md
+
+# 约束备份保留（可选，如果不想保留可以注释掉）
+!source/source/constraint_backup/*.fdc
