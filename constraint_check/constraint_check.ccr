@@ -1,0 +1,240 @@
+##### Written on 2025/10/21 19:55:34 ###############################
+
+
+##### INFO ##################################################
+
+Current device : 
+	PGL50H-6FBG484
+
+Top Module : 
+	signal_analyzer_top
+
+Constraint File(s) : 
+	E:/Odyssey_proj/source/source/signal_analyzer.fdc
+
+##### SUMMARY ######################################################
+
+Found 0 error(s), 17 critical warning(s), 0 warning(s), out of 427 constraint(s)
+
+
+Inapplicable constraints(except overwritten constraints):
+********************************************
+
+define_attribute {p:hd_tx_pclk} {PAP_IO_LOC} {M22}
+	C: ConstraintEditor-2002: [E:/Odyssey_proj/source/source/signal_analyzer.fdc(line number: 126)] | Port hd_tx_pclk has been placed at location M22, whose type is share pin.
+
+define_attribute {p:hd_tx_data[23]} {PAP_IO_LOC} {H19}
+	C: ConstraintEditor-2002: [E:/Odyssey_proj/source/source/signal_analyzer.fdc(line number: 155)] | Port hd_tx_data[23] has been placed at location H19, whose type is share pin.
+
+define_attribute {p:hd_tx_data[22]} {PAP_IO_LOC} {H22}
+	C: ConstraintEditor-2002: [E:/Odyssey_proj/source/source/signal_analyzer.fdc(line number: 162)] | Port hd_tx_data[22] has been placed at location H22, whose type is share pin.
+
+define_attribute {p:hd_tx_data[21]} {PAP_IO_LOC} {H21}
+	C: ConstraintEditor-2002: [E:/Odyssey_proj/source/source/signal_analyzer.fdc(line number: 169)] | Port hd_tx_data[21] has been placed at location H21, whose type is share pin.
+
+define_attribute {p:hd_tx_data[16]} {PAP_IO_LOC} {K17}
+	C: ConstraintEditor-2002: [E:/Odyssey_proj/source/source/signal_analyzer.fdc(line number: 204)] | Port hd_tx_data[16] has been placed at location K17, whose type is share pin.
+
+define_attribute {p:hd_tx_data[15]} {PAP_IO_LOC} {L17}
+	C: ConstraintEditor-2002: [E:/Odyssey_proj/source/source/signal_analyzer.fdc(line number: 211)] | Port hd_tx_data[15] has been placed at location L17, whose type is share pin.
+
+define_attribute {p:hd_tx_data[14]} {PAP_IO_LOC} {K20}
+	C: ConstraintEditor-2002: [E:/Odyssey_proj/source/source/signal_analyzer.fdc(line number: 218)] | Port hd_tx_data[14] has been placed at location K20, whose type is share pin.
+
+define_attribute {p:hd_tx_data[13]} {PAP_IO_LOC} {L19}
+	C: ConstraintEditor-2002: [E:/Odyssey_proj/source/source/signal_analyzer.fdc(line number: 225)] | Port hd_tx_data[13] has been placed at location L19, whose type is share pin.
+
+define_attribute {p:hd_tx_data[8]} {PAP_IO_LOC} {M21}
+	C: ConstraintEditor-2002: [E:/Odyssey_proj/source/source/signal_analyzer.fdc(line number: 260)] | Port hd_tx_data[8] has been placed at location M21, whose type is share pin.
+
+define_attribute {p:hd_tx_data[5]} {PAP_IO_LOC} {R22}
+	C: ConstraintEditor-2002: [E:/Odyssey_proj/source/source/signal_analyzer.fdc(line number: 281)] | Port hd_tx_data[5] has been placed at location R22, whose type is share pin.
+
+define_attribute {p:hd_tx_data[4]} {PAP_IO_LOC} {R20}
+	C: ConstraintEditor-2002: [E:/Odyssey_proj/source/source/signal_analyzer.fdc(line number: 288)] | Port hd_tx_data[4] has been placed at location R20, whose type is share pin.
+
+define_attribute {p:hd_tx_data[2]} {PAP_IO_LOC} {T21}
+	C: ConstraintEditor-2002: [E:/Odyssey_proj/source/source/signal_analyzer.fdc(line number: 302)] | Port hd_tx_data[2] has been placed at location T21, whose type is share pin.
+
+define_attribute {p:user_button[0]} {PAP_IO_LOC} {K18}
+	C: ConstraintEditor-2002: [E:/Odyssey_proj/source/source/signal_analyzer.fdc(line number: 339)] | Port user_button[0] has been placed at location K18, whose type is share pin.
+
+define_attribute {p:user_button[5]} {PAP_IO_LOC} {J19}
+	C: ConstraintEditor-2002: [E:/Odyssey_proj/source/source/signal_analyzer.fdc(line number: 369)] | Port user_button[5] has been placed at location J19, whose type is share pin.
+
+define_attribute {p:user_button[6]} {PAP_IO_LOC} {H20}
+	C: ConstraintEditor-2002: [E:/Odyssey_proj/source/source/signal_analyzer.fdc(line number: 375)] | Port user_button[6] has been placed at location H20, whose type is share pin.
+
+define_attribute {p:adc_ch1_data[9]} {PAP_IO_LOC} {AB5}
+	C: ConstraintEditor-2002: [E:/Odyssey_proj/source/source/signal_analyzer.fdc(line number: 448)] | Port adc_ch1_data[9] has been placed at location AB5, whose type is share pin.
+
+define_attribute {p:adc_ch1_clk} {PAP_IO_LOC} {Y5}
+	C: ConstraintEditor-2002: [E:/Odyssey_proj/source/source/signal_analyzer.fdc(line number: 550)] | Port adc_ch1_clk has been placed at location Y5, whose type is share pin.
+
+
+Constraints with issues:
+********************************************
+
+
+Issues without commands:
+********************************************
+
+
+Unconstrained ports:
+********************************************
+
+
+Constraints with matching wildcard expressions:
+********************************************
+
+set_false_path -from [get_ports {user_button[*]}]
+	I: The pattern 'user_button[*]' in command 'get_ports {user_button[*]}' match 8 objects below:
+	I: port user_button[0]
+	I: port user_button[1]
+	I: port user_button[2]
+	I: port user_button[3]
+	I: port user_button[4]
+	I: port user_button[5]
+	I: port user_button[6]
+	I: port user_button[7]
+
+set_false_path -to [get_ports {user_led[*]}]
+	I: The pattern 'user_led[*]' in command 'get_ports {user_led[*]}' match 8 objects below:
+	I: port user_led[0]
+	I: port user_led[1]
+	I: port user_led[2]
+	I: port user_led[3]
+	I: port user_led[4]
+	I: port user_led[5]
+	I: port user_led[6]
+	I: port user_led[7]
+
+set_input_delay -clock clk_100m -max 10.000 [get_ports {user_button[*]}]
+	I: The pattern 'user_button[*]' in command 'get_ports {user_button[*]}' match 8 objects below:
+	I: port user_button[0]
+	I: port user_button[1]
+	I: port user_button[2]
+	I: port user_button[3]
+	I: port user_button[4]
+	I: port user_button[5]
+	I: port user_button[6]
+	I: port user_button[7]
+
+set_input_delay -clock clk_100m -min 0.000 [get_ports {user_button[*]}]
+	I: The pattern 'user_button[*]' in command 'get_ports {user_button[*]}' match 8 objects below:
+	I: port user_button[0]
+	I: port user_button[1]
+	I: port user_button[2]
+	I: port user_button[3]
+	I: port user_button[4]
+	I: port user_button[5]
+	I: port user_button[6]
+	I: port user_button[7]
+
+set_input_delay -clock clk_adc -max 5.000 [get_ports {adc_ch1_data[*]}]
+	I: The pattern 'adc_ch1_data[*]' in command 'get_ports {adc_ch1_data[*]}' match 10 objects below:
+	I: port adc_ch1_data[0]
+	I: port adc_ch1_data[1]
+	I: port adc_ch1_data[2]
+	I: port adc_ch1_data[3]
+	I: port adc_ch1_data[4]
+	I: port adc_ch1_data[5]
+	I: port adc_ch1_data[6]
+	I: port adc_ch1_data[7]
+	I: port adc_ch1_data[8]
+	I: port adc_ch1_data[9]
+
+set_input_delay -clock clk_adc -max 5.000 [get_ports {adc_ch2_data[*]}]
+	I: The pattern 'adc_ch2_data[*]' in command 'get_ports {adc_ch2_data[*]}' match 10 objects below:
+	I: port adc_ch2_data[0]
+	I: port adc_ch2_data[1]
+	I: port adc_ch2_data[2]
+	I: port adc_ch2_data[3]
+	I: port adc_ch2_data[4]
+	I: port adc_ch2_data[5]
+	I: port adc_ch2_data[6]
+	I: port adc_ch2_data[7]
+	I: port adc_ch2_data[8]
+	I: port adc_ch2_data[9]
+
+set_input_delay -clock clk_adc -min 0.000 [get_ports {adc_ch1_data[*]}]
+	I: The pattern 'adc_ch1_data[*]' in command 'get_ports {adc_ch1_data[*]}' match 10 objects below:
+	I: port adc_ch1_data[0]
+	I: port adc_ch1_data[1]
+	I: port adc_ch1_data[2]
+	I: port adc_ch1_data[3]
+	I: port adc_ch1_data[4]
+	I: port adc_ch1_data[5]
+	I: port adc_ch1_data[6]
+	I: port adc_ch1_data[7]
+	I: port adc_ch1_data[8]
+	I: port adc_ch1_data[9]
+
+set_input_delay -clock clk_adc -min 0.000 [get_ports {adc_ch2_data[*]}]
+	I: The pattern 'adc_ch2_data[*]' in command 'get_ports {adc_ch2_data[*]}' match 10 objects below:
+	I: port adc_ch2_data[0]
+	I: port adc_ch2_data[1]
+	I: port adc_ch2_data[2]
+	I: port adc_ch2_data[3]
+	I: port adc_ch2_data[4]
+	I: port adc_ch2_data[5]
+	I: port adc_ch2_data[6]
+	I: port adc_ch2_data[7]
+	I: port adc_ch2_data[8]
+	I: port adc_ch2_data[9]
+
+set_output_delay -clock clk_hdmi_pixel -max 3.000 [get_ports {hd_tx_data[*]}]
+	I: The pattern 'hd_tx_data[*]' in command 'get_ports {hd_tx_data[*]}' match 24 objects below:
+	I: port hd_tx_data[0]
+	I: port hd_tx_data[1]
+	I: port hd_tx_data[2]
+	I: port hd_tx_data[3]
+	I: port hd_tx_data[4]
+	I: port hd_tx_data[5]
+	I: port hd_tx_data[6]
+	I: port hd_tx_data[7]
+	I: port hd_tx_data[8]
+	I: port hd_tx_data[9]
+	I: port hd_tx_data[10]
+	I: port hd_tx_data[11]
+	I: port hd_tx_data[12]
+	I: port hd_tx_data[13]
+	I: port hd_tx_data[14]
+	I: port hd_tx_data[15]
+	I: port hd_tx_data[16]
+	I: port hd_tx_data[17]
+	I: port hd_tx_data[18]
+	I: port hd_tx_data[19]
+	I: port hd_tx_data[20]
+	I: port hd_tx_data[21]
+	I: port hd_tx_data[22]
+	I: port hd_tx_data[23]
+
+set_output_delay -clock clk_hdmi_pixel -min -1.000 [get_ports {hd_tx_data[*]}]
+	I: The pattern 'hd_tx_data[*]' in command 'get_ports {hd_tx_data[*]}' match 24 objects below:
+	I: port hd_tx_data[0]
+	I: port hd_tx_data[1]
+	I: port hd_tx_data[2]
+	I: port hd_tx_data[3]
+	I: port hd_tx_data[4]
+	I: port hd_tx_data[5]
+	I: port hd_tx_data[6]
+	I: port hd_tx_data[7]
+	I: port hd_tx_data[8]
+	I: port hd_tx_data[9]
+	I: port hd_tx_data[10]
+	I: port hd_tx_data[11]
+	I: port hd_tx_data[12]
+	I: port hd_tx_data[13]
+	I: port hd_tx_data[14]
+	I: port hd_tx_data[15]
+	I: port hd_tx_data[16]
+	I: port hd_tx_data[17]
+	I: port hd_tx_data[18]
+	I: port hd_tx_data[19]
+	I: port hd_tx_data[20]
+	I: port hd_tx_data[21]
+	I: port hd_tx_data[22]
+	I: port hd_tx_data[23]
+
+

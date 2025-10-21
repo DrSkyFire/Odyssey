@@ -1,0 +1,1060 @@
+//=============================================================================
+// 文件名: signal_analyzer_top.v
+// 描述: FPGA智能信号分析与测试系统 - 顶层模块
+// 功能: ADC采集 → FFT频谱分析 → HDMI显示
+// 作者: DrSkyFire
+// 日期: 2025
+//=============================================================================
+
+ module signal_analyzer_top (
+    // 系统时钟和复位
+    input  wire         sys_clk_50m,        // 板载50MHz时钟
+    input  wire         sys_rst_n,          // 系统复位，低有效
+    input  wire         sys_clk_27m,         // 板载27MHz时钟（备用）
+    
+    // ADC接口 (MS9280)
+    // 通道1 (AD-IN1)
+    input  wire [9:0]   adc_ch1_data,       // 通道1数据 (管脚23,25,26,27,28,29,30,31,32,33)
+    output wire         adc_ch1_clk,        // 通道1时钟 (管脚34)
+    output wire         adc_ch1_oe,         // 通道1输出使能 (管脚36)
+    
+    // 通道2 (AD-IN2)
+    input  wire [9:0]   adc_ch2_data,       // 通道2数据 (管脚5,7,8,9,10,11,12,13,14,15)
+    output wire         adc_ch2_clk,        // 通道2时钟 (管脚16)
+    output wire         adc_ch2_oe,         // 通道2输出使能 (管脚18)
+
+    // MS7210 HDMI输出（添加这些端口）
+    output wire         hd_tx_pclk,         // MS7210像素时钟
+    output wire         hd_tx_vs,           // MS7210场同步
+    output wire         hd_tx_hs,           // MS7210行同步
+    output wire         hd_tx_de,           // MS7210数据使能
+    output wire [23:0]  hd_tx_data,         // MS7210 RGB数据
+    
+    // MS7210 IIC配置
+    output wire         hd_iic_scl,         // IIC时钟
+    inout  wire         hd_iic_sda,         // IIC数据
+    
+    // 用户接口
+    input  wire [7:0]   user_button,        // 用户按键
+    output wire [7:0]   user_led,           // 用户LED
+
+    // UART接口
+    output wire         uart_tx            // UART发送管脚
+);
+
+//=============================================================================
+// 参数定义
+//=============================================================================
+localparam FFT_POINTS = 1024;               // FFT点数
+localparam ADC_WIDTH  = 10;                  // ADC位宽
+localparam FFT_WIDTH  = 10;                 // FFT数据位宽
+
+//=============================================================================
+// 时钟和复位信号
+//=============================================================================
+wire        clk_100m;                       // 100MHz系统时钟
+wire        clk_10m;                        // 10MHz中间时钟
+wire        clk_adc;                        // 1MHz ADC采样时钟（级联）
+wire        clk_fft;                        // 100MHz FFT处理时钟
+wire        pll1_lock;                      // PLL1锁定信号
+// HDMI相关时钟
+wire        pll2_lock;                      // PLL2锁定信号
+wire        clk_hdmi_pixel;                 // 74.25MHz HDMI像素时钟
+wire        ms7210_init_over;                  // MS7210配置完成标志
+//全局PLL锁定信号
+wire        pll_lock;
+assign      pll_lock = pll1_lock & pll2_lock;
+// 复位信号
+wire        rst_n_sync;                     // 同步后的全局复位
+reg         wr_rst_n;                       // FIFO写端口复位
+reg         rd_rst_n;                       // FIFO读端口复位
+reg  [3:0]  rd_rst_delay_cnt;               // 读复位延迟计数器
+wire        rst_n;                          // 其他模块使用的复位
+
+//=============================================================================
+// ADC采集相关信号
+//=============================================================================
+wire [15:0] selected_adc_data;               // 选择的ADC数据（16位扩展）
+wire [9:0]  ch1_data_sync;                  // 同步后的通道1数据
+wire [9:0]  ch2_data_sync;                  // 同步后的通道2数据
+wire        dual_data_valid;                // 两个通道的数据同步有效标志
+reg         channel_sel;                    // 0 = 通道0, 1 = 通道1
+wire        btn_ch_sel;                     // 通道选择按键
+wire [7:0]  adc_data_sync;
+wire        adc_data_valid;
+wire [15:0] adc_data_ext;
+
+//=============================================================================
+// FIFO相关信号 - 双通道
+//=============================================================================
+// 通道1 FIFO
+wire        ch1_fifo_wr_en;                 // 通道1 FIFO写使能
+wire [15:0] ch1_fifo_din;                   // 通道1 FIFO输入数据
+wire        ch1_fifo_rd_en;                 // 通道1 FIFO读使能
+wire [15:0] ch1_fifo_dout;                  // 通道1 FIFO输出数据
+wire        ch1_fifo_full;                  // 通道1 FIFO满标志
+wire        ch1_fifo_empty;                 // 通道1 FIFO空标志
+wire [11:0] ch1_fifo_rd_water_level;        // 通道1 FIFO读水位
+wire [11:0] ch1_fifo_wr_water_level;        // 通道1 FIFO写水位
+
+// 通道2 FIFO
+wire        ch2_fifo_wr_en;                 // 通道2 FIFO写使能
+wire [15:0] ch2_fifo_din;                   // 通道2 FIFO输入数据
+wire        ch2_fifo_rd_en;                 // 通道2 FIFO读使能
+wire [15:0] ch2_fifo_dout;                  // 通道2 FIFO输出数据
+wire        ch2_fifo_full;                  // 通道2 FIFO满标志
+wire        ch2_fifo_empty;                 // 通道2 FIFO空标志
+wire [11:0] ch2_fifo_rd_water_level;        // 通道2 FIFO读水位
+wire [11:0] ch2_fifo_wr_water_level;        // 通道2 FIFO写水位
+
+//=============================================================================
+// FFT相关信号
+//=============================================================================
+wire        fft_start;                      // FFT启动信号
+wire [31:0] fft_din;                        // FFT输入 {虚部16bit, 实部16bit}
+wire        fft_din_valid;                  // FFT输入有效
+wire        fft_din_last;                   // FFT输入最后一个数据
+wire        fft_din_ready;                  // FFT输入准备好
+
+wire [31:0] fft_dout;                       // FFT输出 {虚部16bit, 实部16bit}
+wire        fft_dout_valid;                 // FFT输出有效
+wire        fft_dout_last;                  // FFT输出最后一个数据
+wire        fft_dout_ready;                 // FFT输出准备好
+wire [15:0] fft_tuser;
+
+//=============================================================================
+// 频谱数据处理信号 - 双通道
+//=============================================================================
+// 通道1频谱
+wire [15:0] ch1_spectrum_magnitude;         // 通道1频谱幅度
+wire [9:0]  ch1_spectrum_wr_addr;           // 通道1频谱写地址
+wire        ch1_spectrum_valid;             // 通道1频谱数据有效
+
+// 通道2频谱
+wire [15:0] ch2_spectrum_magnitude;         // 通道2频谱幅度
+wire [9:0]  ch2_spectrum_wr_addr;           // 通道2频谱写地址
+wire        ch2_spectrum_valid;             // 通道2频谱数据有效
+
+// 双通道FFT控制状态
+wire        ch1_fft_busy;                   // 通道1 FFT忙
+wire        ch2_fft_busy;                   // 通道2 FFT忙
+wire        current_fft_channel;            // 当前FFT处理通道
+
+//=============================================================================
+// 显示相关信号 - 双通道
+//=============================================================================
+wire [23:0] hdmi_rgb;                       // HDMI RGB数据
+wire        hdmi_de;                        // HDMI数据使能
+wire        hdmi_hs;                        // HDMI行同步
+wire        hdmi_vs;                        // HDMI场同步
+wire [15:0] spectrum_rd_data;               // 从RAM读出的频谱数据（经过通道选择）
+wire [9:0]  spectrum_rd_addr;               // 频谱读地址
+reg [7:0]   user_led_reg;                   // 用户LED寄存器
+
+// 通道1频谱RAM
+wire [15:0] ch1_spectrum_rd_data;           // 通道1频谱读数据
+// 通道2频谱RAM
+wire [15:0] ch2_spectrum_rd_data;           // 通道2频谱读数据
+
+// 显示通道选择
+reg         display_channel;                // 0=显示通道1, 1=显示通道2
+wire        btn_display_ch_sel;             // 显示通道切换按键
+
+//=============================================================================
+// 控制信号
+//=============================================================================
+reg  [1:0]  work_mode;                      // 工作模式: 0-时域 1-频域 2-参数测量
+wire        btn_mode;                       // 模式切换按键
+wire        btn_start;                      // 启动按键
+wire        btn_stop;                       // 停止按键
+reg         run_flag;                       // 运行标志
+
+//=============================================================================
+// 信号参数测量
+//=============================================================================
+wire [15:0] signal_freq;                    // 信号频率
+wire [15:0] signal_amplitude;               // 信号幅度
+wire [15:0] signal_duty;                    // 占空比
+wire [15:0] signal_thd;                     // 总谐波失真
+
+//=============================================================================
+// 双口RAM相关信号 - 双通道
+//=============================================================================
+// 通道1乒乓缓存控制信号
+reg         ch1_buffer_sel;                     // 通道1缓存选择
+reg         ch1_buffer_sel_sync1, ch1_buffer_sel_sync2;  // 跨时钟域同步
+
+// 通道1 RAM0信号
+wire        ch1_ram0_we;
+wire [9:0]  ch1_ram0_wr_addr;
+wire [15:0] ch1_ram0_wr_data;
+wire [9:0]  ch1_ram0_rd_addr;
+wire [15:0] ch1_ram0_rd_data;
+
+// 通道1 RAM1信号
+wire        ch1_ram1_we;
+wire [9:0]  ch1_ram1_wr_addr;
+wire [15:0] ch1_ram1_wr_data;
+wire [9:0]  ch1_ram1_rd_addr;
+wire [15:0] ch1_ram1_rd_data;
+
+// 通道2乒乓缓存控制信号
+reg         ch2_buffer_sel;                     // 通道2缓存选择
+reg         ch2_buffer_sel_sync1, ch2_buffer_sel_sync2;  // 跨时钟域同步
+
+// 通道2 RAM0信号
+wire        ch2_ram0_we;
+wire [9:0]  ch2_ram0_wr_addr;
+wire [15:0] ch2_ram0_wr_data;
+wire [9:0]  ch2_ram0_rd_addr;
+wire [15:0] ch2_ram0_rd_data;
+
+// 通道2 RAM1信号
+wire        ch2_ram1_we;
+wire [9:0]  ch2_ram1_wr_addr;
+wire [15:0] ch2_ram1_wr_data;
+wire [9:0]  ch2_ram1_rd_addr;
+wire [15:0] ch2_ram1_rd_data;
+wire [15:0] ram0_rd_data;
+
+// RAM1信号
+wire        ram1_we;
+wire [9:0]  ram1_wr_addr;
+wire [15:0] ram1_wr_data;
+wire [9:0]  ram1_rd_addr;
+wire [15:0] ram1_rd_data;
+
+//=============================================================================
+// 内部测试信号发生器
+//=============================================================================
+reg [15:0] test_signal_gen;
+reg [9:0]  test_counter;
+reg test_mode;
+wire btn_test_mode;
+
+//=============================================================================
+// UART发送模块信号
+//=============================================================================
+wire        uart_busy;
+reg  [7:0]  uart_data_to_send;
+reg         uart_send_trigger;
+reg  [7:0]  send_state; 
+
+//=============================================================================
+// 1. PLL1 - 系统时钟管理（50MHz输入）
+//=============================================================================
+pll_sys u_pll_sys (
+    .clkin1         (sys_clk_50m),          // 50MHz输入
+    .pll_lock       (pll1_lock),            // PLL1锁定
+    .clkout0        (clk_100m),             // 100MHz系统时钟
+    .clkout1        (clk_10m),              // 10MHz中间时钟
+    .clkout2        (clk_adc)               // 1MHz ADC时钟（级联）
+);
+
+// PLL1配置说明：
+// VCO = 1000MHz (50MHz × 20 / 1)
+// CLKOUT0 = 100MHz (1000MHz / 10)
+// CLKOUT1 = 10MHz (1000MHz / 100)
+// CLKOUT2 = 1MHz (级联CLKOUT1 / 10)
+
+//=============================================================================
+// 2. PLL2 - HDMI时钟管理（27MHz输入）
+//=============================================================================
+pll_hdmi u_pll_hdmi (
+    .clkin1         (sys_clk_27m),          // 27MHz输入
+    .pll_lock       (pll2_lock),            // PLL2锁定
+    .clkout0        (clk_hdmi_pixel)        // 74.25MHz HDMI像素时钟
+);
+
+// PLL2配置说明：
+// VCO = 1188MHz (27MHz × 44 / 1)
+// CLKOUT0 = 74.25MHz (1188MHz / 16)
+
+assign clk_fft = clk_100m;                  // FFT使用100MHz时钟
+
+//=============================================================================
+// 2. 复位同步和管理
+//=============================================================================
+
+// 2.1 全局复位同步
+reset_sync u_reset_sync (
+    .clk            (clk_100m),
+    .async_rst_n    (sys_rst_n & pll_lock),
+    .sync_rst_n     (rst_n_sync)
+);
+
+// 2.2 FIFO写端口复位 - 先释放
+always @(posedge clk_adc or negedge rst_n_sync) begin
+    if (!rst_n_sync)
+        wr_rst_n <= 1'b0;
+    else
+        wr_rst_n <= 1'b1;
+end
+
+// 2.3 FIFO读端口复位 - 延迟释放（晚于写端口15个时钟周期）
+always @(posedge clk_fft or negedge rst_n_sync) begin
+    if (!rst_n_sync) begin
+        rd_rst_delay_cnt <= 4'd0;
+        rd_rst_n <= 1'b0;
+    end else begin
+        if (rd_rst_delay_cnt < 4'd15)
+            rd_rst_delay_cnt <= rd_rst_delay_cnt + 1'b1;
+        else
+            rd_rst_n <= 1'b1;
+    end
+end
+
+// 2.4 其他模块使用统一的复位信号
+assign rst_n = rst_n_sync;
+
+//=============================================================================
+// 3. ADC数据采集模块
+//=============================================================================
+assign adc_oe = 1'b1; // 直接使能ADC数据输出
+assign adc_data_sync = channel_sel ? ch2_data_sync[9:2] : ch1_data_sync[9:2];
+assign adc_data_valid = dual_data_valid;
+// ADC数据扩展到16位 (高8位为数据，低8位补0以提高精度)
+assign selected_adc_data = channel_sel ? {ch1_data_sync, 6'h00} : {ch2_data_sync, 6'h00};
+assign adc_data_ext = selected_adc_data;
+
+adc_capture_dual u_adc_dual (
+    .clk                (clk_adc),
+    .rst_n              (rst_n),
+    
+    // 通道1接口
+    .adc_ch1_in         (adc_ch1_data),
+    .adc_ch1_clk_out    (adc_ch1_clk),
+    .adc_ch1_oe_out     (adc_ch1_oe),
+    
+    // 通道2接口
+    .adc_ch2_in         (adc_ch2_data),
+    .adc_ch2_clk_out    (adc_ch2_clk),
+    .adc_ch2_oe_out     (adc_ch2_oe),
+    
+    // 数据输出
+    .ch1_data_out       (ch1_data_sync),
+    .ch2_data_out       (ch2_data_sync),
+    .data_valid         (dual_data_valid),
+    
+    .enable             (run_flag)
+);
+
+//=============================================================================
+// 4. 双通道数据缓冲FIFO (跨时钟域：ADC 1MHz → FFT 100MHz)
+//=============================================================================
+// ✓ 双通道独立FIFO，支持同步采集
+
+// 通道1数据源选择（支持测试信号）
+wire [15:0] ch1_fifo_data_source;
+assign ch1_fifo_data_source = test_mode ? test_signal_gen : {ch1_data_sync, 6'h00};
+assign ch1_fifo_wr_en = test_mode ? 1'b1 : (dual_data_valid && run_flag);
+assign ch1_fifo_din = ch1_fifo_data_source;
+
+// 通道2数据源（正常ADC数据）
+assign ch2_fifo_wr_en = dual_data_valid && run_flag;
+assign ch2_fifo_din = {ch2_data_sync, 6'h00};
+
+// 通道1 FIFO
+fifo_async #(
+    .DATA_WIDTH     (16),
+    .FIFO_DEPTH     (2048)
+) u_ch1_fifo (
+    // 写端口 (ADC时钟域 1MHz)
+    .wr_clk         (clk_adc),
+    .wr_rst_n       (wr_rst_n),
+    .wr_en          (ch1_fifo_wr_en),
+    .wr_data        (ch1_fifo_din),
+    .full           (ch1_fifo_full),
+    .almost_full    (),
+    .wr_water_level (ch1_fifo_wr_water_level),
+    
+    // 读端口 (FFT时钟域 100MHz)
+    .rd_clk         (clk_fft),
+    .rd_rst_n       (rd_rst_n),
+    .rd_en          (ch1_fifo_rd_en),
+    .rd_data        (ch1_fifo_dout),
+    .empty          (ch1_fifo_empty),
+    .almost_empty   (),
+    .rd_water_level (ch1_fifo_rd_water_level)
+);
+
+// 通道2 FIFO
+fifo_async #(
+    .DATA_WIDTH     (16),
+    .FIFO_DEPTH     (2048)
+) u_ch2_fifo (
+    // 写端口 (ADC时钟域 1MHz)
+    .wr_clk         (clk_adc),
+    .wr_rst_n       (wr_rst_n),
+    .wr_en          (ch2_fifo_wr_en),
+    .wr_data        (ch2_fifo_din),
+    .full           (ch2_fifo_full),
+    .almost_full    (),
+    .wr_water_level (ch2_fifo_wr_water_level),
+    
+    // 读端口 (FFT时钟域 100MHz)
+    .rd_clk         (clk_fft),
+    .rd_rst_n       (rd_rst_n),
+    .rd_en          (ch2_fifo_rd_en),
+    .rd_data        (ch2_fifo_dout),
+    .empty          (ch2_fifo_empty),
+    .almost_empty   (),
+    .rd_water_level (ch2_fifo_rd_water_level)
+);
+
+//=============================================================================
+// 5. 双通道时分复用FFT控制模块
+//=============================================================================
+dual_channel_fft_controller #(
+    .FFT_POINTS     (FFT_POINTS),
+    .DATA_WIDTH     (16)
+) u_dual_fft_ctrl (
+    .clk                    (clk_fft),
+    .rst_n                  (rst_n),
+    
+    // 通道1 FIFO接口
+    .ch1_fifo_empty         (ch1_fifo_empty),
+    .ch1_fifo_rd_en         (ch1_fifo_rd_en),
+    .ch1_fifo_dout          (ch1_fifo_dout),
+    .ch1_fifo_rd_water_level(ch1_fifo_rd_water_level),
+    
+    // 通道2 FIFO接口
+    .ch2_fifo_empty         (ch2_fifo_empty),
+    .ch2_fifo_rd_en         (ch2_fifo_rd_en),
+    .ch2_fifo_dout          (ch2_fifo_dout),
+    .ch2_fifo_rd_water_level(ch2_fifo_rd_water_level),
+    
+    // FFT IP接口
+    .fft_din                (fft_din),
+    .fft_din_valid          (fft_din_valid),
+    .fft_din_last           (fft_din_last),
+    .fft_din_ready          (fft_din_ready),
+    .fft_dout               (fft_dout),
+    .fft_dout_valid         (fft_dout_valid),
+    .fft_dout_last          (fft_dout_last),
+    
+    // 频谱输出 - 通道1
+    .ch1_spectrum_data      (ch1_spectrum_magnitude),
+    .ch1_spectrum_addr      (ch1_spectrum_wr_addr),
+    .ch1_spectrum_valid     (ch1_spectrum_valid),
+    
+    // 频谱输出 - 通道2
+    .ch2_spectrum_data      (ch2_spectrum_magnitude),
+    .ch2_spectrum_addr      (ch2_spectrum_wr_addr),
+    .ch2_spectrum_valid     (ch2_spectrum_valid),
+    
+    // 控制信号
+    .fft_enable             (fft_start),
+    .work_mode              (work_mode),
+    
+    // 状态输出
+    .ch1_fft_busy           (ch1_fft_busy),
+    .ch2_fft_busy           (ch2_fft_busy),
+    .current_channel        (current_fft_channel)
+);
+
+//=============================================================================
+// 5.5 FFT配置信号生成（参考官方例程）
+//=============================================================================
+reg fft_cfg_valid;
+reg fft_start_d1;
+
+// 检测fft_start上升沿
+always @(posedge clk_fft or negedge rst_n) begin
+    if (!rst_n)
+        fft_start_d1 <= 1'b0;
+    else
+        fft_start_d1 <= fft_start;
+end
+
+// 在fft_start拉高时发送一个配置脉冲
+always @(posedge clk_fft or negedge rst_n) begin
+    if (!rst_n)
+        fft_cfg_valid <= 1'b0;
+    else if (fft_cfg_valid)
+        fft_cfg_valid <= 1'b0;  // 保持1个时钟周期
+    else if (fft_start && !fft_start_d1)
+        fft_cfg_valid <= 1'b1;  // 上升沿触发
+end
+
+//=============================================================================
+// 6. FFT IP核实例化
+//=============================================================================
+fft_1024 u_fft_1024 (
+    // 时钟和复位
+    .i_aclk                 (clk_fft),              // 100MHz时钟
+    .i_aresetn              (rst_n),                // 复位，低有效
+    
+    // 输入数据流 (AXI4-Stream)
+    .i_axi4s_data_tvalid    (fft_din_valid),        // 输入数据有效
+    .o_axi4s_data_tready    (fft_din_ready),        // FFT准备接收
+    .i_axi4s_data_tlast     (fft_din_last),         // 最后一个输入数据
+    .i_axi4s_data_tdata     (fft_din),              // 32位输入 {虚部[31:16], 实部[15:0]}
+    
+    // 配置接口（参考官方例程）
+    .i_axi4s_cfg_tdata      (1'b1),                 // 1=FFT, 0=IFFT
+    .i_axi4s_cfg_tvalid     (fft_cfg_valid),        // ✓ 修复：使用脉冲信号
+    
+    // 输出数据流 (AXI4-Stream)
+    .o_axi4s_data_tvalid    (fft_dout_valid),       // 输出数据有效
+    .o_axi4s_data_tlast     (fft_dout_last),        // 最后一个输出数据
+    .o_axi4s_data_tdata     (fft_dout),             // 32位输出 {虚部[31:16], 实部[15:0]}
+    .o_axi4s_data_tuser     (fft_tuser),            // 输出信息（暂不使用）
+    
+    // 状态和告警
+    .o_alm                  (),                     // 告警信号（可选）
+    .o_stat                 ()                      // 状态信号（可选）
+);
+
+assign fft_dout_ready = 1'b1;  // 后级始终准备好接收
+
+//=============================================================================
+// 7. 频谱幅度计算模块
+//=============================================================================
+spectrum_magnitude_calc u_spectrum_calc (
+    .clk            (clk_fft),
+    .rst_n          (rst_n),
+    
+    // FFT输出
+    .fft_dout       (fft_dout),
+    .fft_valid      (fft_dout_valid),
+    .fft_last       (fft_dout_last),
+    .fft_ready      (fft_dout_ready),
+    
+    // 幅度输出
+    .magnitude      (spectrum_magnitude),
+    .magnitude_addr (spectrum_wr_addr),
+    .magnitude_valid(spectrum_valid)
+);
+
+//=============================================================================
+// 8. 频谱数据存储 (双口RAM)
+//=============================================================================
+// dpram_1024x16 u_spectrum_ram (
+//     // 写端口 (FFT时钟域)
+//     .clka           (clk_fft),              // 100MHz
+//     // .wea            (spectrum_valid),       // 频谱数据有效时写入
+//     .wea            (1'b0),                   // 频谱数据有效时写入
+//     .addra          (spectrum_wr_addr),        // 频谱地址 (0~1023)
+//     .dina           (spectrum_magnitude),   // 频谱幅度值
+    
+//     // 读端口 (显示时钟域)
+//     .clkb           (clk_hdmi_pixel),       // 74.25MHz
+//     .addrb          (spectrum_rd_addr),     // 显示模块提供的读地址
+//     .doutb          (spectrum_rd_data)      // 读出的频谱数据
+// );
+//=============================================================================
+// 8. 双通道频谱数据存储 (双口RAM - 乒乓缓存)
+//=============================================================================
+//--- 通道1乒乓缓存切换逻辑（在FFT时钟域）---
+always @(posedge clk_fft or negedge rst_n) begin
+    if (!rst_n)
+        ch1_buffer_sel <= 1'b0;
+    else if (ch1_spectrum_valid && ch1_spectrum_wr_addr == 10'd1023)
+        ch1_buffer_sel <= ~ch1_buffer_sel;
+end
+
+//--- 通道2乒乓缓存切换逻辑---
+always @(posedge clk_fft or negedge rst_n) begin
+    if (!rst_n)
+        ch2_buffer_sel <= 1'b0;
+    else if (ch2_spectrum_valid && ch2_spectrum_wr_addr == 10'd1023)
+        ch2_buffer_sel <= ~ch2_buffer_sel;
+end
+
+//--- 通道1缓存选择信号同步到HDMI时钟域---
+always @(posedge clk_hdmi_pixel or negedge rst_n) begin
+    if (!rst_n) begin
+        ch1_buffer_sel_sync1 <= 1'b0;
+        ch1_buffer_sel_sync2 <= 1'b0;
+    end else begin
+        ch1_buffer_sel_sync1 <= ch1_buffer_sel;
+        ch1_buffer_sel_sync2 <= ch1_buffer_sel_sync1;
+    end
+end
+
+//--- 通道2缓存选择信号同步到HDMI时钟域---
+always @(posedge clk_hdmi_pixel or negedge rst_n) begin
+    if (!rst_n) begin
+        ch2_buffer_sel_sync1 <= 1'b0;
+        ch2_buffer_sel_sync2 <= 1'b0;
+    end else begin
+        ch2_buffer_sel_sync1 <= ch2_buffer_sel;
+        ch2_buffer_sel_sync2 <= ch2_buffer_sel_sync1;
+    end
+end
+
+//--- 通道1写端口选择---
+assign ch1_ram0_we      = ch1_spectrum_valid && (ch1_buffer_sel == 1'b0);
+assign ch1_ram0_wr_addr = ch1_spectrum_wr_addr;
+assign ch1_ram0_wr_data = ch1_spectrum_magnitude;
+
+assign ch1_ram1_we      = ch1_spectrum_valid && (ch1_buffer_sel == 1'b1);
+assign ch1_ram1_wr_addr = ch1_spectrum_wr_addr;
+assign ch1_ram1_wr_data = ch1_spectrum_magnitude;
+
+//--- 通道2写端口选择---
+assign ch2_ram0_we      = ch2_spectrum_valid && (ch2_buffer_sel == 1'b0);
+assign ch2_ram0_wr_addr = ch2_spectrum_wr_addr;
+assign ch2_ram0_wr_data = ch2_spectrum_magnitude;
+
+assign ch2_ram1_we      = ch2_spectrum_valid && (ch2_buffer_sel == 1'b1);
+assign ch2_ram1_wr_addr = ch2_spectrum_wr_addr;
+assign ch2_ram1_wr_data = ch2_spectrum_magnitude;
+
+//--- 通道1读端口选择---
+assign ch1_ram0_rd_addr = spectrum_rd_addr;
+assign ch1_ram1_rd_addr = spectrum_rd_addr;
+assign ch1_spectrum_rd_data = ch1_buffer_sel_sync2 ? ch1_ram0_rd_data : ch1_ram1_rd_data;
+
+//--- 通道2读端口选择---
+assign ch2_ram0_rd_addr = spectrum_rd_addr;
+assign ch2_ram1_rd_addr = spectrum_rd_addr;
+assign ch2_spectrum_rd_data = ch2_buffer_sel_sync2 ? ch2_ram0_rd_data : ch2_ram1_rd_data;
+
+//--- 显示通道选择---
+assign spectrum_rd_data = display_channel ? ch2_spectrum_rd_data : ch1_spectrum_rd_data;
+
+//=============================================================================
+// 通道1 RAM0实例化
+//=============================================================================
+dpram_1024x16 u_ch1_spectrum_ram0 (
+    .clka   (clk_fft),
+    .wea    (ch1_ram0_we),
+    .addra  (ch1_ram0_wr_addr),
+    .dina   (ch1_ram0_wr_data),
+    .clkb   (clk_hdmi_pixel),
+    .addrb  (ch1_ram0_rd_addr),
+    .doutb  (ch1_ram0_rd_data)
+);
+
+//=============================================================================
+// 通道1 RAM1实例化
+//=============================================================================
+dpram_1024x16 u_ch1_spectrum_ram1 (
+    .clka   (clk_fft),
+    .wea    (ch1_ram1_we),
+    .addra  (ch1_ram1_wr_addr),
+    .dina   (ch1_ram1_wr_data),
+    .clkb   (clk_hdmi_pixel),
+    .addrb  (ch1_ram1_rd_addr),
+    .doutb  (ch1_ram1_rd_data)
+);
+
+//=============================================================================
+// 通道2 RAM0实例化
+//=============================================================================
+dpram_1024x16 u_ch2_spectrum_ram0 (
+    .clka   (clk_fft),
+    .wea    (ch2_ram0_we),
+    .addra  (ch2_ram0_wr_addr),
+    .dina   (ch2_ram0_wr_data),
+    .clkb   (clk_hdmi_pixel),
+    .addrb  (ch2_ram0_rd_addr),
+    .doutb  (ch2_ram0_rd_data)
+);
+
+//=============================================================================
+// 通道2 RAM1实例化
+//=============================================================================
+dpram_1024x16 u_ch2_spectrum_ram1 (
+    .clka   (clk_fft),
+    .wea    (ch2_ram1_we),
+    .addra  (ch2_ram1_wr_addr),
+    .dina   (ch2_ram1_wr_data),
+    .clkb   (clk_hdmi_pixel),
+    .addrb  (ch2_ram1_rd_addr),
+    .doutb  (ch2_ram1_rd_data)
+);
+
+//=============================================================================
+// 9. 信号参数测量模块（暂使用通道1数据）
+//=============================================================================
+signal_parameter_measure u_param_measure (
+    .clk            (clk_100m),
+    .rst_n          (rst_n),
+    
+    // 时域数据输入
+    .sample_clk     (clk_adc),
+    .sample_data    (adc_data_sync),
+    .sample_valid   (adc_data_valid),
+    
+    // 频域数据输入（使用通道1）
+    .spectrum_data  (ch1_spectrum_magnitude),
+    .spectrum_addr  (ch1_spectrum_wr_addr),
+    .spectrum_valid (ch1_spectrum_valid),
+    
+    // 参数输出
+    .freq_out       (signal_freq),
+    .amplitude_out  (signal_amplitude),
+    .duty_out       (signal_duty),
+    .thd_out        (signal_thd),
+    
+    // 控制
+    .measure_en     (work_mode == 2'd2)
+);
+
+//=============================================================================
+// 10. HDMI显示控制模块
+//=============================================================================
+hdmi_display_ctrl u_hdmi_ctrl (
+    .clk_pixel      (clk_hdmi_pixel),       // 74.25MHz
+    .rst_n          (rst_n),
+    
+    // 显示数据输入
+    .spectrum_data  (spectrum_rd_data),
+    .spectrum_addr  (spectrum_rd_addr),
+    .time_data      (adc_data_ext),
+    
+    // 参数显示
+    .freq           (signal_freq),
+    .amplitude      (signal_amplitude),
+    .duty           (signal_duty),
+    .thd            (signal_thd),
+    
+    // 控制
+    .work_mode      (work_mode),
+    
+    // HDMI时序输出
+    .rgb_out        (hdmi_rgb),
+    .de_out         (hdmi_de),
+    .hs_out         (hdmi_hs),
+    .vs_out         (hdmi_vs)
+);
+
+//=============================================================================
+// 11. HDMI物理层输出 (TMDS编码)
+//=============================================================================
+hdmi_tx u_hdmi_tx (
+    .clk_pixel      (clk_hdmi_pixel),       // 74.25MHz
+    .rst_n          (rst_n),
+    
+    // 视频输入
+    .rgb            (hdmi_rgb),
+    .de             (hdmi_de),
+    .hs             (hdmi_hs),
+    .vs             (hdmi_vs),
+    // HDMI物理输出
+    .tmds_clk_p     (hdmi_clk_p)
+);
+
+//=============================================================================
+// 12. 按键消抖和控制逻辑
+//=============================================================================
+key_debounce u_key_mode (
+    .clk            (clk_100m),
+    .rst_n          (rst_n),
+    .key_in         (user_button[0]),
+    .key_pulse      (btn_mode)
+);
+
+key_debounce u_key_start (
+    .clk            (clk_100m),
+    .rst_n          (rst_n),
+    .key_in         (user_button[1]),
+    .key_pulse      (btn_start)
+);
+
+key_debounce u_key_stop (
+    .clk            (clk_100m),
+    .rst_n          (rst_n),
+    .key_in         (user_button[2]),
+    .key_pulse      (btn_stop)
+);
+
+// 通道选择（用于ADC采集的通道选择，已不需要用于FFT）
+key_debounce u_key_ch_sel (
+    .clk            (clk_100m),
+    .rst_n          (rst_n),
+    .key_in         (user_button[3]),
+    .key_pulse      (btn_ch_sel)
+);
+
+// ✓ 新增：显示通道切换按键
+key_debounce u_key_display_ch (
+    .clk            (clk_100m),
+    .rst_n          (rst_n),
+    .key_in         (user_button[6]),       // 使用按键6切换显示通道
+    .key_pulse      (btn_display_ch_sel)
+);
+
+// 显示通道切换逻辑
+always @(posedge clk_100m or negedge rst_n) begin
+    if (!rst_n)
+        display_channel <= 1'b0;            // 默认显示通道1
+    else if (btn_display_ch_sel)
+        display_channel <= ~display_channel;
+end
+
+// 工作模式切换（默认频域模式便于测试）
+always @(posedge clk_100m or negedge rst_n) begin
+    if (!rst_n)
+        work_mode <= 2'd1;  // ✓ 默认频域模式
+    else if (btn_mode) begin
+        if (work_mode == 2'd2)
+            work_mode <= 2'd0;
+        else
+            work_mode <= work_mode + 1'b1;
+    end
+end
+
+// 运行控制
+always @(posedge clk_100m or negedge rst_n) begin
+    if (!rst_n)
+        run_flag <= 1'b0;
+    else if (btn_start)
+        run_flag <= 1'b1;
+    else if (btn_stop)
+        run_flag <= 1'b0;
+end
+
+// 测试模式切换
+key_debounce u_key_test (
+    .clk        (clk_100m),
+    .rst_n      (rst_n),
+    .key_in     (user_button[7]),
+    .key_pulse  (btn_test_mode)
+);
+
+// FFT启动信号
+assign fft_start = run_flag && (work_mode == 2'd1);
+
+//=============================================================================
+// 13. LED状态指示（双通道状态）
+//=============================================================================
+assign user_led = user_led_reg;
+
+always @(posedge clk_100m or negedge rst_n) begin
+    if (!rst_n)
+        user_led_reg <= 8'h00;
+    else begin
+        user_led_reg[0] <= run_flag;                // 运行状态
+        user_led_reg[1] <= ch1_fft_busy;            // 通道1 FFT忙
+        user_led_reg[2] <= ch2_fft_busy;            // 通道2 FFT忙
+        user_led_reg[3] <= current_fft_channel;     // 当前处理的通道
+        user_led_reg[4] <= display_channel;         // 当前显示的通道
+        user_led_reg[5] <= test_mode;               // 测试模式
+        user_led_reg[6] <= pll1_lock;               // PLL1锁定
+        user_led_reg[7] <= pll2_lock;               // PLL2锁定
+    end
+end
+
+//=============================================================================
+// 改进的测试信号发生器 - 多频混合信号
+//=============================================================================
+// 在clk_adc (1MHz)时钟域生成测试信号
+// 生成1kHz + 3kHz + 10kHz混合方波，用于FFT测试
+//=============================================================================
+always @(posedge clk_adc or negedge rst_n) begin
+    if (!rst_n) begin
+        test_counter <= 10'd0;
+        test_signal_gen <= 16'd0;
+    end else if (test_mode && run_flag) begin
+        test_counter <= test_counter + 1'b1;
+        
+        // 1kHz方波（周期1000，采样率1MHz）
+        // 3kHz方波（周期333）
+        // 10kHz方波（周期100）
+        test_signal_gen <= 
+            (test_counter < 10'd500 ? 16'h4000 : 16'h0000) +   // 1kHz基波
+            (test_counter % 10'd333 < 10'd166 ? 16'h2000 : 16'h0000) + // 3kHz
+            (test_counter[6:0] < 7'd50 ? 16'h1000 : 16'h0000); // 10kHz
+    end else begin
+        test_counter <= 10'd0;
+        test_signal_gen <= 16'd0;
+    end
+end
+
+// 测试模式切换逻辑
+always @(posedge clk_100m or negedge rst_n) begin
+    if (!rst_n)
+        test_mode <= 1'b0;
+    else if (btn_test_mode)
+        test_mode <= ~test_mode;
+end
+
+// ✓ 注释：adc_data_final已不需要，改为在FIFO写入处选择
+// wire [15:0] adc_data_final;
+// assign adc_data_final = test_mode ? test_signal_gen : adc_data_ext;
+
+//=============================================================================
+// 通道选择逻辑
+//=============================================================================
+always @(posedge clk_100m or negedge rst_n) begin
+    if (!rst_n)
+        channel_sel <= 1'b0;
+    else if (btn_ch_sel)
+        channel_sel <= ~channel_sel;
+end
+
+//=============================================================================
+// MS7210配置模块
+//=============================================================================
+// MS7210配置控制器的信号
+wire [7:0]  ms7210_device_id;
+wire        ms7210_iic_trig;
+wire        ms7210_w_r;
+wire [15:0] ms7210_addr;
+wire [7:0]  ms7210_data_in;
+wire        ms7210_busy;
+wire [7:0]  ms7210_data_out;
+wire        ms7210_byte_over;
+
+// IIC SDA三态信号
+wire        hd_iic_sda_out;
+wire        hd_iic_sda_oe;
+// 1. MS7210配置控制器（生成配置序列）
+ms7210_ctl u_ms7210_ctl (
+    .clk        (clk_10m),              // 10MHz配置时钟
+    .rstn       (rst_n),                // 复位
+    .init_over  (ms7210_init_over),     // 配置完成标志
+    
+    // 输出到IIC驱动
+    .device_id  (ms7210_device_id),     // 0xB2
+    .iic_trig   (ms7210_iic_trig),      // IIC触发
+    .w_r        (ms7210_w_r),           // 读写控制
+    .addr       (ms7210_addr),          // 寄存器地址
+    .data_in    (ms7210_data_in),       // 写数据
+    
+    // 从IIC驱动输入
+    .busy       (ms7210_busy),          // IIC忙标志
+    .data_out   (ms7210_data_out),      // 读数据
+    .byte_over  (ms7210_byte_over)      // 字节传输完成
+);
+
+// 2. IIC底层驱动（实际发送IIC信号）
+iic_dri #(
+    .CLK_FRE    (27'd10_000_000),       // 10MHz系统时钟
+    .IIC_FREQ   (20'd400_000),          // 400kHz IIC时钟
+    .T_WR       (10'd1),                // 传输延时1ms
+    .ADDR_BYTE  (2'd2),                 // 2字节地址（16位）
+    .LEN_WIDTH  (8'd3),                 // 传输字节宽度
+    .DATA_BYTE  (2'd1)                  // 1字节数据
+) u_iic_dri_ms7210 (
+    .clk        (clk_10m),              // 10MHz时钟
+    .rstn       (rst_n),                // 复位
+    
+    // 从配置控制器输入
+    .device_id  (ms7210_device_id),     // 设备地址
+    .pluse      (ms7210_iic_trig),      // 触发信号
+    .w_r        (ms7210_w_r),           // 读写方向
+    .byte_len   (4'd1),                 // 每次传输1字节
+    .addr       (ms7210_addr),          // 寄存器地址
+    .data_in    (ms7210_data_in),       // 写数据
+    
+    // 输出到配置控制器
+    .busy       (ms7210_busy),          // 忙标志
+    .byte_over  (ms7210_byte_over),     // 字节完成
+    .data_out   (ms7210_data_out),      // 读数据
+    
+    // 物理IIC接口
+    .scl        (hd_iic_scl),           // IIC时钟输出
+    .sda_in     (hd_iic_sda),           // IIC数据输入
+    .sda_out    (hd_iic_sda_out),       // IIC数据输出
+    .sda_out_en (hd_iic_sda_oe)         // IIC数据输出使能
+);
+
+assign hd_iic_sda = hd_iic_sda_oe ? hd_iic_sda_out : 1'bz;
+//=============================================================================
+// MS7210数据输出
+//=============================================================================
+assign hd_tx_pclk = clk_hdmi_pixel;
+assign hd_tx_vs = hdmi_vs;
+assign hd_tx_hs = hdmi_hs;
+assign hd_tx_de = hdmi_de;
+assign hd_tx_data = hdmi_rgb;
+
+//=============================================================================
+// 实例化UART发送模块
+//=============================================================================
+reg  [4:0]  captured_blk_exp;
+reg  [15:0] captured_fft_dout_re; // 捕获实部
+reg         capture_event;
+
+uart_tx #(
+    .CLOCK_FREQ(100_000_000),
+    .BAUD_RATE(115200)
+) u_uart_tx (
+    .clk(clk_100m),
+    .rst_n(rst_n),
+    .data_in(uart_data_to_send),
+    .send_trigger(uart_send_trigger),
+    .uart_tx_pin(uart_tx),
+    .busy(uart_busy)
+);
+
+// 在FFT时钟域捕获数据，避免跨时钟域问题
+always @(posedge clk_fft or negedge rst_n) begin
+    if (!rst_n) begin
+        capture_event <= 1'b0;
+    end else begin
+        capture_event <= 1'b0; // 默认为0
+        if (fft_dout_valid && fft_dout_last) begin
+            captured_blk_exp     <= fft_tuser[4:0];     // 捕获块指数
+            captured_fft_dout_re <= fft_dout[15:0];    // 捕获实部
+            capture_event        <= 1'b1;               // 产生捕获事件脉冲
+        end
+    end
+end
+// --- UART发送状态机 (在100MHz系统时钟域) ---
+
+always @(posedge clk_100m or negedge rst_n) begin
+    if (!rst_n) begin
+        send_state        <= 3'd0;
+        uart_send_trigger <= 1'b0;
+    end else begin
+        uart_send_trigger <= 1'b0; // 脉冲信号，用完即清零
+
+        case(send_state)
+            3'd0: begin // 等待捕获事件
+                if (capture_event && !uart_busy) begin
+                    send_state <= 3'd1;
+                end
+            end
+
+            3'd1: begin // 发送帧头 (0xAA)
+                if (!uart_busy) begin
+                    uart_data_to_send <= 8'hAA;
+                    uart_send_trigger <= 1'b1;
+                    send_state        <= 3'd2;
+                end
+            end
+
+            3'd2: begin // 发送块指数 Blk_Exp
+                if (!uart_busy) begin
+                    uart_data_to_send <= {3'b0, captured_blk_exp};
+                    uart_send_trigger <= 1'b1;
+                    send_state        <= 3'd3;
+                end
+            end
+            
+            3'd3: begin // 发送fft_dout实部高8位
+                if (!uart_busy) begin
+                    uart_data_to_send <= captured_fft_dout_re[15:8];
+                    uart_send_trigger <= 1'b1;
+                    send_state        <= 3'd4;
+                end
+            end
+
+            3'd4: begin // 发送fft_dout实部低8位
+                if (!uart_busy) begin
+                    uart_data_to_send <= captured_fft_dout_re[7:0];
+                    uart_send_trigger <= 1'b1;
+                    send_state        <= 3'd5;
+                end
+            end
+
+            3'd5: begin // 发送帧尾 (0x55)
+                if (!uart_busy) begin
+                    uart_data_to_send <= 8'h55;
+                    uart_send_trigger <= 1'b1;
+                    send_state        <= 3'd0; // 回到等待状态
+                end
+            end
+
+            default: send_state <= 3'd0;
+        endcase
+    end
+end
+
+endmodule
