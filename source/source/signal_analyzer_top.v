@@ -1,16 +1,22 @@
 //=============================================================================
 // 文件名: signal_analyzer_top.v
 // 描述: FPGA智能信号分析与测试系统 - 顶层模块
-// 功能: ADC采集 → FFT频谱分析 → HDMI显示
+// 功能: 
+//   - 双通道ADC同步采集（MS9280，10位，1MSPS）
+//   - 1024点FFT频谱分析（双通道时分复用）
+//   - 参数测量（频率、幅度、占空比、THD、相位差）
+//   - HDMI实时显示（720p@60Hz，频谱+参数）
+//   - 自动测试模式（阈值判断+LED指示）
 // 作者: DrSkyFire
-// 日期: 2025
+// 日期: 2025-10-21
+// 版本: v2.0 - 时序优化版
 //=============================================================================
 
  module signal_analyzer_top (
     // 系统时钟和复位
     input  wire         sys_clk_50m,        // 板载50MHz时钟
     input  wire         sys_rst_n,          // 系统复位，低有效
-    input  wire         sys_clk_27m,         // 板载27MHz时钟（备用）
+    input  wire         sys_clk_27m,        // 板载27MHz时钟（HDMI PLL时钟源）
     
     // ADC接口 (MS9280)
     // 通道1 (AD-IN1)
@@ -178,6 +184,21 @@ wire [15:0] signal_duty;                    // 占空比
 wire [15:0] signal_thd;                     // 总谐波失真
 
 //=============================================================================
+// 相位差测量信号
+//=============================================================================
+wire [15:0] phase_difference;               // 相位差 (0-3599 = 0-359.9度)
+wire        phase_diff_valid;               // 相位差有效
+
+// FFT基波频点数据提取（用于相位差计算）
+reg signed [15:0] ch1_fundamental_re;       // 通道1基波实部
+reg signed [15:0] ch1_fundamental_im;       // 通道1基波虚部
+reg         ch1_fundamental_valid;          // 通道1基波有效
+
+reg signed [15:0] ch2_fundamental_re;       // 通道2基波实部
+reg signed [15:0] ch2_fundamental_im;       // 通道2基波虚部
+reg         ch2_fundamental_valid;          // 通道2基波有效
+
+//=============================================================================
 // 双口RAM相关信号 - 双通道
 //=============================================================================
 // 通道1乒乓缓存控制信号
@@ -231,6 +252,13 @@ reg [15:0] test_signal_gen;
 reg [9:0]  test_counter;
 reg test_mode;
 wire btn_test_mode;
+
+//=============================================================================
+// 自动测试模块信号
+//=============================================================================
+wire [7:0] auto_test_result;        // 自动测试结果LED
+reg        auto_test_enable;        // 自动测试使能
+wire       btn_auto_test;           // 自动测试按键
 
 //=============================================================================
 // UART发送模块信号
@@ -509,6 +537,53 @@ fft_1024 u_fft_1024 (
 assign fft_dout_ready = 1'b1;  // 后级始终准备好接收
 
 //=============================================================================
+// 6.5 基波频点数据提取（用于相位差计算）
+// 假设基波在第10个频点（可根据实际信号频率调整）
+//=============================================================================
+reg [9:0] fft_out_cnt;  // FFT输出计数器
+
+always @(posedge clk_fft or negedge rst_n) begin
+    if (!rst_n) begin
+        fft_out_cnt <= 10'd0;
+    end else if (fft_dout_valid) begin
+        if (fft_dout_last)
+            fft_out_cnt <= 10'd0;
+        else
+            fft_out_cnt <= fft_out_cnt + 1'b1;
+    end
+end
+
+// 提取通道1基波数据（第10个频点）
+always @(posedge clk_fft or negedge rst_n) begin
+    if (!rst_n) begin
+        ch1_fundamental_re <= 16'd0;
+        ch1_fundamental_im <= 16'd0;
+        ch1_fundamental_valid <= 1'b0;
+    end else if (fft_dout_valid && fft_out_cnt == 10'd10 && current_fft_channel == 1'b0) begin
+        ch1_fundamental_re <= fft_dout[15:0];   // 实部
+        ch1_fundamental_im <= fft_dout[31:16];  // 虚部
+        ch1_fundamental_valid <= 1'b1;
+    end else begin
+        ch1_fundamental_valid <= 1'b0;
+    end
+end
+
+// 提取通道2基波数据
+always @(posedge clk_fft or negedge rst_n) begin
+    if (!rst_n) begin
+        ch2_fundamental_re <= 16'd0;
+        ch2_fundamental_im <= 16'd0;
+        ch2_fundamental_valid <= 1'b0;
+    end else if (fft_dout_valid && fft_out_cnt == 10'd10 && current_fft_channel == 1'b1) begin
+        ch2_fundamental_re <= fft_dout[15:0];
+        ch2_fundamental_im <= fft_dout[31:16];
+        ch2_fundamental_valid <= 1'b1;
+    end else begin
+        ch2_fundamental_valid <= 1'b0;
+    end
+end
+
+//=============================================================================
 // 7. 频谱幅度计算模块
 //=============================================================================
 spectrum_magnitude_calc u_spectrum_calc (
@@ -695,31 +770,80 @@ signal_parameter_measure u_param_measure (
 );
 
 //=============================================================================
-// 10. HDMI显示控制模块
+// 9.5 相位差计算模块
 //=============================================================================
-hdmi_display_ctrl u_hdmi_ctrl (
-    .clk_pixel      (clk_hdmi_pixel),       // 74.25MHz
+phase_diff_calc u_phase_diff (
+    .clk            (clk_fft),
     .rst_n          (rst_n),
     
-    // 显示数据输入
-    .spectrum_data  (spectrum_rd_data),
-    .spectrum_addr  (spectrum_rd_addr),
-    .time_data      (adc_data_ext),
+    // 通道1基波数据
+    .ch1_re         (ch1_fundamental_re),
+    .ch1_im         (ch1_fundamental_im),
+    .ch1_valid      (ch1_fundamental_valid),
     
-    // 参数显示
+    // 通道2基波数据
+    .ch2_re         (ch2_fundamental_re),
+    .ch2_im         (ch2_fundamental_im),
+    .ch2_valid      (ch2_fundamental_valid),
+    
+    // 相位差输出
+    .phase_diff     (phase_difference),
+    .phase_valid    (phase_diff_valid),
+    
+    // 控制
+    .enable         (work_mode == 2'd1)  // 频域模式下使能
+);
+
+//=============================================================================
+// 9.6 自动测试模块
+//=============================================================================
+auto_test u_auto_test (
+    .clk            (clk_100m),
+    .rst_n          (rst_n),
+    
+    // 测试控制
+    .test_enable    (auto_test_enable),
+    
+    // 参数输入
     .freq           (signal_freq),
     .amplitude      (signal_amplitude),
     .duty           (signal_duty),
     .thd            (signal_thd),
+    .phase_diff     (phase_difference),
+    .param_valid    (param_valid),
+    
+    // 测试结果输出
+    .test_result    (auto_test_result)
+);
+
+//=============================================================================
+// 10. HDMI显示控制模块
+//=============================================================================
+hdmi_display_ctrl u_hdmi_ctrl (
+    .clk_pixel          (clk_hdmi_pixel),       // 74.25MHz
+    .rst_n              (rst_n),
+    
+    // 显示数据输入
+    .spectrum_data      (spectrum_rd_data),
+    .spectrum_addr      (spectrum_rd_addr),
+    .time_data          (adc_data_ext),
+    
+    // 参数显示
+    .freq               (signal_freq),
+    .amplitude          (signal_amplitude),
+    .duty               (signal_duty),
+    .thd                (signal_thd),
+    .phase_diff         (phase_difference),     // 相位差
+    .current_channel    (display_channel),      // 当前显示通道
     
     // 控制
-    .work_mode      (work_mode),
+    .work_mode          (work_mode),
     
     // HDMI时序输出
-    .rgb_out        (hdmi_rgb),
-    .de_out         (hdmi_de),
-    .hs_out         (hdmi_hs),
-    .vs_out         (hdmi_vs)
+    .rgb_out            (hdmi_rgb),
+    .de_out             (hdmi_de),
+    .hs_out             (hdmi_hs),
+    .vs_out             (hdmi_vs)
 );
 
 //=============================================================================
@@ -816,13 +940,30 @@ key_debounce u_key_test (
     .key_pulse  (btn_test_mode)
 );
 
+// 自动测试按键
+key_debounce u_key_auto_test (
+    .clk        (clk_100m),
+    .rst_n      (rst_n),
+    .key_in     (user_button[5]),
+    .key_pulse  (btn_auto_test)
+);
+
 // FFT启动信号
 assign fft_start = run_flag && (work_mode == 2'd1);
 
 //=============================================================================
-// 13. LED状态指示（双通道状态）
+// 13. LED状态指示（双通道状态 / 自动测试结果切换）
 //=============================================================================
-assign user_led = user_led_reg;
+// 自动测试使能控制
+always @(posedge clk_100m or negedge rst_n) begin
+    if (!rst_n)
+        auto_test_enable <= 1'b0;
+    else if (btn_auto_test)
+        auto_test_enable <= ~auto_test_enable;
+end
+
+// LED输出选择：自动测试模式显示测试结果，否则显示系统状态
+assign user_led = auto_test_enable ? auto_test_result : user_led_reg;
 
 always @(posedge clk_100m or negedge rst_n) begin
     if (!rst_n)
@@ -872,10 +1013,6 @@ always @(posedge clk_100m or negedge rst_n) begin
     else if (btn_test_mode)
         test_mode <= ~test_mode;
 end
-
-// ✓ 注释：adc_data_final已不需要，改为在FIFO写入处选择
-// wire [15:0] adc_data_final;
-// assign adc_data_final = test_mode ? test_signal_gen : adc_data_ext;
 
 //=============================================================================
 // 通道选择逻辑

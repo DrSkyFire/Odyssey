@@ -57,7 +57,7 @@ set_input_delay -clock clk_adc -max 5.000 [get_ports {adc_ch2_data[*]}]
 set_input_delay -clock clk_adc -min 0.000 [get_ports {adc_ch2_data[*]}]
 
 # ????????
-set_input_delay {10.000} [get_ports {user_button[*]}] -max -clock {clk_100m}
+set_input_delay -clock clk_100m -max 10.000 [get_ports {user_button[*]}]
 set_input_delay -clock clk_100m -min 0.000 [get_ports {user_button[*]}]
 
 # ????????
@@ -441,9 +441,9 @@ define_attribute {p:user_led[7]} {PAP_IO_DRIVE} {8}
 define_attribute {p:user_led[7]} {PAP_IO_SLEW} {FAST}
 
 #=============================================================================
-# 9. ADC接口管脚约束
+# 9. ADC鎺ュ彛绠¤剼绾︽潫
 #=============================================================================
-# ADC通道1数据端口 [9:0]
+# ADC閫氶亾1鏁版嵁绔彛 [9:0]
 define_attribute {p:adc_ch1_data[9]} {PAP_IO_DIRECTION} {INPUT}
 define_attribute {p:adc_ch1_data[9]} {PAP_IO_LOC} {AB5}
 define_attribute {p:adc_ch1_data[9]} {PAP_IO_VCCIO} {3.3}
@@ -494,7 +494,7 @@ define_attribute {p:adc_ch1_data[0]} {PAP_IO_LOC} {V9}
 define_attribute {p:adc_ch1_data[0]} {PAP_IO_VCCIO} {3.3}
 define_attribute {p:adc_ch1_data[0]} {PAP_IO_STANDARD} {LVCMOS33}
 
-# ADC通道2数据端口 [9:0]
+# ADC閫氶亾2鏁版嵁绔彛 [9:0]
 define_attribute {p:adc_ch2_data[9]} {PAP_IO_DIRECTION} {INPUT}
 define_attribute {p:adc_ch2_data[9]} {PAP_IO_LOC} {Y12}
 define_attribute {p:adc_ch2_data[9]} {PAP_IO_VCCIO} {3.3}
@@ -545,7 +545,7 @@ define_attribute {p:adc_ch2_data[0]} {PAP_IO_LOC} {AB11}
 define_attribute {p:adc_ch2_data[0]} {PAP_IO_VCCIO} {3.3}
 define_attribute {p:adc_ch2_data[0]} {PAP_IO_STANDARD} {LVCMOS33}
 
-# ADC控制信号
+# ADC鎺у埗淇″彿
 define_attribute {p:adc_ch1_clk} {PAP_IO_DIRECTION} {OUTPUT}
 define_attribute {p:adc_ch1_clk} {PAP_IO_LOC} {Y5}
 define_attribute {p:adc_ch1_clk} {PAP_IO_VCCIO} {3.3}
@@ -575,7 +575,7 @@ define_attribute {p:adc_ch2_oe} {PAP_IO_DRIVE} {8}
 define_attribute {p:adc_ch2_oe} {PAP_IO_SLEW} {FAST}
 
 #=============================================================================
-# 10. UART接口管脚约束
+# 10. UART鎺ュ彛绠¤剼绾︽潫
 #=============================================================================
 define_attribute {p:uart_tx} {PAP_IO_DIRECTION} {OUTPUT}
 define_attribute {p:uart_tx} {PAP_IO_LOC} {R9}
