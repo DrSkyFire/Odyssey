@@ -1439,7 +1439,56 @@ always @(posedge clk_100m or negedge rst_n) begin
                 end
             end
             
-            8'd34: begin // 发送换行
+            8'd34: begin // 发送 ' RGB='
+                if (!uart_busy) begin
+                    uart_data_to_send <= " ";
+                    uart_send_trigger <= 1'b1;
+                    send_state        <= 8'd35;
+                end
+            end
+            
+            8'd35: begin // 发送 'R'
+                if (!uart_busy) begin
+                    uart_data_to_send <= "R";
+                    uart_send_trigger <= 1'b1;
+                    send_state        <= 8'd36;
+                end
+            end
+            
+            8'd36: begin // 发送 'G'
+                if (!uart_busy) begin
+                    uart_data_to_send <= "G";
+                    uart_send_trigger <= 1'b1;
+                    send_state        <= 8'd37;
+                end
+            end
+            
+            8'd37: begin // 发送 'B'
+                if (!uart_busy) begin
+                    uart_data_to_send <= "B";
+                    uart_send_trigger <= 1'b1;
+                    send_state        <= 8'd38;
+                end
+            end
+            
+            8'd38: begin // 发送 '='
+                if (!uart_busy) begin
+                    uart_data_to_send <= "=";
+                    uart_send_trigger <= 1'b1;
+                    send_state        <= 8'd39;
+                end
+            end
+            
+            8'd39: begin // 发送 RGB高4位 (检查是否有非0值)
+                if (!uart_busy) begin
+                    // 发送R通道是否非0
+                    uart_data_to_send <= (hdmi_rgb[23:16] != 8'h00) ? "1" : "0";
+                    uart_send_trigger <= 1'b1;
+                    send_state        <= 8'd40;
+                end
+            end
+            
+            8'd40: begin // 发送换行
                 if (!uart_busy) begin
                     uart_data_to_send <= 8'd10;  // '\n'
                     uart_send_trigger <= 1'b1;

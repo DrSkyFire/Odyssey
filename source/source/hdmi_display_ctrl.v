@@ -613,8 +613,8 @@ always @(posedge clk_pixel or negedge rst_n) begin
     if (!rst_n) begin
         rgb_out_reg <= 24'h000000;
         de_out_reg  <= 1'b0;
-        hs_out_reg  <= 1'b1;
-        vs_out_reg  <= 1'b1;
+        hs_out_reg  <= 1'b0;  // 修改：复位时也为0，与内部信号一致
+        vs_out_reg  <= 1'b0;  // 修改：复位时也为0，与内部信号一致
     end else begin
         rgb_out_reg <= rgb_data;
         de_out_reg  <= video_active_d3;  // 使用延迟3拍后的
