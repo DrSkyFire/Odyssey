@@ -1279,7 +1279,103 @@ always @(posedge clk_100m or negedge rst_n) begin
                 end
             end
             
-            8'd14: begin // 发送换行
+            8'd14: begin // 发送 ' |V='
+                if (!uart_busy) begin
+                    uart_data_to_send <= " ";
+                    uart_send_trigger <= 1'b1;
+                    send_state        <= 8'd15;
+                end
+            end
+            
+            8'd15: begin // 发送 'V'
+                if (!uart_busy) begin
+                    uart_data_to_send <= "V";
+                    uart_send_trigger <= 1'b1;
+                    send_state        <= 8'd16;
+                end
+            end
+            
+            8'd16: begin // 发送 '='
+                if (!uart_busy) begin
+                    uart_data_to_send <= "=";
+                    uart_send_trigger <= 1'b1;
+                    send_state        <= 8'd17;
+                end
+            end
+            
+            8'd17: begin // 发送 VS状态
+                if (!uart_busy) begin
+                    uart_data_to_send <= hdmi_vs ? "1" : "0";
+                    uart_send_trigger <= 1'b1;
+                    send_state        <= 8'd18;
+                end
+            end
+            
+            8'd18: begin // 发送 ' H='
+                if (!uart_busy) begin
+                    uart_data_to_send <= " ";
+                    uart_send_trigger <= 1'b1;
+                    send_state        <= 8'd19;
+                end
+            end
+            
+            8'd19: begin // 发送 'H'
+                if (!uart_busy) begin
+                    uart_data_to_send <= "H";
+                    uart_send_trigger <= 1'b1;
+                    send_state        <= 8'd20;
+                end
+            end
+            
+            8'd20: begin // 发送 '='
+                if (!uart_busy) begin
+                    uart_data_to_send <= "=";
+                    uart_send_trigger <= 1'b1;
+                    send_state        <= 8'd21;
+                end
+            end
+            
+            8'd21: begin // 发送 HS状态
+                if (!uart_busy) begin
+                    uart_data_to_send <= hdmi_hs ? "1" : "0";
+                    uart_send_trigger <= 1'b1;
+                    send_state        <= 8'd22;
+                end
+            end
+            
+            8'd22: begin // 发送 ' D='
+                if (!uart_busy) begin
+                    uart_data_to_send <= " ";
+                    uart_send_trigger <= 1'b1;
+                    send_state        <= 8'd23;
+                end
+            end
+            
+            8'd23: begin // 发送 'D'
+                if (!uart_busy) begin
+                    uart_data_to_send <= "D";
+                    uart_send_trigger <= 1'b1;
+                    send_state        <= 8'd24;
+                end
+            end
+            
+            8'd24: begin // 发送 '='
+                if (!uart_busy) begin
+                    uart_data_to_send <= "=";
+                    uart_send_trigger <= 1'b1;
+                    send_state        <= 8'd25;
+                end
+            end
+            
+            8'd25: begin // 发送 DE状态
+                if (!uart_busy) begin
+                    uart_data_to_send <= hdmi_de ? "1" : "0";
+                    uart_send_trigger <= 1'b1;
+                    send_state        <= 8'd26;
+                end
+            end
+            
+            8'd26: begin // 发送换行
                 if (!uart_busy) begin
                     uart_data_to_send <= 8'd10;  // '\n'
                     uart_send_trigger <= 1'b1;
