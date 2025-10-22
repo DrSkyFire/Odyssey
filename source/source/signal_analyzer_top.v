@@ -274,14 +274,23 @@ reg  [7:0]  uart_data_to_send;
 reg         uart_send_trigger;
 reg  [7:0]  send_state;
 
-// 调试数据捕获
-reg  [15:0] debug_adc_ch1_sample;      // ADC通道1采样值
-reg  [15:0] debug_adc_ch2_sample;      // ADC通道2采样值
-reg  [15:0] debug_fifo_wr_count;       // FIFO写入计数
-reg  [15:0] debug_fft_out_count;       // FFT输出计数
-reg  [15:0] debug_spectrum_addr_last;  // 最后的频谱地址
-reg         debug_data_valid;          // ADC数据有效标志
-reg         debug_fft_done;            // FFT完成标志 
+// 调试数据捕获（原始信号，不同时钟域）
+reg  [15:0] debug_adc_ch1_sample;      // ADC通道1采样值 (clk_adc域)
+reg  [15:0] debug_adc_ch2_sample;      // ADC通道2采样值 (clk_adc域)
+reg  [15:0] debug_fifo_wr_count;       // FIFO写入计数 (clk_adc域)
+reg  [15:0] debug_fft_out_count;       // FFT输出计数 (clk_fft域)
+reg  [15:0] debug_spectrum_addr_last;  // 最后的频谱地址 (clk_fft域)
+reg         debug_data_valid;          // ADC数据有效标志 (clk_adc域)
+reg         debug_fft_done;            // FFT完成标志 (clk_fft域)
+
+// 同步到100MHz域的调试信号（用于UART发送）
+reg  [15:0] debug_adc_ch1_sample_sync;
+reg  [15:0] debug_adc_ch2_sample_sync;
+reg  [15:0] debug_fifo_wr_count_sync;
+reg  [15:0] debug_fft_out_count_sync;
+reg  [15:0] debug_spectrum_addr_last_sync;
+reg         debug_data_valid_sync;
+reg         debug_fft_done_sync;
 
 //=============================================================================
 // 1. PLL1 - 系统时钟管理（50MHz输入）
@@ -1076,6 +1085,28 @@ always @(posedge clk_fft or negedge rst_n) begin
     end
 end
 
+// ============= 跨时钟域同步：同步调试信号到100MHz域 =============
+always @(posedge clk_100m or negedge rst_n) begin
+    if (!rst_n) begin
+        debug_adc_ch1_sample_sync <= 16'd0;
+        debug_adc_ch2_sample_sync <= 16'd0;
+        debug_fifo_wr_count_sync <= 16'd0;
+        debug_fft_out_count_sync <= 16'd0;
+        debug_spectrum_addr_last_sync <= 16'd0;
+        debug_data_valid_sync <= 1'b0;
+        debug_fft_done_sync <= 1'b0;
+    end else begin
+        // 简单的寄存器同步（对于多bit信号可能有亚稳态，但用于调试可接受）
+        debug_adc_ch1_sample_sync <= debug_adc_ch1_sample;
+        debug_adc_ch2_sample_sync <= debug_adc_ch2_sample;
+        debug_fifo_wr_count_sync <= debug_fifo_wr_count;
+        debug_fft_out_count_sync <= debug_fft_out_count;
+        debug_spectrum_addr_last_sync <= debug_spectrum_addr_last;
+        debug_data_valid_sync <= debug_data_valid;
+        debug_fft_done_sync <= debug_fft_done;
+    end
+end
+
 //=============================================================================
 // 通道选择逻辑
 //=============================================================================
@@ -1639,7 +1670,7 @@ always @(posedge clk_100m or negedge rst_n) begin
             
             8'd45: begin // 发送ADC有效标志
                 if (!uart_busy) begin
-                    uart_data_to_send <= debug_data_valid ? "1" : "0";
+                    uart_data_to_send <= debug_data_valid_sync ? "1" : "0";
                     uart_send_trigger <= 1'b1;
                     send_state        <= 8'd46;
                 end
@@ -1655,7 +1686,7 @@ always @(posedge clk_100m or negedge rst_n) begin
             
             8'd47: begin // 发送FIFO写计数（千位）
                 if (!uart_busy) begin
-                    uart_data_to_send <= "0" + ((debug_fifo_wr_count / 1000) % 10);
+                    uart_data_to_send <= "0" + ((debug_fifo_wr_count_sync / 1000) % 10);
                     uart_send_trigger <= 1'b1;
                     send_state        <= 8'd48;
                 end
@@ -1663,7 +1694,7 @@ always @(posedge clk_100m or negedge rst_n) begin
             
             8'd48: begin // 百位
                 if (!uart_busy) begin
-                    uart_data_to_send <= "0" + ((debug_fifo_wr_count / 100) % 10);
+                    uart_data_to_send <= "0" + ((debug_fifo_wr_count_sync / 100) % 10);
                     uart_send_trigger <= 1'b1;
                     send_state        <= 8'd49;
                 end
@@ -1671,7 +1702,7 @@ always @(posedge clk_100m or negedge rst_n) begin
             
             8'd49: begin // 十位
                 if (!uart_busy) begin
-                    uart_data_to_send <= "0" + ((debug_fifo_wr_count / 10) % 10);
+                    uart_data_to_send <= "0" + ((debug_fifo_wr_count_sync / 10) % 10);
                     uart_send_trigger <= 1'b1;
                     send_state        <= 8'd50;
                 end
@@ -1679,7 +1710,7 @@ always @(posedge clk_100m or negedge rst_n) begin
             
             8'd50: begin // 个位
                 if (!uart_busy) begin
-                    uart_data_to_send <= "0" + (debug_fifo_wr_count % 10);
+                    uart_data_to_send <= "0" + (debug_fifo_wr_count_sync % 10);
                     uart_send_trigger <= 1'b1;
                     send_state        <= 8'd51;
                 end
@@ -1727,7 +1758,7 @@ always @(posedge clk_100m or negedge rst_n) begin
             
             8'd56: begin // FFT完成标志
                 if (!uart_busy) begin
-                    uart_data_to_send <= debug_fft_done ? "1" : "0";
+                    uart_data_to_send <= debug_fft_done_sync ? "1" : "0";
                     uart_send_trigger <= 1'b1;
                     send_state        <= 8'd57;
                 end
@@ -1743,7 +1774,7 @@ always @(posedge clk_100m or negedge rst_n) begin
             
             8'd58: begin // FFT输出计数（千位）
                 if (!uart_busy) begin
-                    uart_data_to_send <= "0" + ((debug_fft_out_count / 1000) % 10);
+                    uart_data_to_send <= "0" + ((debug_fft_out_count_sync / 1000) % 10);
                     uart_send_trigger <= 1'b1;
                     send_state        <= 8'd59;
                 end
@@ -1751,7 +1782,7 @@ always @(posedge clk_100m or negedge rst_n) begin
             
             8'd59: begin // 百位
                 if (!uart_busy) begin
-                    uart_data_to_send <= "0" + ((debug_fft_out_count / 100) % 10);
+                    uart_data_to_send <= "0" + ((debug_fft_out_count_sync / 100) % 10);
                     uart_send_trigger <= 1'b1;
                     send_state        <= 8'd60;
                 end
@@ -1759,7 +1790,7 @@ always @(posedge clk_100m or negedge rst_n) begin
             
             8'd60: begin // 十位
                 if (!uart_busy) begin
-                    uart_data_to_send <= "0" + ((debug_fft_out_count / 10) % 10);
+                    uart_data_to_send <= "0" + ((debug_fft_out_count_sync / 10) % 10);
                     uart_send_trigger <= 1'b1;
                     send_state        <= 8'd61;
                 end
@@ -1767,7 +1798,7 @@ always @(posedge clk_100m or negedge rst_n) begin
             
             8'd61: begin // 个位
                 if (!uart_busy) begin
-                    uart_data_to_send <= "0" + (debug_fft_out_count % 10);
+                    uart_data_to_send <= "0" + (debug_fft_out_count_sync % 10);
                     uart_send_trigger <= 1'b1;
                     send_state        <= 8'd62;
                 end
@@ -1799,7 +1830,7 @@ always @(posedge clk_100m or negedge rst_n) begin
             
             8'd65: begin // 频谱地址（千位）
                 if (!uart_busy) begin
-                    uart_data_to_send <= "0" + ((debug_spectrum_addr_last / 1000) % 10);
+                    uart_data_to_send <= "0" + ((debug_spectrum_addr_last_sync / 1000) % 10);
                     uart_send_trigger <= 1'b1;
                     send_state        <= 8'd66;
                 end
@@ -1807,7 +1838,7 @@ always @(posedge clk_100m or negedge rst_n) begin
             
             8'd66: begin // 百位
                 if (!uart_busy) begin
-                    uart_data_to_send <= "0" + ((debug_spectrum_addr_last / 100) % 10);
+                    uart_data_to_send <= "0" + ((debug_spectrum_addr_last_sync / 100) % 10);
                     uart_send_trigger <= 1'b1;
                     send_state        <= 8'd67;
                 end
@@ -1815,7 +1846,7 @@ always @(posedge clk_100m or negedge rst_n) begin
             
             8'd67: begin // 十位
                 if (!uart_busy) begin
-                    uart_data_to_send <= "0" + ((debug_spectrum_addr_last / 10) % 10);
+                    uart_data_to_send <= "0" + ((debug_spectrum_addr_last_sync / 10) % 10);
                     uart_send_trigger <= 1'b1;
                     send_state        <= 8'd68;
                 end
@@ -1823,7 +1854,7 @@ always @(posedge clk_100m or negedge rst_n) begin
             
             8'd68: begin // 个位
                 if (!uart_busy) begin
-                    uart_data_to_send <= "0" + (debug_spectrum_addr_last % 10);
+                    uart_data_to_send <= "0" + (debug_spectrum_addr_last_sync % 10);
                     uart_send_trigger <= 1'b1;
                     send_state        <= 8'd69;
                 end
