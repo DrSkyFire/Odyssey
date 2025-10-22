@@ -1111,6 +1111,25 @@ reg  [4:0]  captured_blk_exp;
 reg  [15:0] captured_fft_dout_re; // 捕获实部
 reg         capture_event;
 
+// HDMI调试定时器 - 每秒触发一次
+reg [26:0] hdmi_debug_timer;
+reg        hdmi_debug_trigger;
+
+always @(posedge clk_100m or negedge rst_n) begin
+    if (!rst_n) begin
+        hdmi_debug_timer <= 27'd0;
+        hdmi_debug_trigger <= 1'b0;
+    end else begin
+        if (hdmi_debug_timer == 27'd50_000_000 - 1) begin  // 0.5秒
+            hdmi_debug_timer <= 27'd0;
+            hdmi_debug_trigger <= 1'b1;
+        end else begin
+            hdmi_debug_timer <= hdmi_debug_timer + 1'b1;
+            hdmi_debug_trigger <= 1'b0;
+        end
+    end
+end
+
 uart_tx #(
     .CLOCK_FREQ(100_000_000),
     .BAUD_RATE(115200)
@@ -1136,63 +1155,139 @@ always @(posedge clk_fft or negedge rst_n) begin
         end
     end
 end
-// --- UART发送状态机 (在100MHz系统时钟域) ---
+// --- UART发送状态机 - HDMI调试输出 (在100MHz系统时钟域) ---
+// 输出格式: "HDMI: P1 P2 CLK INIT\n" 每0.5秒
+// P1/P2 = PLL锁定状态 (0/1)
+// CLK = HDMI时钟活动 (0/1)  
+// INIT = MS7210初始化完成 (0/1)
 
 always @(posedge clk_100m or negedge rst_n) begin
     if (!rst_n) begin
-        send_state        <= 3'd0;
+        send_state        <= 8'd0;
         uart_send_trigger <= 1'b0;
     end else begin
         uart_send_trigger <= 1'b0; // 脉冲信号，用完即清零
 
         case(send_state)
-            3'd0: begin // 等待捕获事件
-                if (capture_event && !uart_busy) begin
-                    send_state <= 3'd1;
+            8'd0: begin // 等待定时触发
+                if (hdmi_debug_trigger && !uart_busy) begin
+                    send_state <= 8'd1;
                 end
             end
 
-            3'd1: begin // 发送帧头 (0xAA)
+            8'd1: begin // 发送 'H'
                 if (!uart_busy) begin
-                    uart_data_to_send <= 8'hAA;
+                    uart_data_to_send <= "H";
                     uart_send_trigger <= 1'b1;
-                    send_state        <= 3'd2;
+                    send_state        <= 8'd2;
                 end
             end
 
-            3'd2: begin // 发送块指数 Blk_Exp
+            8'd2: begin // 发送 'D'
                 if (!uart_busy) begin
-                    uart_data_to_send <= {3'b0, captured_blk_exp};
+                    uart_data_to_send <= "D";
                     uart_send_trigger <= 1'b1;
-                    send_state        <= 3'd3;
+                    send_state        <= 8'd3;
                 end
             end
             
-            3'd3: begin // 发送fft_dout实部高8位
+            8'd3: begin // 发送 'M'
                 if (!uart_busy) begin
-                    uart_data_to_send <= captured_fft_dout_re[15:8];
+                    uart_data_to_send <= "M";
                     uart_send_trigger <= 1'b1;
-                    send_state        <= 3'd4;
+                    send_state        <= 8'd4;
                 end
             end
 
-            3'd4: begin // 发送fft_dout实部低8位
+            8'd4: begin // 发送 'I'
                 if (!uart_busy) begin
-                    uart_data_to_send <= captured_fft_dout_re[7:0];
+                    uart_data_to_send <= "I";
                     uart_send_trigger <= 1'b1;
-                    send_state        <= 3'd5;
+                    send_state        <= 8'd5;
                 end
             end
 
-            3'd5: begin // 发送帧尾 (0x55)
+            8'd5: begin // 发送 ':'
                 if (!uart_busy) begin
-                    uart_data_to_send <= 8'h55;
+                    uart_data_to_send <= ":";
                     uart_send_trigger <= 1'b1;
-                    send_state        <= 3'd0; // 回到等待状态
+                    send_state        <= 8'd6;
+                end
+            end
+            
+            8'd6: begin // 发送 ' '
+                if (!uart_busy) begin
+                    uart_data_to_send <= " ";
+                    uart_send_trigger <= 1'b1;
+                    send_state        <= 8'd7;
+                end
+            end
+            
+            8'd7: begin // 发送 PLL1状态
+                if (!uart_busy) begin
+                    uart_data_to_send <= pll1_lock ? "1" : "0";
+                    uart_send_trigger <= 1'b1;
+                    send_state        <= 8'd8;
+                end
+            end
+            
+            8'd8: begin // 发送 ' '
+                if (!uart_busy) begin
+                    uart_data_to_send <= " ";
+                    uart_send_trigger <= 1'b1;
+                    send_state        <= 8'd9;
+                end
+            end
+            
+            8'd9: begin // 发送 PLL2状态
+                if (!uart_busy) begin
+                    uart_data_to_send <= pll2_lock ? "1" : "0";
+                    uart_send_trigger <= 1'b1;
+                    send_state        <= 8'd10;
+                end
+            end
+            
+            8'd10: begin // 发送 ' '
+                if (!uart_busy) begin
+                    uart_data_to_send <= " ";
+                    uart_send_trigger <= 1'b1;
+                    send_state        <= 8'd11;
+                end
+            end
+            
+            8'd11: begin // 发送 HDMI时钟状态 (简化：使用PLL2状态代替)
+                if (!uart_busy) begin
+                    uart_data_to_send <= pll2_lock ? "1" : "0";
+                    uart_send_trigger <= 1'b1;
+                    send_state        <= 8'd12;
+                end
+            end
+            
+            8'd12: begin // 发送 ' '
+                if (!uart_busy) begin
+                    uart_data_to_send <= " ";
+                    uart_send_trigger <= 1'b1;
+                    send_state        <= 8'd13;
+                end
+            end
+            
+            8'd13: begin // 发送 MS7210初始化状态
+                if (!uart_busy) begin
+                    uart_data_to_send <= ms7210_init_over ? "1" : "0";
+                    uart_send_trigger <= 1'b1;
+                    send_state        <= 8'd14;
+                end
+            end
+            
+            8'd14: begin // 发送换行
+                if (!uart_busy) begin
+                    uart_data_to_send <= 8'd10;  // '\n'
+                    uart_send_trigger <= 1'b1;
+                    send_state        <= 8'd0; // 回到等待状态
                 end
             end
 
-            default: send_state <= 3'd0;
+            default: send_state <= 8'd0;
         endcase
     end
 end
