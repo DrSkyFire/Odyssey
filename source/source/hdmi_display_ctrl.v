@@ -123,23 +123,24 @@ end
 
 //=============================================================================
 // 同步信号 (正极性 - 与MS7210兼容)
+// 参考官方例程: hs = (h_cnt < H_SYNC)
 //=============================================================================
 always @(posedge clk_pixel or negedge rst_n) begin
     if (!rst_n)
         hs_internal <= 1'b0;
-    else if (h_cnt == 12'd0)
-        hs_internal <= 1'b1;        // 同步脉冲开始（正极性）
-    else if (h_cnt == H_SYNC)
-        hs_internal <= 1'b0;        // 同步脉冲结束
+    else
+        hs_internal <= (h_cnt < H_SYNC);  // 前40个周期为高（正极性）
 end
 
 always @(posedge clk_pixel or negedge rst_n) begin
     if (!rst_n)
         vs_internal <= 1'b0;
-    else if (v_cnt == 12'd0)
-        vs_internal <= 1'b1;        // 同步脉冲开始（正极性）
-    else if (v_cnt == V_SYNC)
-        vs_internal <= 1'b0;        // 同步脉冲结束
+    else begin
+        if (v_cnt == 12'd0)
+            vs_internal <= 1'b1;        // 场计数器归0时，VS拉高
+        else if (v_cnt == V_SYNC)
+            vs_internal <= 1'b0;        // V_SYNC个周期后，VS拉低
+    end
 end
 
 //=============================================================================

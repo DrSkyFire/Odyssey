@@ -1375,7 +1375,71 @@ always @(posedge clk_100m or negedge rst_n) begin
                 end
             end
             
-            8'd26: begin // 发送换行
+            8'd26: begin // 发送 ' R='
+                if (!uart_busy) begin
+                    uart_data_to_send <= " ";
+                    uart_send_trigger <= 1'b1;
+                    send_state        <= 8'd27;
+                end
+            end
+            
+            8'd27: begin // 发送 'R'
+                if (!uart_busy) begin
+                    uart_data_to_send <= "R";
+                    uart_send_trigger <= 1'b1;
+                    send_state        <= 8'd28;
+                end
+            end
+            
+            8'd28: begin // 发送 '='
+                if (!uart_busy) begin
+                    uart_data_to_send <= "=";
+                    uart_send_trigger <= 1'b1;
+                    send_state        <= 8'd29;
+                end
+            end
+            
+            8'd29: begin // 发送 RST_N状态
+                if (!uart_busy) begin
+                    uart_data_to_send <= rst_n ? "1" : "0";
+                    uart_send_trigger <= 1'b1;
+                    send_state        <= 8'd30;
+                end
+            end
+            
+            8'd30: begin // 发送 ' M='
+                if (!uart_busy) begin
+                    uart_data_to_send <= " ";
+                    uart_send_trigger <= 1'b1;
+                    send_state        <= 8'd31;
+                end
+            end
+            
+            8'd31: begin // 发送 'M'
+                if (!uart_busy) begin
+                    uart_data_to_send <= "M";
+                    uart_send_trigger <= 1'b1;
+                    send_state        <= 8'd32;
+                end
+            end
+            
+            8'd32: begin // 发送 '='
+                if (!uart_busy) begin
+                    uart_data_to_send <= "=";
+                    uart_send_trigger <= 1'b1;
+                    send_state        <= 8'd33;
+                end
+            end
+            
+            8'd33: begin // 发送 工作模式
+                if (!uart_busy) begin
+                    uart_data_to_send <= "0" + work_mode[1:0];
+                    uart_send_trigger <= 1'b1;
+                    send_state        <= 8'd34;
+                end
+            end
+            
+            8'd34: begin // 发送换行
                 if (!uart_busy) begin
                     uart_data_to_send <= 8'd10;  // '\n'
                     uart_send_trigger <= 1'b1;
