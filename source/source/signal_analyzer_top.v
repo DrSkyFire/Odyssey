@@ -65,7 +65,7 @@ wire        clk_fft;                        // 100MHz FFT处理时钟
 wire        pll1_lock;                      // PLL1锁定信号
 // HDMI相关时钟
 wire        pll2_lock;                      // PLL2锁定信号
-wire        clk_hdmi_pixel;                 // 74.25MHz HDMI像素时钟
+wire        clk_hdmi_pixel;                 // 148.5MHz HDMI像素时钟 (1080p)
 wire        ms7210_init_over;                  // MS7210配置完成标志
 //全局PLL锁定信号
 wire        pll_lock;
@@ -153,6 +153,12 @@ wire [23:0] hdmi_rgb;                       // HDMI RGB数据
 wire        hdmi_de;                        // HDMI数据使能
 wire        hdmi_hs;                        // HDMI行同步
 wire        hdmi_vs;                        // HDMI场同步
+
+// 输出至MS7210前增加一级寄存器，力求将寄存器放置在I/O逻辑中
+(* iob = "true" *) reg [23:0] hdmi_rgb_q;
+(* iob = "true" *) reg        hdmi_de_q;
+(* iob = "true" *) reg        hdmi_hs_q;
+(* iob = "true" *) reg        hdmi_vs_q;
 wire [15:0] spectrum_rd_data;               // 从RAM读出的频谱数据（经过通道选择）
 wire [9:0]  spectrum_rd_addr;               // 频谱读地址
 reg [7:0]   user_led_reg;                   // 用户LED寄存器
@@ -291,12 +297,12 @@ pll_sys u_pll_sys (
 pll_hdmi u_pll_hdmi (
     .clkin1         (sys_clk_27m),          // 27MHz输入
     .pll_lock       (pll2_lock),            // PLL2锁定
-    .clkout0        (clk_hdmi_pixel)        // 74.25MHz HDMI像素时钟
+    .clkout0        (clk_hdmi_pixel)        // 148.5MHz HDMI像素时钟 (1080p)
 );
 
 // PLL2配置说明：
 // VCO = 1188MHz (27MHz × 44 / 1)
-// CLKOUT0 = 74.25MHz (1188MHz / 16)
+// CLKOUT0 = 148.5MHz (1188MHz / 8) - 1080p@60Hz像素时钟
 
 assign clk_fft = clk_100m;                  // FFT使用100MHz时钟
 
@@ -614,7 +620,7 @@ spectrum_magnitude_calc u_spectrum_calc (
 //     .dina           (spectrum_magnitude),   // 频谱幅度值
     
 //     // 读端口 (显示时钟域)
-//     .clkb           (clk_hdmi_pixel),       // 74.25MHz
+//     .clkb           (clk_hdmi_pixel),       // 148.5MHz
 //     .addrb          (spectrum_rd_addr),     // 显示模块提供的读地址
 //     .doutb          (spectrum_rd_data)      // 读出的频谱数据
 // );
@@ -820,7 +826,7 @@ auto_test u_auto_test (
 // 10. HDMI显示控制模块
 //=============================================================================
 hdmi_display_ctrl u_hdmi_ctrl (
-    .clk_pixel          (clk_hdmi_pixel),       // 74.25MHz
+    .clk_pixel          (clk_hdmi_pixel),       // 148.5MHz
     .rst_n              (rst_n),
     
     // 显示数据输入
@@ -853,7 +859,7 @@ hdmi_display_ctrl u_hdmi_ctrl (
 // hdmi_tx模块在这里实际上不执行任何操作，仅作为占位
 // 实际的HDMI数据直接通过hd_tx_*端口输出
 hdmi_tx u_hdmi_tx (
-    .clk_pixel      (clk_hdmi_pixel),       // 74.25MHz
+    .clk_pixel      (clk_hdmi_pixel),       // 148.5MHz
     .rst_n          (rst_n),
     
     // 视频输入
@@ -1096,13 +1102,30 @@ iic_dri #(
 
 assign hd_iic_sda = hd_iic_sda_oe ? hd_iic_sda_out : 1'bz;
 //=============================================================================
+// HDMI输出寄存器
+//=============================================================================
+always @(posedge clk_hdmi_pixel or negedge rst_n) begin
+    if (!rst_n) begin
+        hdmi_rgb_q <= 24'd0;
+        hdmi_de_q  <= 1'b0;
+        hdmi_hs_q  <= 1'b0;
+        hdmi_vs_q  <= 1'b0;
+    end else begin
+        hdmi_rgb_q <= hdmi_rgb;
+        hdmi_de_q  <= hdmi_de;
+        hdmi_hs_q  <= hdmi_hs;
+        hdmi_vs_q  <= hdmi_vs;
+    end
+end
+
+//=============================================================================
 // MS7210数据输出
 //=============================================================================
 assign hd_tx_pclk = clk_hdmi_pixel;
-assign hd_tx_vs = hdmi_vs;
-assign hd_tx_hs = hdmi_hs;
-assign hd_tx_de = hdmi_de;
-assign hd_tx_data = hdmi_rgb;
+assign hd_tx_vs   = hdmi_vs_q;
+assign hd_tx_hs   = hdmi_hs_q;
+assign hd_tx_de   = hdmi_de_q;
+assign hd_tx_data = hdmi_rgb_q;
 
 //=============================================================================
 // 实例化UART发送模块

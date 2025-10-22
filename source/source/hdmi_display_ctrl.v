@@ -1,6 +1,6 @@
 //=============================================================================
 // 文件名: hdmi_display_ctrl.v (美化增强版 - 带参数显示)
-// 描述: 720p HDMI显示控制器
+// 描述: 1080p HDMI显示控制器
 //       - 上部：双通道频谱显示（带网格线）
 //       - 下部：参数信息显示（大字体）
 //       - 配色：渐变频谱 + 深色背景 + 白色文字
@@ -33,27 +33,27 @@ module hdmi_display_ctrl (
 );
 
 //=============================================================================
-// 时序参数
+// 时序参数 - 1080p@60Hz
 //=============================================================================
-localparam H_ACTIVE     = 1280;
-localparam H_FP         = 110;
-localparam H_SYNC       = 40;
-localparam H_BP         = 220;
-localparam H_TOTAL      = 1650;
+localparam H_ACTIVE     = 1920;
+localparam H_FP         = 88;
+localparam H_SYNC       = 44;
+localparam H_BP         = 148;
+localparam H_TOTAL      = 2200;
 
-localparam V_ACTIVE     = 720;
-localparam V_FP         = 5;
+localparam V_ACTIVE     = 1080;
+localparam V_FP         = 4;
 localparam V_SYNC       = 5;
-localparam V_BP         = 20;
-localparam V_TOTAL      = 750;
+localparam V_BP         = 36;
+localparam V_TOTAL      = 1125;
 
 //=============================================================================
-// 显示区域定义
+// 显示区域参数 (1080p)
 //=============================================================================
-localparam SPECTRUM_Y_START = 50;       // 频谱区域起始Y
-localparam SPECTRUM_Y_END   = 550;      // 频谱区域结束Y
-localparam PARAM_Y_START    = 580;      // 参数区域起始Y
-localparam PARAM_Y_END      = 710;      // 参数区域结束Y
+localparam SPECTRUM_Y_START = 75;       // 频谱区域起始Y
+localparam SPECTRUM_Y_END   = 825;      // 频谱区域结束Y
+localparam PARAM_Y_START    = 870;      // 参数区域起始Y
+localparam PARAM_Y_END      = 1065;     // 参数区域结束Y
 
 //=============================================================================
 // 信号定义
@@ -76,6 +76,19 @@ reg [11:0] pixel_y_d1, pixel_y_d2, pixel_y_d3;
 reg        video_active_d1, video_active_d2, video_active_d3;
 reg [1:0]  work_mode_d1, work_mode_d2, work_mode_d3;
 
+// 网格线标志（预计算，避免取模运算）
+reg        grid_x_flag, grid_y_flag;
+reg        grid_x_flag_d1, grid_y_flag_d1;
+reg        grid_x_flag_d2, grid_y_flag_d2;
+reg        grid_x_flag_d3, grid_y_flag_d3;
+
+// 网格计数器（每行重置,避免大数取模）
+reg [6:0]  grid_x_cnt;  // 0-99 循环
+reg [5:0]  grid_y_cnt;  // 0-49 循环
+
+// BRAM输出流水寄存器（缓解时序压力）
+reg [15:0] spectrum_data_q;
+
 reg [23:0] rgb_out_reg;
 reg        de_out_reg;
 reg        hs_out_reg;
@@ -94,6 +107,13 @@ reg [23:0]  char_color;
 
 // 数字分解
 reg [3:0]   digit_0, digit_1, digit_2, digit_3, digit_4;
+
+// 预计算的数字（每帧更新一次，避免实时除法）
+reg [3:0]   freq_d0, freq_d1, freq_d2, freq_d3, freq_d4;
+reg [3:0]   amp_d0, amp_d1, amp_d2, amp_d3;
+reg [3:0]   duty_d0, duty_d1, duty_d2;
+reg [3:0]   thd_d0, thd_d1, thd_d2;
+reg [3:0]   phase_d0, phase_d1, phase_d2, phase_d3;
 
 //=============================================================================
 // 行计数器
@@ -146,20 +166,22 @@ always @(posedge clk_pixel or negedge rst_n) begin
 end
 
 //=============================================================================
-// 有效区域标志 (与MS7210兼容 - 基于SYNC+BP偏移)
+// 有效区域标志 (组合逻辑 - 与官方例程一致)
 //=============================================================================
+wire h_active_comb = (h_cnt >= (H_SYNC + H_BP)) && (h_cnt <= (H_TOTAL - H_FP - 1));
+wire v_active_comb = (v_cnt >= (V_SYNC + V_BP)) && (v_cnt <= (V_TOTAL - V_FP - 1));
+assign video_active = h_active_comb && v_active_comb;
+
+// 保留寄存器版本用于其他用途（如果需要）
 always @(posedge clk_pixel or negedge rst_n) begin
     if (!rst_n) begin
         h_active <= 1'b0;
         v_active <= 1'b0;
     end else begin
-        // 有效区域：SYNC + BP 后开始，TOTAL - FP 前结束
-        h_active <= (h_cnt >= (H_SYNC + H_BP)) && (h_cnt < (H_TOTAL - H_FP));
-        v_active <= (v_cnt >= (V_SYNC + V_BP)) && (v_cnt < (V_TOTAL - V_FP));
+        h_active <= h_active_comb;
+        v_active <= v_active_comb;
     end
 end
-
-assign video_active = h_active && v_active;
 
 //=============================================================================
 // 像素坐标 (相对于有效区域起始位置)
@@ -183,16 +205,102 @@ always @(posedge clk_pixel or negedge rst_n) begin
 end
 
 //=============================================================================
+// 网格计数器和标志（避免昂贵的取模运算）
+//=============================================================================
+always @(posedge clk_pixel or negedge rst_n) begin
+    if (!rst_n) begin
+        grid_x_cnt <= 7'd0;
+        grid_x_flag <= 1'b0;
+    end else begin
+        if (h_cnt == H_TOTAL - 1) begin
+            grid_x_cnt <= 7'd0;
+            grid_x_flag <= 1'b1;
+        end else if (grid_x_cnt == 7'd99) begin
+            grid_x_cnt <= 7'd0;
+            grid_x_flag <= 1'b1;
+        end else begin
+            grid_x_cnt <= grid_x_cnt + 1'b1;
+            grid_x_flag <= 1'b0;
+        end
+    end
+end
+
+always @(posedge clk_pixel or negedge rst_n) begin
+    if (!rst_n) begin
+        grid_y_cnt <= 6'd0;
+        grid_y_flag <= 1'b0;
+    end else begin
+        if (h_cnt == H_TOTAL - 1) begin
+            if (v_cnt == V_TOTAL - 1) begin
+                grid_y_cnt <= 6'd0;
+                grid_y_flag <= 1'b1;
+            end else if (grid_y_cnt == 6'd49) begin
+                grid_y_cnt <= 6'd0;
+                grid_y_flag <= 1'b1;
+            end else begin
+                grid_y_cnt <= grid_y_cnt + 1'b1;
+                grid_y_flag <= (grid_y_cnt + 1'b1 == 6'd49);
+            end
+        end
+    end
+end
+
+//=============================================================================
 // 频谱地址生成（提前生成）
 //=============================================================================
 always @(posedge clk_pixel or negedge rst_n) begin
     if (!rst_n)
         spectrum_addr <= 10'd0;
     else begin
-        if (h_cnt < 1280)
+        if (h_cnt < H_ACTIVE)
             spectrum_addr <= h_cnt[11:2];
         else
             spectrum_addr <= 10'd1023;
+    end
+end
+
+//=============================================================================
+// 参数数字预计算（每帧更新，避免实时除法造成时序违例）
+//=============================================================================
+always @(posedge clk_pixel or negedge rst_n) begin
+    if (!rst_n) begin
+        freq_d0 <= 4'd0; freq_d1 <= 4'd0; freq_d2 <= 4'd0; freq_d3 <= 4'd0; freq_d4 <= 4'd0;
+        amp_d0 <= 4'd0; amp_d1 <= 4'd0; amp_d2 <= 4'd0; amp_d3 <= 4'd0;
+        duty_d0 <= 4'd0; duty_d1 <= 4'd0; duty_d2 <= 4'd0;
+        thd_d0 <= 4'd0; thd_d1 <= 4'd0; thd_d2 <= 4'd0;
+        phase_d0 <= 4'd0; phase_d1 <= 4'd0; phase_d2 <= 4'd0; phase_d3 <= 4'd0;
+    end else begin
+        // 在场消隐期间更新（v_cnt == 0, h_cnt == 0），有充足时间计算
+        if (v_cnt == 12'd0 && h_cnt == 12'd0) begin
+            // 频率（5位数字）
+            freq_d0 <= freq % 10;
+            freq_d1 <= (freq / 10) % 10;
+            freq_d2 <= (freq / 100) % 10;
+            freq_d3 <= (freq / 1000) % 10;
+            freq_d4 <= (freq / 10000) % 10;
+            
+            // 幅度（4位数字）
+            amp_d0 <= amplitude % 10;
+            amp_d1 <= (amplitude / 10) % 10;
+            amp_d2 <= (amplitude / 100) % 10;
+            amp_d3 <= (amplitude / 1000) % 10;
+            
+            // 占空比（3位数字，0-100.0）
+            duty_d0 <= duty % 10;
+            duty_d1 <= (duty / 10) % 10;
+            duty_d2 <= (duty / 100) % 10;
+            
+            // THD（3位数字，0-100.0）
+            thd_d0 <= thd % 10;
+            thd_d1 <= (thd / 10) % 10;
+            thd_d2 <= (thd / 100) % 10;
+            
+            // 相位差（4位数字，0-359.9）
+            phase_d0 <= phase_diff % 10;
+            phase_d1 <= (phase_diff / 10) % 10;
+            phase_d2 <= (phase_diff / 100) % 10;
+            phase_d3 <= (phase_diff / 1000) % 10;
+        end
     end
 end
 
@@ -213,6 +321,13 @@ always @(posedge clk_pixel or negedge rst_n) begin
         work_mode_d1 <= 2'd0;
         work_mode_d2 <= 2'd0;
         work_mode_d3 <= 2'd0;
+        grid_x_flag_d1 <= 1'b0;
+        grid_x_flag_d2 <= 1'b0;
+        grid_x_flag_d3 <= 1'b0;
+        grid_y_flag_d1 <= 1'b0;
+        grid_y_flag_d2 <= 1'b0;
+        grid_y_flag_d3 <= 1'b0;
+        spectrum_data_q <= 16'd0;
     end else begin
         // 延迟3拍（匹配字符ROM）
         pixel_x_d1 <= pixel_x;
@@ -227,6 +342,14 @@ always @(posedge clk_pixel or negedge rst_n) begin
         work_mode_d1 <= work_mode;
         work_mode_d2 <= work_mode_d1;
         work_mode_d3 <= work_mode_d2;
+        grid_x_flag_d1 <= grid_x_flag;
+        grid_x_flag_d2 <= grid_x_flag_d1;
+        grid_x_flag_d3 <= grid_x_flag_d2;
+        grid_y_flag_d1 <= grid_y_flag;
+        grid_y_flag_d2 <= grid_y_flag_d1;
+        grid_y_flag_d3 <= grid_y_flag_d2;
+        // BRAM输出流水
+        spectrum_data_q <= spectrum_data;
     end
 end
 
@@ -284,31 +407,31 @@ always @(posedge clk_pixel) begin
                 char_col = pixel_x_d1[3:0] - 14;
                 in_char_area = 1'b1;
             end
-            // 显示频率数值 (5位数)
+            // 显示频率数值 (5位数) - 使用预计算值
             else if (pixel_x_d1 >= 100 && pixel_x_d1 < 196) begin
                 case (pixel_x_d1[11:5])
                     7'd3: begin  // 万位
-                        char_code = get_digit(freq, 3'd4);
+                        char_code = {2'b00, freq_d4};
                         char_col = pixel_x_d1[4:0] - 5'd4;
                         in_char_area = 1'b1;
                     end
                     7'd4: begin  // 千位
-                        char_code = get_digit(freq, 3'd3);
+                        char_code = {2'b00, freq_d3};
                         char_col = pixel_x_d1[4:0] - 5'd4;
                         in_char_area = 1'b1;
                     end
                     7'd5: begin  // 百位
-                        char_code = get_digit(freq, 3'd2);
+                        char_code = {2'b00, freq_d2};
                         char_col = pixel_x_d1[4:0] - 5'd4;
                         in_char_area = 1'b1;
                     end
                     7'd6: begin  // 十位
-                        char_code = get_digit(freq, 3'd1);
+                        char_code = {2'b00, freq_d1};
                         char_col = pixel_x_d1[4:0] - 5'd4;
                         in_char_area = 1'b1;
                     end
                     7'd7: begin  // 个位
-                        char_code = get_digit(freq, 3'd0);
+                        char_code = {2'b00, freq_d0};
                         char_col = pixel_x_d1[4:0] - 5'd4;
                         in_char_area = 1'b1;
                     end
@@ -340,26 +463,26 @@ always @(posedge clk_pixel) begin
                 char_col = pixel_x_d1[3:0] - 4'd2;
                 in_char_area = 1'b1;
             end
-            // 显示幅度 (4位数)
+            // 显示幅度 (4位数) - 使用预计算值
             else if (pixel_x_d1 >= 400 && pixel_x_d1 < 480) begin
                 case ((pixel_x_d1 - 400) >> 4)
                     4'd0: begin
-                        char_code = get_digit(amplitude, 3'd3);
+                        char_code = {2'b00, amp_d3};
                         char_col = pixel_x_d1[3:0];
                         in_char_area = 1'b1;
                     end
                     4'd1: begin
-                        char_code = get_digit(amplitude, 3'd2);
+                        char_code = {2'b00, amp_d2};
                         char_col = pixel_x_d1[3:0];
                         in_char_area = 1'b1;
                     end
                     4'd2: begin
-                        char_code = get_digit(amplitude, 3'd1);
+                        char_code = {2'b00, amp_d1};
                         char_col = pixel_x_d1[3:0];
                         in_char_area = 1'b1;
                     end
                     4'd3: begin
-                        char_code = get_digit(amplitude, 3'd0);
+                        char_code = {2'b00, amp_d0};
                         char_col = pixel_x_d1[3:0];
                         in_char_area = 1'b1;
                     end
@@ -367,18 +490,18 @@ always @(posedge clk_pixel) begin
             end
         end
         
-        // 第3行: "Duty: XX.X %"
+        // 第3行: "Duty: XX.X %" - 使用预计算值
         else if (pixel_y_d1 >= PARAM_Y_START + 90 && pixel_y_d1 < PARAM_Y_START + 130) begin
             char_row = pixel_y_d1[4:0] - (PARAM_Y_START[4:0] + 5'd26);
             if (pixel_x_d1 >= 640 && pixel_x_d1 < 720) begin
                 case ((pixel_x_d1 - 640) >> 4)
                     4'd0: begin
-                        char_code = get_digit(duty, 3'd2);  // 十位
+                        char_code = {2'b00, duty_d2};  // 百位（十位）
                         char_col = pixel_x_d1[3:0];
                         in_char_area = 1'b1;
                     end
                     4'd1: begin
-                        char_code = get_digit(duty / 10, 3'd0);  // 个位
+                        char_code = {2'b00, duty_d1};  // 十位（个位）
                         char_col = pixel_x_d1[3:0];
                         in_char_area = 1'b1;
                     end
@@ -388,7 +511,7 @@ always @(posedge clk_pixel) begin
                         in_char_area = 1'b1;
                     end
                     4'd3: begin
-                        char_code = get_digit(duty, 3'd0);  // 小数位
+                        char_code = {2'b00, duty_d0};  // 个位（小数位）
                         char_col = pixel_x_d1[3:0];
                         in_char_area = 1'b1;
                     end
@@ -401,13 +524,13 @@ always @(posedge clk_pixel) begin
             end
         end
         
-        // 第4行: "THD: X.XX %"
+        // 第4行: "THD: X.XX %" - 使用预计算值
         else if (pixel_y_d1 >= PARAM_Y_START + 135 && pixel_y_d1 < PARAM_Y_START + 175) begin
             char_row = pixel_y_d1[4:0] - (PARAM_Y_START[4:0] + 5'd7);
             if (pixel_x_d1 >= 940 && pixel_x_d1 < 1020) begin
                 case ((pixel_x_d1 - 940) >> 4)
                     4'd0: begin
-                        char_code = get_digit(thd / 100, 3'd0);  // 个位
+                        char_code = {2'b00, thd_d2};  // 百位（个位）
                         char_col = pixel_x_d1[3:0];
                         in_char_area = 1'b1;
                     end
@@ -417,12 +540,12 @@ always @(posedge clk_pixel) begin
                         in_char_area = 1'b1;
                     end
                     4'd2: begin
-                        char_code = get_digit(thd / 10, 3'd0);  // 小数第1位
+                        char_code = {2'b00, thd_d1};  // 十位（小数第1位）
                         char_col = pixel_x_d1[3:0];
                         in_char_area = 1'b1;
                     end
                     4'd3: begin
-                        char_code = get_digit(thd, 3'd0);  // 小数第2位
+                        char_code = {2'b00, thd_d0};  // 个位（小数第2位）
                         char_col = pixel_x_d1[3:0];
                         in_char_area = 1'b1;
                     end
@@ -435,23 +558,23 @@ always @(posedge clk_pixel) begin
             end
         end
         
-        // 第5行: "Phase: XXX.X °"（相位差）
+        // 第5行: "Phase: XXX.X °"（相位差）- 使用预计算值
         else if (pixel_y_d1 >= PARAM_Y_START + 180 && pixel_y_d1 < PARAM_Y_START + 220) begin
             char_row = pixel_y_d1[4:0] - (PARAM_Y_START[4:0] + 5'd20);
             if (pixel_x_d1 >= 920 && pixel_x_d1 < 1040) begin
                 case ((pixel_x_d1 - 920) >> 4)
                     4'd0: begin
-                        char_code = get_digit(phase_diff / 1000, 3'd0);  // 百位
+                        char_code = {2'b00, phase_d3};  // 千位（百位）
                         char_col = pixel_x_d1[3:0];
                         in_char_area = 1'b1;
                     end
                     4'd1: begin
-                        char_code = get_digit(phase_diff / 100, 3'd0);  // 十位
+                        char_code = {2'b00, phase_d2};  // 百位（十位）
                         char_col = pixel_x_d1[3:0];
                         in_char_area = 1'b1;
                     end
                     4'd2: begin
-                        char_code = get_digit(phase_diff / 10, 3'd0);  // 个位
+                        char_code = {2'b00, phase_d1};  // 十位（个位）
                         char_col = pixel_x_d1[3:0];
                         in_char_area = 1'b1;
                     end
@@ -461,7 +584,7 @@ always @(posedge clk_pixel) begin
                         in_char_area = 1'b1;
                     end
                     4'd4: begin
-                        char_code = get_digit(phase_diff, 3'd0);  // 小数第1位
+                        char_code = {2'b00, phase_d0};  // 个位（小数第1位）
                         char_col = pixel_x_d1[3:0];
                         in_char_area = 1'b1;
                     end
@@ -507,14 +630,14 @@ always @(*) begin
         
         // ========== 频谱显示区域 ==========
         else if (pixel_y_d3 >= SPECTRUM_Y_START && pixel_y_d3 < SPECTRUM_Y_END) begin
-            // 计算频谱高度（改进算法，更平滑）
-            if (spectrum_data > 16'd2000)
+            // 计算频谱高度（使用流水寄存器）
+            if (spectrum_data_q > 16'd2000)
                 spectrum_height_calc = 12'd480;  // 限制最大高度
             else
-                spectrum_height_calc = spectrum_data[15:4];  // 取高12位
+                spectrum_height_calc = spectrum_data_q[15:4];  // 取高12位
             
-            // 网格线（每100像素一条）
-            if ((pixel_x_d3 % 100 == 0) || (pixel_y_d3 % 50 == 0)) begin
+            // 网格线（使用预计算的标志，避免取模）
+            if (grid_x_flag_d3 || grid_y_flag_d3) begin
                 rgb_data = 24'h303030;  // 深灰网格
             end
             // 频谱柱状图
@@ -619,7 +742,7 @@ always @(posedge clk_pixel or negedge rst_n) begin
         vs_out_reg  <= 1'b0;  // 修改：复位时也为0，与内部信号一致
     end else begin
         rgb_out_reg <= rgb_data;
-        de_out_reg  <= video_active_d3;  // 使用延迟3拍后的
+        de_out_reg  <= video_active_d3;  // 使用延迟3拍后的，与RGB同步
         hs_out_reg  <= hs_internal;
         vs_out_reg  <= vs_internal;
     end

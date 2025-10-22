@@ -7,7 +7,7 @@
 //=============================================================================
 
 module hdmi_tx (
-    input  wire         clk_pixel,          // 像素时钟 74.25MHz
+    input  wire         clk_pixel,          // 像素时钟 148.5MHz
     input  wire         rst_n,
     
     // 视频输入

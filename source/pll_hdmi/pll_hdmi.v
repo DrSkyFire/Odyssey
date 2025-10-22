@@ -33,7 +33,7 @@ module pll_hdmi (
     localparam DYNAMIC_RATIO4_EN        = "FALSE";
     localparam DYNAMIC_RATIOF_EN        = "FALSE";
     localparam integer STATIC_RATIOI    = 1;
-    localparam integer STATIC_RATIO0    = 16;
+    localparam integer STATIC_RATIO0    = 8;
     localparam integer STATIC_RATIO1    = 16;
     localparam integer STATIC_RATIO2    = 16;
     localparam integer STATIC_RATIO3    = 16;
@@ -44,7 +44,7 @@ module pll_hdmi (
     localparam DYNAMIC_DUTY2_EN         = "FALSE";
     localparam DYNAMIC_DUTY3_EN         = "FALSE";
     localparam DYNAMIC_DUTY4_EN         = "FALSE";
-    localparam integer STATIC_DUTY0     = 16;
+    localparam integer STATIC_DUTY0     = 8;
     localparam integer STATIC_DUTY1     = 16;
     localparam integer STATIC_DUTY2     = 16;
     localparam integer STATIC_DUTY3     = 16;
