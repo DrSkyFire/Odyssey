@@ -122,54 +122,60 @@ always @(posedge clk_pixel or negedge rst_n) begin
 end
 
 //=============================================================================
-// 同步信号
+// 同步信号 (正极性 - 与MS7210兼容)
 //=============================================================================
 always @(posedge clk_pixel or negedge rst_n) begin
     if (!rst_n)
-        hs_internal <= 1'b1;
-    else if (h_cnt == H_ACTIVE + H_FP)
         hs_internal <= 1'b0;
-    else if (h_cnt == H_ACTIVE + H_FP + H_SYNC)
-        hs_internal <= 1'b1;
+    else if (h_cnt == 12'd0)
+        hs_internal <= 1'b1;        // 同步脉冲开始（正极性）
+    else if (h_cnt == H_SYNC)
+        hs_internal <= 1'b0;        // 同步脉冲结束
 end
 
 always @(posedge clk_pixel or negedge rst_n) begin
     if (!rst_n)
-        vs_internal <= 1'b1;
-    else if (v_cnt == V_ACTIVE + V_FP)
         vs_internal <= 1'b0;
-    else if (v_cnt == V_ACTIVE + V_FP + V_SYNC)
-        vs_internal <= 1'b1;
+    else if (v_cnt == 12'd0)
+        vs_internal <= 1'b1;        // 同步脉冲开始（正极性）
+    else if (v_cnt == V_SYNC)
+        vs_internal <= 1'b0;        // 同步脉冲结束
 end
 
 //=============================================================================
-// 有效区域标志
+// 有效区域标志 (与MS7210兼容 - 基于SYNC+BP偏移)
 //=============================================================================
 always @(posedge clk_pixel or negedge rst_n) begin
     if (!rst_n) begin
         h_active <= 1'b0;
         v_active <= 1'b0;
     end else begin
-        h_active <= (h_cnt < H_ACTIVE);
-        v_active <= (v_cnt < V_ACTIVE);
+        // 有效区域：SYNC + BP 后开始，TOTAL - FP 前结束
+        h_active <= (h_cnt >= (H_SYNC + H_BP)) && (h_cnt < (H_TOTAL - H_FP));
+        v_active <= (v_cnt >= (V_SYNC + V_BP)) && (v_cnt < (V_TOTAL - V_FP));
     end
 end
 
 assign video_active = h_active && v_active;
 
 //=============================================================================
-// 像素坐标
+// 像素坐标 (相对于有效区域起始位置)
 //=============================================================================
 always @(posedge clk_pixel or negedge rst_n) begin
     if (!rst_n) begin
         pixel_x <= 12'd0;
         pixel_y <= 12'd0;
-    end else if (video_active) begin
-        pixel_x <= h_cnt;
-        pixel_y <= v_cnt;
     end else begin
-        pixel_x <= 12'd0;
-        pixel_y <= 12'd0;
+        // 坐标从SYNC+BP开始计算
+        if (h_cnt >= (H_SYNC + H_BP))
+            pixel_x <= h_cnt - (H_SYNC + H_BP);
+        else
+            pixel_x <= 12'd0;
+            
+        if (v_cnt >= (V_SYNC + V_BP))
+            pixel_y <= v_cnt - (V_SYNC + V_BP);
+        else
+            pixel_y <= 12'd0;
     end
 end
 
