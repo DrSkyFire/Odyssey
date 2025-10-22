@@ -1130,6 +1130,38 @@ always @(posedge clk_100m or negedge rst_n) begin
     end
 end
 
+// HDMI同步信号活动检测（捕获任何翻转）
+reg hdmi_vs_d1, hdmi_vs_d2;
+reg hdmi_hs_d1, hdmi_hs_d2;
+reg hdmi_vs_toggle_flag, hdmi_hs_toggle_flag;
+
+always @(posedge clk_100m or negedge rst_n) begin
+    if (!rst_n) begin
+        hdmi_vs_d1 <= 1'b0;
+        hdmi_vs_d2 <= 1'b0;
+        hdmi_hs_d1 <= 1'b0;
+        hdmi_hs_d2 <= 1'b0;
+        hdmi_vs_toggle_flag <= 1'b0;
+        hdmi_hs_toggle_flag <= 1'b0;
+    end else begin
+        hdmi_vs_d1 <= hdmi_vs;
+        hdmi_vs_d2 <= hdmi_vs_d1;
+        hdmi_hs_d1 <= hdmi_hs;
+        hdmi_hs_d2 <= hdmi_hs_d1;
+        
+        // 检测到翻转就锁存标志
+        if (hdmi_vs_d1 != hdmi_vs_d2)
+            hdmi_vs_toggle_flag <= 1'b1;
+        else if (hdmi_debug_trigger)  // 定时器触发时清除
+            hdmi_vs_toggle_flag <= 1'b0;
+            
+        if (hdmi_hs_d1 != hdmi_hs_d2)
+            hdmi_hs_toggle_flag <= 1'b1;
+        else if (hdmi_debug_trigger)  // 定时器触发时清除
+            hdmi_hs_toggle_flag <= 1'b0;
+    end
+end
+
 uart_tx #(
     .CLOCK_FREQ(100_000_000),
     .BAUD_RATE(115200)
@@ -1303,9 +1335,9 @@ always @(posedge clk_100m or negedge rst_n) begin
                 end
             end
             
-            8'd17: begin // 发送 VS状态
+            8'd17: begin // 发送 VS活动标志（是否有翻转）
                 if (!uart_busy) begin
-                    uart_data_to_send <= hdmi_vs ? "1" : "0";
+                    uart_data_to_send <= hdmi_vs_toggle_flag ? "1" : "0";
                     uart_send_trigger <= 1'b1;
                     send_state        <= 8'd18;
                 end
@@ -1335,9 +1367,9 @@ always @(posedge clk_100m or negedge rst_n) begin
                 end
             end
             
-            8'd21: begin // 发送 HS状态
+            8'd21: begin // 发送 HS活动标志（是否有翻转）
                 if (!uart_busy) begin
-                    uart_data_to_send <= hdmi_hs ? "1" : "0";
+                    uart_data_to_send <= hdmi_hs_toggle_flag ? "1" : "0";
                     uart_send_trigger <= 1'b1;
                     send_state        <= 8'd22;
                 end
