@@ -140,6 +140,8 @@ always @(posedge clk_pixel or negedge rst_n) begin
             vs_internal <= 1'b1;        // 场计数器归0时，VS拉高
         else if (v_cnt == V_SYNC)
             vs_internal <= 1'b0;        // V_SYNC个周期后，VS拉低
+        else
+            vs_internal <= vs_internal; // 保持当前值（关键！）
     end
 end
 
