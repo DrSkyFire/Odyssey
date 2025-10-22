@@ -1,0 +1,31 @@
+            52          102         126         
+90                                              
+87                                  APM         
+84                                  APM         
+81          APM         APM         APM         
+78          APM         APM         APM         
+75          APM         APM         APM         
+72          APM         APM         APM         
+69                      APM         APM         
+66          APM         APM         APM         
+63          APM         APM         APM         
+60                      APM         APM         
+57          APM         APM         APM         
+54          APM         APM         APM         
+51          APM         APM         APM         
+48          APM         APM         APM         
+45                      APM         APM         
+42                      APM         APM         
+39                      APM         APM         
+36                      APM         APM         
+33                      APM         APM         
+30                      APM         APM         
+27                      APM         APM         
+24          APM         APM         APM         
+21          APM         APM         APM         
+18          APM         APM         APM         
+15          APM         APM         APM         
+12          APM         APM         APM         
+9           APM         APM         APM         
+6           APM         APM         APM         
+3           APM         APM         APM         

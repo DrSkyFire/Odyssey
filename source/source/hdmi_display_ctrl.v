@@ -452,7 +452,7 @@ always @(posedge clk_pixel) begin
         
         // 第2行: "Amp: XXXX"
         else if (pixel_y_d1 >= PARAM_Y_START + 45 && pixel_y_d1 < PARAM_Y_START + 85) begin
-            char_row = pixel_y_d1[4:0] - (PARAM_Y_START[4:0] + 5'd13);
+            char_row = pixel_y_d1 - PARAM_Y_START - 12'd45;  // 修正：直接计算相对行号
             if (pixel_x_d1 >= 340 && pixel_x_d1 < 356) begin
                 char_code = 6'd13; // 'A' (用H代替)
                 char_col = pixel_x_d1[3:0] - 4'd4;
@@ -492,7 +492,7 @@ always @(posedge clk_pixel) begin
         
         // 第3行: "Duty: XX.X %" - 使用预计算值
         else if (pixel_y_d1 >= PARAM_Y_START + 90 && pixel_y_d1 < PARAM_Y_START + 130) begin
-            char_row = pixel_y_d1[4:0] - (PARAM_Y_START[4:0] + 5'd26);
+            char_row = pixel_y_d1 - PARAM_Y_START - 12'd90;  // 修正：直接计算相对行号
             if (pixel_x_d1 >= 640 && pixel_x_d1 < 720) begin
                 case ((pixel_x_d1 - 640) >> 4)
                     4'd0: begin
@@ -526,7 +526,7 @@ always @(posedge clk_pixel) begin
         
         // 第4行: "THD: X.XX %" - 使用预计算值
         else if (pixel_y_d1 >= PARAM_Y_START + 135 && pixel_y_d1 < PARAM_Y_START + 175) begin
-            char_row = pixel_y_d1[4:0] - (PARAM_Y_START[4:0] + 5'd7);
+            char_row = pixel_y_d1 - PARAM_Y_START - 12'd135;  // 修正：直接计算相对行号
             if (pixel_x_d1 >= 940 && pixel_x_d1 < 1020) begin
                 case ((pixel_x_d1 - 940) >> 4)
                     4'd0: begin
@@ -558,9 +558,9 @@ always @(posedge clk_pixel) begin
             end
         end
         
-        // 第5行: "Phase: XXX.X °"（相位差）- 使用预计算值
+        // 第5行: "Phase: XXX.X °" - 使用预计算值
         else if (pixel_y_d1 >= PARAM_Y_START + 180 && pixel_y_d1 < PARAM_Y_START + 220) begin
-            char_row = pixel_y_d1[4:0] - (PARAM_Y_START[4:0] + 5'd20);
+            char_row = pixel_y_d1 - PARAM_Y_START - 12'd180;  // 修正：直接计算相对行号
             if (pixel_x_d1 >= 920 && pixel_x_d1 < 1040) begin
                 case ((pixel_x_d1 - 920) >> 4)
                     4'd0: begin

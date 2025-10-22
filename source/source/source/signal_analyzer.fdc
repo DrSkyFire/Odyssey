@@ -314,16 +314,16 @@ define_attribute {p:hd_tx_data[0]} {PAP_IO_STANDARD} {LVCMOS33}
 define_attribute {p:hd_tx_data[0]} {PAP_IO_DRIVE} {8}
 define_attribute {p:hd_tx_data[0]} {PAP_IO_SLEW} {FAST}
 
-# IIC接口 - MS7210配置 (修正引脚位置，参考官方例程)
+# IIC???
 define_attribute {p:hd_iic_scl} {PAP_IO_DIRECTION} {OUTPUT}
-define_attribute {p:hd_iic_scl} {PAP_IO_LOC} {Y20}
+define_attribute {p:hd_iic_scl} {PAP_IO_LOC} {P17}
 define_attribute {p:hd_iic_scl} {PAP_IO_VCCIO} {3.3}
 define_attribute {p:hd_iic_scl} {PAP_IO_STANDARD} {LVCMOS33}
 define_attribute {p:hd_iic_scl} {PAP_IO_DRIVE} {8}
 define_attribute {p:hd_iic_scl} {PAP_IO_SLEW} {FAST}
 
 define_attribute {p:hd_iic_sda} {PAP_IO_DIRECTION} {INOUT}
-define_attribute {p:hd_iic_sda} {PAP_IO_LOC} {W22}
+define_attribute {p:hd_iic_sda} {PAP_IO_LOC} {P18}
 define_attribute {p:hd_iic_sda} {PAP_IO_VCCIO} {3.3}
 define_attribute {p:hd_iic_sda} {PAP_IO_STANDARD} {LVCMOS33}
 define_attribute {p:hd_iic_sda} {PAP_IO_DRIVE} {8}

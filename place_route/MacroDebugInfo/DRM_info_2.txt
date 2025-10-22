@@ -1,0 +1,15 @@
+Region utilization:
+
+Placed macro info:
+Inst: (88, 38) gopDRM u_ch1_fifo/u_fifo_ip/U_ipml_fifo_fifo_async_ip/U_ipml_sdpram/ADDR_LOOP[0].DATA_LOOP[0].U_GTP_DRM18K/iGopDrm_inv
+Inst: (88, 33) gopDRM u_ch1_fifo/u_fifo_ip/U_ipml_fifo_fifo_async_ip/U_ipml_sdpram/ADDR_LOOP[0].DATA_LOOP[1].U_GTP_DRM18K/iGopDrm_inv
+Inst: (136, 53) gopDRM u_ch1_spectrum_ram0/u_dpram_ip/U_ipml_dpram_dpram/ADDR_LOOP[0].DATA_LOOP[0].U_GTP_DRM18K/iGopDrm
+Inst: (136, 48) gopDRM u_ch1_spectrum_ram1/u_dpram_ip/U_ipml_dpram_dpram/ADDR_LOOP[0].DATA_LOOP[0].U_GTP_DRM18K/iGopDrm
+Inst: (88, 23) gopDRM u_ch2_fifo/u_fifo_ip/U_ipml_fifo_fifo_async_ip/U_ipml_sdpram/ADDR_LOOP[0].DATA_LOOP[0].U_GTP_DRM18K/iGopDrm_inv
+Inst: (88, 28) gopDRM u_ch2_fifo/u_fifo_ip/U_ipml_fifo_fifo_async_ip/U_ipml_sdpram/ADDR_LOOP[0].DATA_LOOP[1].U_GTP_DRM18K/iGopDrm_inv
+Inst: (136, 43) gopDRM u_ch2_spectrum_ram0/u_dpram_ip/U_ipml_dpram_dpram/ADDR_LOOP[0].DATA_LOOP[0].U_GTP_DRM18K/iGopDrm
+Inst: (136, 38) gopDRM u_ch2_spectrum_ram1/u_dpram_ip/U_ipml_dpram_dpram/ADDR_LOOP[0].DATA_LOOP[0].U_GTP_DRM18K/iGopDrm
+Inst: (116, 23) gopDRM u_fft_1024/use_pipeline.u_pipeline_core/inst_r22_dif_group[0].u_r22_dif_group/u_r22_bf1/use_parallel_as.u_r22bf_as_paral/inst_shift_ram.u_shift_ram/use_drm.u_drm_sreg/u_drm_sdpram/mem/iGopDrm
+Inst: (136, 13) gopDRM2 u_ms7210_ctl/N325_2_concat_2/iGopDrm
+
+Unplaced macro info:
