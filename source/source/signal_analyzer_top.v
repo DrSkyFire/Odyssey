@@ -1009,10 +1009,29 @@ always @(posedge clk_100m or negedge rst_n) begin
     end
 end
 
-// 运行控制
+// 运行控制（添加延迟自动启动，确保系统初始化完成）
+reg [27:0] auto_start_counter;  // 28位计数器，最大268秒@100MHz
+reg        auto_start_done;
+
+always @(posedge clk_100m or negedge rst_n) begin
+    if (!rst_n) begin
+        auto_start_counter <= 28'd0;
+        auto_start_done <= 1'b0;
+    end else begin
+        // 等待0.5秒（50,000,000个时钟周期）后自动启动
+        if (auto_start_counter == 28'd50_000_000 && !auto_start_done) begin
+            auto_start_done <= 1'b1;
+        end else if (auto_start_counter < 28'd50_000_000) begin
+            auto_start_counter <= auto_start_counter + 1'b1;
+        end
+    end
+end
+
 always @(posedge clk_100m or negedge rst_n) begin
     if (!rst_n)
         run_flag <= 1'b0;
+    else if (auto_start_done && !run_flag)  // 延迟0.5秒后自动启动一次
+        run_flag <= 1'b1;
     else if (btn_start)
         run_flag <= 1'b1;
     else if (btn_stop)
