@@ -1860,7 +1860,65 @@ always @(posedge clk_100m or negedge rst_n) begin
                 end
             end
             
-            8'd69: begin // 最终换行
+            8'd69: begin // 发送换行然后继续输出扩展调试信息
+                if (!uart_busy) begin
+                    uart_data_to_send <= 8'd10;  // '\n'
+                    uart_send_trigger <= 1'b1;
+                    send_state        <= 8'd70;  // 继续输出 ADC / 完整 SADDR
+                end
+            end
+
+            // ========== 新增：输出完整 ADC 样本与完整频谱地址 ==========
+            8'd70: begin // 空格
+                if (!uart_busy) begin
+                    uart_data_to_send <= " ";
+                    uart_send_trigger <= 1'b1;
+                    send_state        <= 8'd71;
+                end
+            end
+            8'd71: begin if (!uart_busy) begin uart_data_to_send <= "A"; uart_send_trigger <= 1'b1; send_state <= 8'd72; end end
+            8'd72: begin if (!uart_busy) begin uart_data_to_send <= "D"; uart_send_trigger <= 1'b1; send_state <= 8'd73; end end
+            8'd73: begin if (!uart_busy) begin uart_data_to_send <= "C"; uart_send_trigger <= 1'b1; send_state <= 8'd74; end end
+            8'd74: begin if (!uart_busy) begin uart_data_to_send <= "S"; uart_send_trigger <= 1'b1; send_state <= 8'd75; end end
+            8'd75: begin if (!uart_busy) begin uart_data_to_send <= ":"; uart_send_trigger <= 1'b1; send_state <= 8'd76; end end
+            8'd76: begin if (!uart_busy) begin uart_data_to_send <= " "; uart_send_trigger <= 1'b1; send_state <= 8'd77; end end
+
+            // CH1 label and 5-digit decimal value
+            8'd77: begin if (!uart_busy) begin uart_data_to_send <= "C"; uart_send_trigger <= 1'b1; send_state <= 8'd78; end end
+            8'd78: begin if (!uart_busy) begin uart_data_to_send <= "1"; uart_send_trigger <= 1'b1; send_state <= 8'd79; end end
+            8'd79: begin if (!uart_busy) begin uart_data_to_send <= ":"; uart_send_trigger <= 1'b1; send_state <= 8'd80; end end
+            8'd80: begin if (!uart_busy) begin uart_data_to_send <= "0" + ((debug_adc_ch1_sample_sync / 10000) % 10); uart_send_trigger <= 1'b1; send_state <= 8'd81; end end
+            8'd81: begin if (!uart_busy) begin uart_data_to_send <= "0" + ((debug_adc_ch1_sample_sync / 1000) % 10); uart_send_trigger <= 1'b1; send_state <= 8'd82; end end
+            8'd82: begin if (!uart_busy) begin uart_data_to_send <= "0" + ((debug_adc_ch1_sample_sync / 100) % 10); uart_send_trigger <= 1'b1; send_state <= 8'd83; end end
+            8'd83: begin if (!uart_busy) begin uart_data_to_send <= "0" + ((debug_adc_ch1_sample_sync / 10) % 10); uart_send_trigger <= 1'b1; send_state <= 8'd84; end end
+            8'd84: begin if (!uart_busy) begin uart_data_to_send <= "0" + (debug_adc_ch1_sample_sync % 10); uart_send_trigger <= 1'b1; send_state <= 8'd85; end end
+
+            // CH2 label and 5-digit decimal value
+            8'd85: begin if (!uart_busy) begin uart_data_to_send <= " "; uart_send_trigger <= 1'b1; send_state <= 8'd86; end end
+            8'd86: begin if (!uart_busy) begin uart_data_to_send <= "C"; uart_send_trigger <= 1'b1; send_state <= 8'd87; end end
+            8'd87: begin if (!uart_busy) begin uart_data_to_send <= "2"; uart_send_trigger <= 1'b1; send_state <= 8'd88; end end
+            8'd88: begin if (!uart_busy) begin uart_data_to_send <= ":"; uart_send_trigger <= 1'b1; send_state <= 8'd89; end end
+            8'd89: begin if (!uart_busy) begin uart_data_to_send <= "0" + ((debug_adc_ch2_sample_sync / 10000) % 10); uart_send_trigger <= 1'b1; send_state <= 8'd90; end end
+            8'd90: begin if (!uart_busy) begin uart_data_to_send <= "0" + ((debug_adc_ch2_sample_sync / 1000) % 10); uart_send_trigger <= 1'b1; send_state <= 8'd91; end end
+            8'd91: begin if (!uart_busy) begin uart_data_to_send <= "0" + ((debug_adc_ch2_sample_sync / 100) % 10); uart_send_trigger <= 1'b1; send_state <= 8'd92; end end
+            8'd92: begin if (!uart_busy) begin uart_data_to_send <= "0" + ((debug_adc_ch2_sample_sync / 10) % 10); uart_send_trigger <= 1'b1; send_state <= 8'd93; end end
+            8'd93: begin if (!uart_busy) begin uart_data_to_send <= "0" + (debug_adc_ch2_sample_sync % 10); uart_send_trigger <= 1'b1; send_state <= 8'd94; end end
+
+            // Full spectrum addr label and 5-digit decimal value
+            8'd94: begin if (!uart_busy) begin uart_data_to_send <= " "; uart_send_trigger <= 1'b1; send_state <= 8'd95; end end
+            8'd95: begin if (!uart_busy) begin uart_data_to_send <= "S"; uart_send_trigger <= 1'b1; send_state <= 8'd96; end end
+            8'd96: begin if (!uart_busy) begin uart_data_to_send <= "F"; uart_send_trigger <= 1'b1; send_state <= 8'd97; end end
+            8'd97: begin if (!uart_busy) begin uart_data_to_send <= "U"; uart_send_trigger <= 1'b1; send_state <= 8'd98; end end
+            8'd98: begin if (!uart_busy) begin uart_data_to_send <= "L"; uart_send_trigger <= 1'b1; send_state <= 8'd99; end end
+            8'd99: begin if (!uart_busy) begin uart_data_to_send <= "L"; uart_send_trigger <= 1'b1; send_state <= 8'd100; end end
+            8'd100: begin if (!uart_busy) begin uart_data_to_send <= ":"; uart_send_trigger <= 1'b1; send_state <= 8'd101; end end
+            8'd101: begin if (!uart_busy) begin uart_data_to_send <= "0" + ((debug_spectrum_addr_last_sync / 10000) % 10); uart_send_trigger <= 1'b1; send_state <= 8'd102; end end
+            8'd102: begin if (!uart_busy) begin uart_data_to_send <= "0" + ((debug_spectrum_addr_last_sync / 1000) % 10); uart_send_trigger <= 1'b1; send_state <= 8'd103; end end
+            8'd103: begin if (!uart_busy) begin uart_data_to_send <= "0" + ((debug_spectrum_addr_last_sync / 100) % 10); uart_send_trigger <= 1'b1; send_state <= 8'd104; end end
+            8'd104: begin if (!uart_busy) begin uart_data_to_send <= "0" + ((debug_spectrum_addr_last_sync / 10) % 10); uart_send_trigger <= 1'b1; send_state <= 8'd105; end end
+            8'd105: begin if (!uart_busy) begin uart_data_to_send <= "0" + (debug_spectrum_addr_last_sync % 10); uart_send_trigger <= 1'b1; send_state <= 8'd106; end end
+
+            8'd106: begin // 最终换行并回到等待
                 if (!uart_busy) begin
                     uart_data_to_send <= 8'd10;  // '\n'
                     uart_send_trigger <= 1'b1;
