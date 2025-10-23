@@ -1009,10 +1009,10 @@ always @(posedge clk_100m or negedge rst_n) begin
     end
 end
 
-// 运行控制（修改：上电自动启动，便于调试）
+// 运行控制
 always @(posedge clk_100m or negedge rst_n) begin
     if (!rst_n)
-        run_flag <= 1'b1;  // 修改：复位后自动启动（原来是1'b0需要按键）
+        run_flag <= 1'b0;
     else if (btn_start)
         run_flag <= 1'b1;
     else if (btn_stop)
