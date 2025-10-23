@@ -15,48 +15,8 @@
     </header>
     <param_list>
         <param>
-            <name>ROUND_MODE</name>
-            <value>Convergent Rounding</value>
-        </param>
-        <param>
             <name>INPUT_WIDTH</name>
             <value>16</value>
-        </param>
-        <param>
-            <name>SCALE_MODE</name>
-            <value>Block Floating Point</value>
-        </param>
-        <param>
-            <name>RST_EN</name>
-            <value>true</value>
-        </param>
-        <param>
-            <name>FFT_ARCH</name>
-            <value>Pipeline</value>
-        </param>
-        <param>
-            <name>OUTPUT_ORDER</name>
-            <value>Natural Order</value>
-        </param>
-        <param>
-            <name>TWIDDLE_WIDTH</name>
-            <value>8</value>
-        </param>
-        <param>
-            <name>FFT_LEN</name>
-            <value>1024</value>
-        </param>
-        <param>
-            <name>CLKDIV_EN</name>
-            <value>false</value>
-        </param>
-        <param>
-            <name>BURST_DATA_RAM_TYPE</name>
-            <value>DRM</value>
-        </param>
-        <param>
-            <name>BURST_TWIDDLE_RAM_TYPE</name>
-            <value>DRM</value>
         </param>
         <param>
             <name>USE_DRM_NUM</name>
@@ -68,8 +28,48 @@
             <value>1</value>
         </param>
         <param>
+            <name>BURST_DATA_RAM_TYPE</name>
+            <value>DRM</value>
+        </param>
+        <param>
+            <name>SCALE_MODE</name>
+            <value>Block Floating Point</value>
+        </param>
+        <param>
             <name>OUTPUT_RAM_TYPE</name>
             <value>Distributed RAM</value>
+        </param>
+        <param>
+            <name>BURST_TWIDDLE_RAM_TYPE</name>
+            <value>DRM</value>
+        </param>
+        <param>
+            <name>TWIDDLE_WIDTH</name>
+            <value>8</value>
+        </param>
+        <param>
+            <name>FFT_LEN</name>
+            <value>1024</value>
+        </param>
+        <param>
+            <name>RST_EN</name>
+            <value>true</value>
+        </param>
+        <param>
+            <name>CLKDIV_EN</name>
+            <value>false</value>
+        </param>
+        <param>
+            <name>ROUND_MODE</name>
+            <value>Convergent Rounding</value>
+        </param>
+        <param>
+            <name>OUTPUT_ORDER</name>
+            <value>Natural Order</value>
+        </param>
+        <param>
+            <name>FFT_ARCH</name>
+            <value>Pipeline</value>
         </param>
     </param_list>
     <pin_list>

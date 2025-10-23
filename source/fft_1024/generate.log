@@ -1,7 +1,7 @@
 IP Generator (Version 2022.2-SP6.4 build 146967)
 Check out license ...
-Start generating at 2025-10-20 13:52
-Instance: fft_1024 (E:\Odyssey-remake\remake\ipcore\fft_1024\fft_1024.idf)
+Start generating at 2025-10-23 21:01
+Instance: fft_1024 (E:\Odyssey_proj\source\fft_1024\fft_1024.idf)
 IP: Pango FFT (1.0)
 Part: Logos-PGL50H-FBG484--6
 Copy 'example_design' ...
