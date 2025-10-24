@@ -182,6 +182,23 @@ wire        btn_stop;                       // 停止按键
 reg         run_flag;                       // 运行标志
 
 //=============================================================================
+// 触发系统信号
+//=============================================================================
+reg         trigger_mode;                   // 触发模式: 0=Auto, 1=Normal
+reg         trigger_edge;                   // 触发边沿: 0=上升沿, 1=下降沿
+reg [9:0]   trigger_level;                  // 触发电平 (0-1023, 10位ADC范围)
+wire        btn_trig_mode;                  // 触发模式切换按键
+wire        btn_trig_level_up;              // 触发电平增加按键
+wire        btn_trig_level_dn;              // 触发电平减少按键
+
+// 触发检测信号
+reg [9:0]   adc_data_d1, adc_data_d2;       // ADC数据延迟（用于边沿检测）
+wire        trigger_event;                  // 触发事件脉冲
+reg         triggered;                      // 已触发标志
+reg [23:0]  auto_trigger_timer;             // 自动触发超时计数器（100MHz）
+localparam  AUTO_TRIG_TIMEOUT = 24'd10_000_000;  // 100ms超时
+
+//=============================================================================
 // 信号参数测量
 //=============================================================================
 wire [15:0] signal_freq;                    // 信号频率
@@ -452,6 +469,96 @@ adc_capture_dual u_adc_dual (
 );
 
 //=============================================================================
+// 3.5 触发检测逻辑（ADC时钟域）
+//=============================================================================
+// 触发电平和模式同步到ADC时钟域
+reg [9:0]   trigger_level_sync;
+reg         trigger_mode_sync;
+reg [1:0]   work_mode_sync;
+
+always @(posedge clk_adc or negedge rst_n) begin
+    if (!rst_n) begin
+        trigger_level_sync <= 10'd512;
+        trigger_mode_sync  <= 1'b0;
+        work_mode_sync     <= 2'd0;
+    end else begin
+        trigger_level_sync <= trigger_level;
+        trigger_mode_sync  <= trigger_mode;
+        work_mode_sync     <= work_mode;
+    end
+end
+
+// ADC数据延迟（边沿检测）
+always @(posedge clk_adc or negedge rst_n) begin
+    if (!rst_n) begin
+        adc_data_d1 <= 10'd0;
+        adc_data_d2 <= 10'd0;
+    end else if (dual_data_valid) begin
+        adc_data_d1 <= ch1_data_sync;  // 使用通道1进行触发
+        adc_data_d2 <= adc_data_d1;
+    end
+end
+
+// 上升沿检测：前一个采样点 < 触发电平，当前采样点 >= 触发电平
+assign trigger_event = (work_mode_sync == 2'd0) &&  // 仅在时域模式下触发
+                       dual_data_valid &&
+                       (adc_data_d2 < trigger_level_sync) && 
+                       (adc_data_d1 >= trigger_level_sync);
+
+// 触发状态机（ADC时钟域）
+reg [1:0] trig_state;  // 0=IDLE, 1=WAIT_TRIG, 2=TRIGGERED, 3=TIMEOUT
+localparam TRIG_IDLE      = 2'd0;
+localparam TRIG_WAIT      = 2'd1;
+localparam TRIG_TRIGGERED = 2'd2;
+localparam TRIG_TIMEOUT   = 2'd3;
+
+reg [19:0] trig_timeout_cnt;  // 1MHz时钟，100ms = 100,000 cycles
+localparam TRIG_TIMEOUT_VAL = 20'd100_000;  // 100ms
+
+always @(posedge clk_adc or negedge rst_n) begin
+    if (!rst_n) begin
+        trig_state <= TRIG_IDLE;
+        triggered <= 1'b0;
+        trig_timeout_cnt <= 20'd0;
+    end else begin
+        case (trig_state)
+            TRIG_IDLE: begin
+                triggered <= 1'b0;
+                trig_timeout_cnt <= 20'd0;
+                if (work_mode_sync == 2'd0 && run_flag)  // 时域模式且运行
+                    trig_state <= TRIG_WAIT;
+            end
+            
+            TRIG_WAIT: begin
+                if (work_mode_sync != 2'd0 || !run_flag) begin
+                    trig_state <= TRIG_IDLE;  // 退出时域模式或停止
+                end else if (trigger_event) begin
+                    triggered <= 1'b1;
+                    trig_state <= TRIG_TRIGGERED;
+                end else if (trigger_mode_sync == 1'b0) begin  // Auto模式
+                    if (trig_timeout_cnt >= TRIG_TIMEOUT_VAL) begin
+                        triggered <= 1'b1;  // 超时也触发
+                        trig_state <= TRIG_TIMEOUT;
+                    end else begin
+                        trig_timeout_cnt <= trig_timeout_cnt + 1'b1;
+                    end
+                end
+            end
+            
+            TRIG_TRIGGERED, TRIG_TIMEOUT: begin
+                // 保持触发状态，等待FIFO写满一帧数据
+                trig_timeout_cnt <= 20'd0;
+                // 简化：写满1024点后复位
+                if (ch1_fifo_wr_water_level >= 12'd1020)
+                    trig_state <= TRIG_IDLE;
+            end
+            
+            default: trig_state <= TRIG_IDLE;
+        endcase
+    end
+end
+
+//=============================================================================
 // 4. 双通道数据缓冲FIFO (跨时钟域：ADC 1MHz → FFT 100MHz)
 //=============================================================================
 // ✓ 双通道独立FIFO，支持同步采集
@@ -459,11 +566,15 @@ adc_capture_dual u_adc_dual (
 // 通道1数据源选择（支持测试信号）
 wire [15:0] ch1_fifo_data_source;
 assign ch1_fifo_data_source = test_mode ? test_signal_gen : {ch1_data_sync, 6'h00};
-assign ch1_fifo_wr_en = test_mode ? 1'b1 : (dual_data_valid && run_flag);
+// FIFO写使能：触发后才写入（时域模式），或者其他模式正常写入
+assign ch1_fifo_wr_en = test_mode ? 1'b1 : 
+                        (work_mode_sync == 2'd0) ? (dual_data_valid && run_flag && triggered) :
+                        (dual_data_valid && run_flag);
 assign ch1_fifo_din = ch1_fifo_data_source;
 
-// 通道2数据源（正常ADC数据）
-assign ch2_fifo_wr_en = dual_data_valid && run_flag;
+// 通道2数据源（正常ADC数据，应用触发控制）
+assign ch2_fifo_wr_en = (work_mode_sync == 2'd0) ? (dual_data_valid && run_flag && triggered) :
+                        (dual_data_valid && run_flag);
 assign ch2_fifo_din = {ch2_data_sync, 6'h00};
 
 // 通道1 FIFO
@@ -981,6 +1092,14 @@ key_debounce u_key_ch_sel (
     .key_pulse      (btn_ch_sel)
 );
 
+// 触发模式切换按键（Auto/Normal）- 使用button[4]
+key_debounce u_key_trig_mode (
+    .clk            (clk_100m),
+    .rst_n          (rst_n),
+    .key_in         (user_button[4]),
+    .key_pulse      (btn_trig_mode)
+);
+
 // ✓ 新增：显示通道切换按键
 key_debounce u_key_display_ch (
     .clk            (clk_100m),
@@ -1007,6 +1126,35 @@ always @(posedge clk_100m or negedge rst_n) begin
         else
             work_mode <= work_mode + 1'b1;
     end
+end
+
+//=============================================================================
+// 触发系统控制逻辑
+//=============================================================================
+// 触发模式切换（Auto/Normal）
+always @(posedge clk_100m or negedge rst_n) begin
+    if (!rst_n)
+        trigger_mode <= 1'b0;  // 默认Auto模式
+    else if (btn_trig_mode)
+        trigger_mode <= ~trigger_mode;
+end
+
+// 触发电平调节（在时域模式下，START/STOP按键复用为电平调节）
+always @(posedge clk_100m or negedge rst_n) begin
+    if (!rst_n)
+        trigger_level <= 10'd512;  // 默认中间电平（0V参考）
+    else if (work_mode == 2'd0) begin  // 仅在时域模式下有效
+        if (btn_start && trigger_level < 10'd1000)  // UP（防溢出）
+            trigger_level <= trigger_level + 10'd10;
+        else if (btn_stop && trigger_level > 10'd23)  // DOWN（防溢出）
+            trigger_level <= trigger_level - 10'd10;
+    end
+end
+
+// 触发边沿选择（暂时固定为上升沿，未来可扩展）
+always @(posedge clk_100m or negedge rst_n) begin
+    if (!rst_n)
+        trigger_edge <= 1'b0;  // 默认上升沿
 end
 
 // 运行控制（添加延迟自动启动，确保系统初始化完成）
@@ -1492,7 +1640,7 @@ end
 // --- UART发送状态机 - HDMI调试输出 (在100MHz系统时钟域) ---
 // 输出格式（每0.5秒更新）:
 // 第1行: "HDMI: P1 P2 CLK INIT"  (系统状态)
-// 第2行: "Mode:X"                (工作模式: T=时域, F=频域, M=测量)
+// 第2行: "Mode:X Trig:A/N Lv:xxx" (工作模式 + 触发信息，仅时域模式显示触发)
 // 第3行: "ADC:x FIFO:xxxx FFT:x xxxx" (调试信息)
 
 always @(posedge clk_100m or negedge rst_n) begin
@@ -1671,7 +1819,94 @@ always @(posedge clk_100m or negedge rst_n) begin
                         default: uart_data_to_send <= "?";
                     endcase
                     uart_send_trigger <= 1'b1;
-                    send_state        <= 8'd20;
+                    send_state        <= 8'd21;  // 改为21，添加触发信息
+                end
+            end
+            
+            // ========== 触发状态显示 (仅时域模式) ==========
+            8'd21: begin // 空格
+                if (!uart_busy) begin
+                    if (work_mode == 2'd0) begin  // 时域模式显示触发信息
+                        uart_data_to_send <= " ";
+                        uart_send_trigger <= 1'b1;
+                        send_state        <= 8'd22;
+                    end else begin  // 其他模式直接换行
+                        uart_data_to_send <= 8'd10;  // '\n'
+                        uart_send_trigger <= 1'b1;
+                        send_state        <= 8'd41;
+                    end
+                end
+            end
+            
+            8'd22: begin // 'Trig:'
+                if (!uart_busy) begin
+                    uart_data_to_send <= "T";
+                    uart_send_trigger <= 1'b1;
+                    send_state        <= 8'd23;
+                end
+            end
+            
+            8'd23: begin
+                if (!uart_busy) begin
+                    uart_data_to_send <= trigger_mode ? "N" : "A";  // Auto/Normal
+                    uart_send_trigger <= 1'b1;
+                    send_state        <= 8'd24;
+                end
+            end
+            
+            8'd24: begin // 空格
+                if (!uart_busy) begin
+                    uart_data_to_send <= " ";
+                    uart_send_trigger <= 1'b1;
+                    send_state        <= 8'd25;
+                end
+            end
+            
+            8'd25: begin // 'Lv:' 触发电平标识
+                if (!uart_busy) begin
+                    uart_data_to_send <= "L";
+                    uart_send_trigger <= 1'b1;
+                    send_state        <= 8'd26;
+                end
+            end
+            
+            8'd26: begin
+                if (!uart_busy) begin
+                    uart_data_to_send <= "v";
+                    uart_send_trigger <= 1'b1;
+                    send_state        <= 8'd27;
+                end
+            end
+            
+            8'd27: begin // ':'
+                if (!uart_busy) begin
+                    uart_data_to_send <= ":";
+                    uart_send_trigger <= 1'b1;
+                    send_state        <= 8'd28;
+                end
+            end
+            
+            8'd28: begin // 触发电平（百位）
+                if (!uart_busy) begin
+                    uart_data_to_send <= "0" + ((trigger_level / 100) % 10);
+                    uart_send_trigger <= 1'b1;
+                    send_state        <= 8'd29;
+                end
+            end
+            
+            8'd29: begin // 十位
+                if (!uart_busy) begin
+                    uart_data_to_send <= "0" + ((trigger_level / 10) % 10);
+                    uart_send_trigger <= 1'b1;
+                    send_state        <= 8'd30;
+                end
+            end
+            
+            8'd30: begin // 个位
+                if (!uart_busy) begin
+                    uart_data_to_send <= "0" + (trigger_level % 10);
+                    uart_send_trigger <= 1'b1;
+                    send_state        <= 8'd20;  // 跳到换行
                 end
             end
             
