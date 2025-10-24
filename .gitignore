@@ -8,6 +8,8 @@
 *.rpt
 pds.log
 run.log
+stdout.log
+stderr.log
 
 # ============ 数据库文件 ============
 *.db
@@ -70,6 +72,7 @@ report_power/
 generate_bitstream/*.bgr
 generate_bitstream/*.sbit
 generate_bitstream/*.smsk
+cfg_verify_result.sbit
 
 # ============ 临时文件 ============
 *.tmp
@@ -78,6 +81,9 @@ generate_bitstream/*.smsk
 *~
 .DS_Store
 Thumbs.db
+temp_*.py
+temp_*.txt
+verify_version.ps1
 
 # ============ 项目配置临时文件 ============
 impl.tcl
@@ -103,6 +109,24 @@ vsim.wlf
 # ============ IP 核备份 ============
 # ip_backup/
 
+# ============ IP 核生成文件 ============
+# FFT IP核自动生成的文件
+source/fft_1024/.last_generated
+source/fft_1024/example_design/
+source/fft_1024/pnr/
+source/fft_1024/rtl/synplify/
+source/fft_1024/sim/
+source/fft_1024/sim_lib/
+source/fft_1024/readme.txt
+
+# 其他IP核生成文件（类似模式）
+source/*/example_design/
+source/*/pnr/
+source/*/rtl/synplify/
+source/*/sim/
+source/*/sim_lib/
+source/*/.last_generated
+
 # ============ 保留的文件 ============
 # 源代码必须保留
 !source/**/*.v
@@ -117,9 +141,14 @@ vsim.wlf
 # IP 核定义文件保留
 !source/**/*.idf
 
+# 文档文件保留
+!*.md
+!*_README.txt
+!USER_MANUAL.txt
+!*_EXPLANATION.txt
+
 # 项目文件保留
 !*.pds
-!README.md
 
 # 约束备份保留（可选，如果不想保留可以注释掉）
 !source/source/constraint_backup/*.fdc
