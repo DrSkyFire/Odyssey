@@ -997,10 +997,10 @@ always @(posedge clk_100m or negedge rst_n) begin
         display_channel <= ~display_channel;
 end
 
-// 工作模式切换（默认频域模式便于测试）
+// 工作模式切换（默认时域模式便于首次调试ADC）
 always @(posedge clk_100m or negedge rst_n) begin
     if (!rst_n)
-        work_mode <= 2'd1;  // ✓ 默认频域模式
+        work_mode <= 2'd0;  // ✓ 默认时域模式，可直接看ADC波形
     else if (btn_mode) begin
         if (work_mode == 2'd2)
             work_mode <= 2'd0;
@@ -1490,10 +1490,10 @@ always @(posedge clk_fft or negedge rst_n) begin
     end
 end
 // --- UART发送状态机 - HDMI调试输出 (在100MHz系统时钟域) ---
-// 输出格式: "HDMI: P1 P2 CLK INIT\n" 每0.5秒
-// P1/P2 = PLL锁定状态 (0/1)
-// CLK = HDMI时钟活动 (0/1)  
-// INIT = MS7210初始化完成 (0/1)
+// 输出格式（每0.5秒更新）:
+// 第1行: "HDMI: P1 P2 CLK INIT"  (系统状态)
+// 第2行: "Mode:X"                (工作模式: T=时域, F=频域, M=测量)
+// 第3行: "ADC:x FIFO:xxxx FFT:x xxxx" (调试信息)
 
 always @(posedge clk_100m or negedge rst_n) begin
     if (!rst_n) begin
@@ -1617,7 +1617,69 @@ always @(posedge clk_100m or negedge rst_n) begin
                 if (!uart_busy) begin
                     uart_data_to_send <= 8'd10;  // '\n'
                     uart_send_trigger <= 1'b1;
-                    send_state        <= 8'd41; // 继续输出调试信息
+                    send_state        <= 8'd14; // 发送模式信息
+                end
+            end
+            
+            // ========== 工作模式显示 ==========
+            8'd14: begin // 发送 'Mode:'
+                if (!uart_busy) begin
+                    uart_data_to_send <= "M";
+                    uart_send_trigger <= 1'b1;
+                    send_state        <= 8'd15;
+                end
+            end
+            
+            8'd15: begin
+                if (!uart_busy) begin
+                    uart_data_to_send <= "o";
+                    uart_send_trigger <= 1'b1;
+                    send_state        <= 8'd16;
+                end
+            end
+            
+            8'd16: begin
+                if (!uart_busy) begin
+                    uart_data_to_send <= "d";
+                    uart_send_trigger <= 1'b1;
+                    send_state        <= 8'd17;
+                end
+            end
+            
+            8'd17: begin
+                if (!uart_busy) begin
+                    uart_data_to_send <= "e";
+                    uart_send_trigger <= 1'b1;
+                    send_state        <= 8'd18;
+                end
+            end
+            
+            8'd18: begin // ':'
+                if (!uart_busy) begin
+                    uart_data_to_send <= ":";
+                    uart_send_trigger <= 1'b1;
+                    send_state        <= 8'd19;
+                end
+            end
+            
+            8'd19: begin // 根据work_mode发送模式字符 'T'/'F'/'M'
+                if (!uart_busy) begin
+                    case (work_mode)
+                        2'd0: uart_data_to_send <= "T";  // TIME
+                        2'd1: uart_data_to_send <= "F";  // FFT
+                        2'd2: uart_data_to_send <= "M";  // MEASURE
+                        default: uart_data_to_send <= "?";
+                    endcase
+                    uart_send_trigger <= 1'b1;
+                    send_state        <= 8'd20;
+                end
+            end
+            
+            8'd20: begin // 发送换行，进入ADC信息
+                if (!uart_busy) begin
+                    uart_data_to_send <= 8'd10;  // '\n'
+                    uart_send_trigger <= 1'b1;
+                    send_state        <= 8'd41; // 继续输出ADC/FFT信息
                 end
             end
             

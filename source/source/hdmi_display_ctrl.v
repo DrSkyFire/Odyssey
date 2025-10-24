@@ -78,6 +78,14 @@ reg [1:0]  work_mode_d1, work_mode_d2, work_mode_d3;
 
 // 网格线标志（预计算，避免取模运算）
 reg        grid_x_flag, grid_y_flag;
+
+// 时域波形相关信号
+reg [15:0] time_data_q;             // 时域数据寄存器
+reg [11:0] waveform_height;         // 波形高度计算结果
+wire [11:0] time_sample_x;          // 时域采样点X坐标（1920点对应1024采样点）
+
+// 时域波形参数
+localparam WAVEFORM_CENTER_Y = (SPECTRUM_Y_START + SPECTRUM_Y_END) / 2;  // 波形中心线
 reg        grid_x_flag_d1, grid_y_flag_d1;
 reg        grid_x_flag_d2, grid_y_flag_d2;
 reg        grid_x_flag_d3, grid_y_flag_d3;
@@ -350,7 +358,28 @@ always @(posedge clk_pixel or negedge rst_n) begin
         grid_y_flag_d3 <= grid_y_flag_d2;
         // BRAM输出流水
         spectrum_data_q <= spectrum_data;
+        // 时域数据采样（每2个像素对应1个采样点，1920/2=960 < 1024采样点）
+        time_data_q <= time_data;
     end
+end
+
+//=============================================================================
+// 时域波形参数计算
+//=============================================================================
+// 时域采样点X坐标映射：1920像素 -> 1024采样点
+// spectrum_addr范围0-1023，映射到0-1919
+// 使用左移避免乘法：addr * 2 - (addr >> 9) 约等于 addr * 1.875
+assign time_sample_x = {spectrum_addr[9:0], 1'b0} - {3'b000, spectrum_addr[9:1]};
+
+//=============================================================================
+// 波形高度计算（将10位ADC数据映射到显示区域）
+//=============================================================================
+always @(*) begin
+    // ADC数据范围：0-1023 (10位)
+    // 映射到频谱区域高度：750像素
+    // 缩放因子：750/1024 ≈ 0.73
+    // 实现：data_q >> 1 + (data_q >> 3) ≈ data * 0.625
+    waveform_height = ({2'b00, time_data_q[9:0]} >> 1) + ({4'b0000, time_data_q[9:2]});
 end
 
 //=============================================================================
@@ -628,37 +657,64 @@ always @(*) begin
             end
         end
         
-        // ========== 频谱显示区域 ==========
+        // ========== 频谱/时域显示区域 ==========
         else if (pixel_y_d3 >= SPECTRUM_Y_START && pixel_y_d3 < SPECTRUM_Y_END) begin
-            // 计算频谱高度（使用流水寄存器）
-            if (spectrum_data_q > 16'd2000)
-                spectrum_height_calc = 12'd480;  // 限制最大高度
-            else
-                spectrum_height_calc = spectrum_data_q[15:4];  // 取高12位
             
-            // 网格线（使用预计算的标志，避免取模）
-            if (grid_x_flag_d3 || grid_y_flag_d3) begin
-                rgb_data = 24'h303030;  // 深灰网格
-            end
-            // 频谱柱状图
-            else if (pixel_y_d3 >= (SPECTRUM_Y_END - spectrum_height_calc - 10)) begin
-                // 渐变色频谱（高度越高颜色越亮）
-                if (spectrum_height_calc > 400) begin
-                    rgb_data = 24'hFF0000;  // 红色（高电平）
-                end else if (spectrum_height_calc > 300) begin
-                    rgb_data = 24'hFFFF00;  // 黄色
-                end else if (spectrum_height_calc > 200) begin
-                    rgb_data = 24'h00FF00;  // 绿色
-                end else if (spectrum_height_calc > 100) begin
-                    rgb_data = 24'h00FFFF;  // 青色
-                end else begin
-                    rgb_data = 24'h0080FF;  // 蓝色（低电平）
+            // ========== 工作模式0：时域波形显示 ==========
+            if (work_mode_d3 == 2'd0) begin
+                // 网格线
+                if (grid_x_flag_d3 || grid_y_flag_d3) begin
+                    rgb_data = 24'h303030;  // 深灰网格
+                end
+                // 中心参考线（0V参考）
+                else if (pixel_y_d3 == WAVEFORM_CENTER_Y || 
+                         pixel_y_d3 == WAVEFORM_CENTER_Y + 1) begin
+                    rgb_data = 24'h606060;  // 灰色中心线
+                end
+                // 波形绘制（使用简化的点绘制，避免复杂线条算法）
+                else if ((pixel_y_d3 >= (WAVEFORM_CENTER_Y - waveform_height)) && 
+                         (pixel_y_d3 <= (WAVEFORM_CENTER_Y - waveform_height + 2))) begin
+                    // 波形线条（3像素宽）
+                    rgb_data = 24'h00FF00;  // 绿色波形
+                end
+                // 背景
+                else begin
+                    rgb_data = {8'd16, 8'd16, (8'd20 + {5'd0, pixel_y_d3[8:6]})}; // 深蓝黑渐变
                 end
             end
-            // 背景（带轻微渐变）
+            
+            // ========== 工作模式1：频域频谱显示 ==========
             else begin
-                rgb_data = {8'd16, 8'd16, (8'd20 + {5'd0, pixel_y_d3[8:6]})}; // 深蓝黑渐变
-            end
+                // 计算频谱高度（使用流水寄存器）
+                if (spectrum_data_q > 16'd2000)
+                    spectrum_height_calc = 12'd480;  // 限制最大高度
+                else
+                    spectrum_height_calc = spectrum_data_q[15:4];  // 取高12位
+                
+                // 网格线（使用预计算的标志，避免取模）
+                if (grid_x_flag_d3 || grid_y_flag_d3) begin
+                    rgb_data = 24'h303030;  // 深灰网格
+                end
+                // 频谱柱状图
+                else if (pixel_y_d3 >= (SPECTRUM_Y_END - spectrum_height_calc - 10)) begin
+                    // 渐变色频谱（高度越高颜色越亮）
+                    if (spectrum_height_calc > 400) begin
+                        rgb_data = 24'hFF0000;  // 红色（高电平）
+                    end else if (spectrum_height_calc > 300) begin
+                        rgb_data = 24'hFFFF00;  // 黄色
+                    end else if (spectrum_height_calc > 200) begin
+                        rgb_data = 24'h00FF00;  // 绿色
+                    end else if (spectrum_height_calc > 100) begin
+                        rgb_data = 24'h00FFFF;  // 青色
+                    end else begin
+                        rgb_data = 24'h0080FF;  // 蓝色（低电平）
+                    end
+                end
+                // 背景（带轻微渐变）
+                else begin
+                    rgb_data = {8'd16, 8'd16, (8'd20 + {5'd0, pixel_y_d3[8:6]})}; // 深蓝黑渐变
+                end
+            end  // 结束 work_mode_d3 else 块
         end
         
         // ========== 中间分隔条 ==========
