@@ -14,7 +14,7 @@ module hdmi_display_ctrl (
     // ✅ 双通道数据接口
     input  wire [15:0]  ch1_data,       // 通道1数据（时域/频域共用）
     input  wire [15:0]  ch2_data,       // 通道2数据（时域/频域共用）
-    output reg  [9:0]   spectrum_addr,
+    output reg  [12:0]  spectrum_addr,  // ✓ 改为13位以支持8192点FFT
     
     // 参数输入
     input  wire [15:0]  freq,           // 频率 (Hz)
@@ -92,7 +92,7 @@ reg [11:0] ch2_waveform_height;     // CH2波形高度
 reg [15:0] time_data_q;             // 时域数据寄存器（兼容）
 reg [15:0] spectrum_data_q;         // 频谱数据寄存器（兼容）
 reg [11:0] waveform_height;         // 波形高度计算结果（兼容）
-wire [11:0] time_sample_x;          // 时域采样点X坐标（1920点对应1024采样点）
+wire [11:0] time_sample_x;          // 时域采样点X坐标（1920点对应8192采样点，压缩显示）
 
 // 时域波形参数
 localparam WAVEFORM_CENTER_Y = (SPECTRUM_Y_START + SPECTRUM_Y_END) / 2;  // 波形中心线
@@ -281,15 +281,19 @@ end
 
 //=============================================================================
 // 频谱地址生成（提前生成）
+// 8192点FFT压缩到1920像素显示：每像素对应约4.27个频谱点
+// 映射公式：spectrum_addr = (h_cnt * 8192) / 1920 ≈ h_cnt * 4.27 ≈ h_cnt << 2 + h_cnt >> 2
 //=============================================================================
 always @(posedge clk_pixel or negedge rst_n) begin
     if (!rst_n)
-        spectrum_addr <= 10'd0;
+        spectrum_addr <= 13'd0;
     else begin
-        if (h_cnt < H_ACTIVE)
-            spectrum_addr <= h_cnt[11:2];
-        else
-            spectrum_addr <= 10'd1023;
+        if (h_cnt < H_ACTIVE) begin
+            // spectrum_addr = h_cnt * 4 + h_cnt / 4 ≈ h_cnt * 4.25
+            // 更精确方法：(h_cnt << 2) + (h_cnt >> 2) 
+            spectrum_addr <= (h_cnt << 2) + {2'b00, h_cnt[11:2]};  // ≈ h_cnt * 4.25
+        end else
+            spectrum_addr <= 13'd8191;  // 超出范围时指向最后一个点
     end
 end
 
@@ -411,10 +415,11 @@ end
 //=============================================================================
 // 时域波形参数计算
 //=============================================================================
-// 时域采样点X坐标映射：1920像素 -> 1024采样点
-// spectrum_addr范围0-1023，映射到0-1919
-// 使用左移避免乘法：addr * 2 - (addr >> 9) 约等于 addr * 1.875
-assign time_sample_x = {spectrum_addr[9:0], 1'b0} - {3'b000, spectrum_addr[9:1]};
+// 时域采样点X坐标映射：1920像素 -> 8192采样点
+// spectrum_addr范围0-8191，映射到0-1919
+// 计算公式：x = (spectrum_addr * 1920) / 8192 ≈ spectrum_addr / 4.27
+// 简化：x ≈ spectrum_addr >> 2（取每4个点）
+assign time_sample_x = {1'b0, spectrum_addr[12:2]};  // 除以4，得到0-2047范围
 
 //=============================================================================
 // ✅ 双通道波形高度计算（Stage 3组合逻辑）

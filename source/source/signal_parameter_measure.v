@@ -19,7 +19,7 @@ module signal_parameter_measure (
     
     // 频域数据输入 (用于THD测量)
     input  wire [15:0]  spectrum_data,      // 频谱幅度
-    input  wire [9:0]   spectrum_addr,      // 频谱地址
+    input  wire [12:0]  spectrum_addr,      // 频谱地址（8192点需要13位）
     input  wire         spectrum_valid,     // 频谱有效
     
     // 参数输出

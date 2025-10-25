@@ -1,0 +1,38 @@
+--/example_design                                   // 设计实例包含的文件
+    -- /bench                                       // FFT IP Example Design Testbench
+        -- ipsxb_fft_onboard_tb.v                   // Example Design 顶层仿真文件
+    -- /rtl                                         // FFT IP Example Design中IP以外的代码文件
+        -- ipsxb_fft_onboard_top.v                  // Example Design 顶层模块
+        -- ipsxb_fft_frame_gen.v                    // Example Design 激励产生模块
+        -- ipsxb_fft_frame_chk.v                    // Example Design 结果检测模块
+        -- ipsxb_fft_sync_arstn.v                   // Example Design 异步复位同步模块
+--/pnr                                              // 综合布局布线工程
+    -- /example_design                              // FFT IP Example Design的综合布局布线工程文件及约束文件
+        -- ipsxb_fft_onboard_top.pds                // Example Design PDS工程文件
+        -- ipsxb_fft_onboard_top.fdc                // Example Design PDS约束文件
+    -- /core_only                                   // FFT IP Core Only的综合布局布线工程文件及约束文件
+        -- ipsxb_fft_core_only.pds                  // Core Only PDS工程文件
+        -- ipsxb_fft_core_only.fdc                  // Core Only PDS约束文件
+        -- ipsxb_fft_core_only.v                    // Core Only PDS顶层文件
+--/rtl                                              // FFT IP Core包含的代码文件
+    -- /distram_sdpram                              // FFT IP调用的分布式RAM SDPRAM IP文件夹
+    -- /distram_sreg                                // FFT IP调用的分布式RAM移位寄存器IP文件夹
+    -- /synplify                                    // FFT IP Core加密代码文件夹，包含的代码文件仅用于综合
+--/sim                                              // Example Design simulation目录
+    --modelsim                                      // ModelSim仿真运行的.do文件及filelist
+        -- ipsxb_fft_onboard_top_sim.do             // 用于Example Design仿真运行的.do文件
+        -- ipsxb_fft_onboard_top_filelist.f         // 用于Example Design仿真的filelist，被ipsxb_fft_onboard_top_sim.do调用
+        -- ipsxb_fft_onboard_top_wave.do            // 用于Example Design仿真运行的波形加载.do文件，被ipsxb_fft_onboard_top_sim.do调用
+        -- sim.bat                                  // 用于Example Design运行ipsxb_fft_onboard_top_sim.do的脚本
+    --cmodel                                        // C语言编写的IP模型文件
+        -- lib_ipsxe_fft_vx_x.so                    // Linux系统下编译用到的动态链接库
+        -- lib_ipsxe_fft_vx_x.lib                   // Windows系统下编译用到的动态链接库
+        -- ipsxe_fft_wrapper_tb.c                   // C模型仿真顶层文件
+        -- ipsxe_fft_def_vx_x.h                     // C模型头文件
+--/sim_lib                                          // FFT IP Core加密代码文件夹，包含的代码文件仅用于仿真
+  -- /modelsim                                      // 适用于ModelSim 10.2c和VCS 2020.03sp2的IP Core加密代码 _sim.vp
+--generate.log                                      // IP生成日志信息
+--$instname.idf                                     // IP的.idf文件，其中$instname是用户输入的例化名
+--$instname.v                                       // IP的wrapper文件，其中$instname是用户输入的例化名
+--$instname_tmpl.v                                  // IP wrapper的verilog例化文件，方便用户使用，其中$instname是用户输入的例化名
+--$instname_tmpl.vhdl                               // IP wrapper的vhdl例化文件，方便用户使用，其中$instname是用户输入的例化名

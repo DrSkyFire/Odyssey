@@ -1,0 +1,4 @@
+create_clock -name {i_aclk} [get_ports {i_aclk}] -period {5} -waveform {0.000 2.500}
+
+set_clock_groups -name g0 -asynchronous -group [get_clocks {i_aclk}]
+

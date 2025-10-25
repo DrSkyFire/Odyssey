@@ -12,7 +12,7 @@ module spectrum_magnitude_calc (
     output wire         fft_ready,
     
     output reg  [15:0]  magnitude,
-    output reg  [9:0]   magnitude_addr,
+    output reg  [12:0]  magnitude_addr,  // 8192需要13位地址
     output reg          magnitude_valid
 );
 
@@ -29,8 +29,8 @@ reg  [15:0] mag_calc;
 // ✓ 添加更多流水线寄存器
 reg  [15:0] max_val_d3;  // 延迟max_val以对齐min_half
 reg         valid_d1, valid_d2, valid_d3;
-reg  [9:0]  addr_cnt;
-reg  [9:0]  addr_d1, addr_d2, addr_d3;
+reg  [12:0] addr_cnt;    // 8192需要13位地址
+reg  [12:0] addr_d1, addr_d2, addr_d3;  // 8192需要13位地址
 
 assign re = fft_dout[15:0];
 assign im = fft_dout[31:16];
@@ -41,10 +41,10 @@ assign fft_ready = 1'b1;
 //=============================================================================
 always @(posedge clk or negedge rst_n) begin
     if (!rst_n)
-        addr_cnt <= 10'd0;
+        addr_cnt <= 13'd0;
     else if (fft_valid) begin
-        if (addr_cnt == 10'd1023)
-            addr_cnt <= 10'd0;  // 计数到1023后回到0
+        if (addr_cnt == 13'd8191)
+            addr_cnt <= 13'd0;  // 计数到8191后回到0
         else
             addr_cnt <= addr_cnt + 1'b1;
     end

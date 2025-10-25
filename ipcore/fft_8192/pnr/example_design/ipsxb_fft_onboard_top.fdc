@@ -1,0 +1,67 @@
+###==== BEGIN "create_clock"
+create_clock -name {i_clk} [get_ports {i_clk}] -period {6.666} -waveform {0.000 3.333}
+###==== END "create_clock"
+
+###==== BEGIN "create_generated_clock"
+###==== END "create_generated_clock"
+
+###==== BEGIN "set_clock_latency"
+###==== END "set_clock_latency"
+
+###==== BEGIN "set_clock_uncertainty"
+###==== END "set_clock_uncertainty"
+
+###==== BEGIN "set_clock_groups"
+set_clock_groups -name g0 -asynchronous -group [get_clocks {i_clk}]
+###==== END "set_clock_groups"
+
+###==== BEGIN "set_input_delay"
+###==== END "set_input_delay"
+
+###==== BEGIN "set_output_delay"
+###==== END "set_output_delay"
+
+###==== BEGIN "set_max_delay"
+###==== END "set_max_delay"
+
+###==== BEGIN "set_min_delay"
+###==== END "set_min_delay"
+
+###==== BEGIN "set_multicycle_path"
+###==== END "set_multicycle_path"
+
+###==== BEGIN "set_false_path"
+###==== END "set_false_path"
+
+###==== BEGIN Attributes - (Populated from tab in SCOPE, do not edit)
+###==== END Attributes
+
+###==== BEGIN Logical
+###==== END Logical
+
+###==== BEGIN Io Table
+#define_attribute {p:i_start_test} {PAP_IO_DIRECTION} {INPUT}
+#define_attribute {p:i_start_test} {PAP_IO_VCCIO} {3.3}
+#define_attribute {p:i_start_test} {PAP_IO_STANDARD} {LVCMOS33}
+#define_attribute {p:i_start_test} {PAP_IO_LOC} {AD28}
+#define_attribute {p:i_rstn} {PAP_IO_DIRECTION} {INPUT}
+#define_attribute {p:i_rstn} {PAP_IO_VCCIO} {3.3}
+#define_attribute {p:i_rstn} {PAP_IO_STANDARD} {LVCMOS33}
+#define_attribute {p:i_rstn} {PAP_IO_LOC} {AB30}
+#define_attribute {p:i_clk} {PAP_IO_DIRECTION} {INPUT}
+#define_attribute {p:i_clk} {PAP_IO_VCCIO} {3.3}
+#define_attribute {p:i_clk} {PAP_IO_STANDARD} {LVCMOS33}
+#define_attribute {p:i_clk} {PAP_IO_LOC} {AB27}
+#define_attribute {p:o_chk_finished} {PAP_IO_DIRECTION} {OUTPUT}
+#define_attribute {p:o_chk_finished} {PAP_IO_VCCIO} {3.3}
+#define_attribute {p:o_chk_finished} {PAP_IO_STANDARD} {LVCMOS33}
+#define_attribute {p:o_chk_finished} {PAP_IO_DRIVE} {4}
+#define_attribute {p:o_chk_finished} {PAP_IO_SLEW} {SLOW}
+#define_attribute {p:o_chk_finished} {PAP_IO_LOC} {Y25}
+#define_attribute {p:o_err} {PAP_IO_DIRECTION} {OUTPUT}
+#define_attribute {p:o_err} {PAP_IO_VCCIO} {3.3}
+#define_attribute {p:o_err} {PAP_IO_STANDARD} {LVCMOS33}
+#define_attribute {p:o_err} {PAP_IO_DRIVE} {4}
+#define_attribute {p:o_err} {PAP_IO_SLEW} {SLOW}
+#define_attribute {p:o_err} {PAP_IO_LOC} {Y26}
+####==== END Io Table

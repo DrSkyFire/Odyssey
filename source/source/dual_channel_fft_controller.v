@@ -2,11 +2,11 @@
 // 文件名: dual_channel_fft_controller.v
 // 描述: 双通道时分复用FFT控制器
 // 功能: 使用单个FFT核交替处理两个通道的数据
-// 优点: 零额外APM消耗，保持1024点16位精度
+// 优点: 零额外APM消耗，支持8192点11位精度
 //=============================================================================
 
 module dual_channel_fft_controller #(
-    parameter FFT_POINTS = 1024,
+    parameter FFT_POINTS = 8192,  // ✓ 默认改为8192点
     parameter DATA_WIDTH = 16
 )(
     input  wire                     clk,
@@ -16,13 +16,13 @@ module dual_channel_fft_controller #(
     input  wire                     ch1_fifo_empty,
     output reg                      ch1_fifo_rd_en,
     input  wire [DATA_WIDTH-1:0]    ch1_fifo_dout,
-    input  wire [11:0]              ch1_fifo_rd_water_level,
+    input  wire [13:0]              ch1_fifo_rd_water_level,  // IP核输出14位[13:0]
     
     // 通道2 FIFO接口
     input  wire                     ch2_fifo_empty,
     output reg                      ch2_fifo_rd_en,
     input  wire [DATA_WIDTH-1:0]    ch2_fifo_dout,
-    input  wire [11:0]              ch2_fifo_rd_water_level,
+    input  wire [13:0]              ch2_fifo_rd_water_level,  // IP核输出14位[13:0]
     
     // FFT IP接口 (AXI4-Stream)
     output reg  [31:0]              fft_din,
@@ -37,12 +37,12 @@ module dual_channel_fft_controller #(
     
     // 频谱输出 - 通道1
     output reg  [15:0]              ch1_spectrum_data,
-    output reg  [9:0]               ch1_spectrum_addr,
+    output reg  [12:0]              ch1_spectrum_addr,  // 8192需要13位地址
     output reg                      ch1_spectrum_valid,
     
     // 频谱输出 - 通道2
     output reg  [15:0]              ch2_spectrum_data,
-    output reg  [9:0]               ch2_spectrum_addr,
+    output reg  [12:0]              ch2_spectrum_addr,  // 8192需要13位地址
     output reg                      ch2_spectrum_valid,
     
     // 控制信号
@@ -74,16 +74,20 @@ reg [3:0]  state, next_state;
 //=============================================================================
 // 内部信号
 //=============================================================================
-reg [9:0]   send_cnt;           // 发送计数器
-reg [9:0]   recv_cnt;           // 接收计数器
+reg [12:0]  send_cnt;           // 发送计数器（8192需要13位）
+reg [12:0]  recv_cnt;           // 接收计数器（8192需要13位）
 reg [15:0]  data_buffer;        // 数据缓存
 reg         fifo_rd_en;         // 统一的FIFO读使能
 wire [15:0] fifo_dout_mux;      // 多路复用后的FIFO输出
+wire [10:0] data_11bit;         // 11位ADC数据（从16位FIFO数据中提取）
 
 // 频谱计算相关
 wire [15:0] spectrum_magnitude;
-wire [9:0]  spectrum_addr;
+wire [12:0] spectrum_addr;      // 8192需要13位地址
 wire        spectrum_valid;
+
+// 从FIFO输出的16位数据中提取11位有效数据（高11位）
+assign data_11bit = fifo_dout_mux[15:5];
 
 //=============================================================================
 // 通道选择多路复用
@@ -112,7 +116,7 @@ always @(*) begin
     next_state = state;
     case (state)
         IDLE: begin
-            if (fft_enable && work_mode == 2'd1) begin
+            if (fft_enable) begin  // ✓ 移除work_mode检查，fft_enable已经包含了这个条件
                 // 优先处理通道1
                 if (ch1_fifo_rd_water_level >= FFT_POINTS)
                     next_state = CH1_WAIT;
@@ -236,23 +240,25 @@ end
 //=============================================================================
 always @(posedge clk or negedge rst_n) begin
     if (!rst_n) begin
-        send_cnt <= 10'd0;
+        send_cnt <= 13'd0;
     end else begin
         if (state == CH1_SEND || state == CH2_SEND) begin
             if (fft_din_valid && fft_din_ready) begin
                 if (send_cnt == FFT_POINTS - 1)
-                    send_cnt <= 10'd0;
+                    send_cnt <= 13'd0;
                 else
                     send_cnt <= send_cnt + 1'b1;
             end
         end else begin
-            send_cnt <= 10'd0;
+            send_cnt <= 13'd0;
         end
     end
 end
 
 //=============================================================================
 // FFT输入数据生成（参考官方例程）
+// 格式：32位 = {虚部[31:16], 实部[15:0]}
+// 实际使用：虚部=0，实部=11位ADC数据（符号扩展到16位）
 //=============================================================================
 always @(posedge clk or negedge rst_n) begin
     if (!rst_n) begin
@@ -262,7 +268,8 @@ always @(posedge clk or negedge rst_n) begin
     end else begin
         if (state == CH1_SEND || state == CH2_SEND) begin
             fft_din_valid <= 1'b1;
-            fft_din <= {16'd0, data_buffer};
+            // FFT输入格式：{虚部16位（0），实部16位（11位数据+符号扩展）}
+            fft_din <= {16'd0, {5'd0, data_buffer[15:5]}};  // 提取高11位作为实部
             
             // 在倒数第二个数据时拉高tlast
             if (send_cnt == FFT_POINTS - 2)
