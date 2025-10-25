@@ -22,12 +22,10 @@
     // 通道1 (AD-IN1)
     input  wire [9:0]   adc_ch1_data,       // 通道1数据 (管脚23,25,26,27,28,29,30,31,32,33)
     output wire         adc_ch1_clk,        // 通道1时钟 (管脚34)
-    output wire         adc_ch1_oe,         // 通道1输出使能 (管脚36)
     
     // 通道2 (AD-IN2)
     input  wire [9:0]   adc_ch2_data,       // 通道2数据 (管脚5,7,8,9,10,11,12,13,14,15)
     output wire         adc_ch2_clk,        // 通道2时钟 (管脚16)
-    output wire         adc_ch2_oe,         // 通道2输出使能 (管脚18)
 
     // MS7210 HDMI输出（添加这些端口）
     output wire         hd_tx_pclk,         // MS7210像素时钟
@@ -442,8 +440,9 @@ assign rst_n = rst_n_sync;
 assign adc_oe = 1'b1; // 直接使能ADC数据输出
 assign adc_data_sync = channel_sel ? ch2_data_sync[9:2] : ch1_data_sync[9:2];
 assign adc_data_valid = dual_data_valid;
-// ADC数据扩展到16位 (高8位为数据，低8位补0以提高精度)
-assign selected_adc_data = channel_sel ? {ch1_data_sync, 6'h00} : {ch2_data_sync, 6'h00};
+// ADC数据扩展到16位 (高10位为数据，低6位补0以提高精度)
+// 修正：channel_sel=0时选择CH1，=1时选择CH2
+assign selected_adc_data = channel_sel ? {ch2_data_sync, 6'h00} : {ch1_data_sync, 6'h00};
 assign adc_data_ext = selected_adc_data;
 
 adc_capture_dual u_adc_dual (
@@ -453,12 +452,10 @@ adc_capture_dual u_adc_dual (
     // 通道1接口
     .adc_ch1_in         (adc_ch1_data),
     .adc_ch1_clk_out    (adc_ch1_clk),
-    .adc_ch1_oe_out     (adc_ch1_oe),
     
     // 通道2接口
     .adc_ch2_in         (adc_ch2_data),
     .adc_ch2_clk_out    (adc_ch2_clk),
-    .adc_ch2_oe_out     (adc_ch2_oe),
     
     // 数据输出
     .ch1_data_out       (ch1_data_sync),
@@ -779,23 +776,24 @@ always @(posedge clk_fft or negedge rst_n) begin
 end
 
 //=============================================================================
-// 7. 频谱幅度计算模块
+// 7. 频谱幅度计算模块 (已集成在dual_channel_fft_controller内部)
 //=============================================================================
-spectrum_magnitude_calc u_spectrum_calc (
-    .clk            (clk_fft),
-    .rst_n          (rst_n),
-    
-    // FFT输出
-    .fft_dout       (fft_dout),
-    .fft_valid      (fft_dout_valid),
-    .fft_last       (fft_dout_last),
-    .fft_ready      (fft_dout_ready),
-    
-    // 幅度输出
-    .magnitude      (spectrum_magnitude),
-    .magnitude_addr (spectrum_wr_addr),
-    .magnitude_valid(spectrum_valid)
-);
+// 注释掉：频谱计算已经在dual_channel_fft_controller内部完成
+// spectrum_magnitude_calc u_spectrum_calc (
+//     .clk            (clk_fft),
+//     .rst_n          (rst_n),
+//     
+//     // FFT输出
+//     .fft_dout       (fft_dout),
+//     .fft_valid      (fft_dout_valid),
+//     .fft_last       (fft_dout_last),
+//     .fft_ready      (fft_dout_ready),
+//     
+//     // 幅度输出
+//     .magnitude      (spectrum_magnitude),
+//     .magnitude_addr (spectrum_wr_addr),
+//     .magnitude_valid(spectrum_valid)
+// );
 
 //=============================================================================
 // 8. 频谱数据存储 (双口RAM)
@@ -815,6 +813,106 @@ spectrum_magnitude_calc u_spectrum_calc (
 // );
 //=============================================================================
 // 8. 双通道频谱数据存储 (双口RAM - 乒乓缓存)
+//=============================================================================
+
+//=============================================================================
+// 8.1 时域模式：ADC数据直接写入RAM（绕过FFT）
+//=============================================================================
+reg [9:0] time_wr_addr_ch1, time_wr_addr_ch2;  // 时域写地址计数器
+reg       time_wr_en_ch1, time_wr_en_ch2;      // 时域写使能
+reg       time_buffer_sel_ch1, time_buffer_sel_ch2;  // 时域乒乓选择
+
+// 时域写入条件：时域模式 + 运行中 + (有数据或测试模式)
+wire time_wr_condition_ch1;
+wire time_wr_condition_ch2;
+reg test_mode_sync;  // 同步test_mode到ADC时钟域
+
+always @(posedge clk_adc or negedge rst_n) begin
+    if (!rst_n)
+        test_mode_sync <= 1'b0;
+    else
+        test_mode_sync <= test_mode;
+end
+
+// 时域写入条件：简化逻辑，不强制要求触发
+// 在测试模式或者有ADC数据时就写入
+assign time_wr_condition_ch1 = (work_mode_sync == 2'd0) && run_flag && 
+                               (test_mode_sync || dual_data_valid);
+assign time_wr_condition_ch2 = (work_mode_sync == 2'd0) && run_flag && 
+                               dual_data_valid;  // CH2不使用测试信号
+
+// 通道1时域写地址生成（在ADC时钟域）
+always @(posedge clk_adc or negedge rst_n) begin
+    if (!rst_n) begin
+        time_wr_addr_ch1 <= 10'd0;
+        time_wr_en_ch1 <= 1'b0;
+    end else if (time_wr_condition_ch1) begin
+        // 时域模式下，持续写入（循环缓存）
+        time_wr_en_ch1 <= 1'b1;
+        if (time_wr_addr_ch1 == 10'd1023)
+            time_wr_addr_ch1 <= 10'd0;  // 循环写入
+        else
+            time_wr_addr_ch1 <= time_wr_addr_ch1 + 1'b1;
+    end else begin
+        time_wr_en_ch1 <= 1'b0;
+        if (work_mode_sync != 2'd0)  // 退出时域模式时复位地址
+            time_wr_addr_ch1 <= 10'd0;
+    end
+end
+
+// 通道2时域写地址生成
+always @(posedge clk_adc or negedge rst_n) begin
+    if (!rst_n) begin
+        time_wr_addr_ch2 <= 10'd0;
+        time_wr_en_ch2 <= 1'b0;
+    end else if (time_wr_condition_ch2) begin
+        time_wr_en_ch2 <= 1'b1;
+        if (time_wr_addr_ch2 == 10'd1023)
+            time_wr_addr_ch2 <= 10'd0;
+        else
+            time_wr_addr_ch2 <= time_wr_addr_ch2 + 1'b1;
+    end else begin
+        time_wr_en_ch2 <= 1'b0;
+        if (work_mode_sync != 2'd0)
+            time_wr_addr_ch2 <= 10'd0;
+    end
+end
+
+// 时域乒乓缓存切换（写满1024点后切换）
+always @(posedge clk_adc or negedge rst_n) begin
+    if (!rst_n)
+        time_buffer_sel_ch1 <= 1'b0;
+    else if (time_wr_en_ch1 && time_wr_addr_ch1 == 10'd1023)
+        time_buffer_sel_ch1 <= ~time_buffer_sel_ch1;
+end
+
+always @(posedge clk_adc or negedge rst_n) begin
+    if (!rst_n)
+        time_buffer_sel_ch2 <= 1'b0;
+    else if (time_wr_en_ch2 && time_wr_addr_ch2 == 10'd1023)
+        time_buffer_sel_ch2 <= ~time_buffer_sel_ch2;
+end
+
+// 同步时域buffer_sel到FFT时钟域（用于读取）
+reg time_buffer_sel_sync1_ch1, time_buffer_sel_sync2_ch1;
+reg time_buffer_sel_sync1_ch2, time_buffer_sel_sync2_ch2;
+
+always @(posedge clk_fft or negedge rst_n) begin
+    if (!rst_n) begin
+        time_buffer_sel_sync1_ch1 <= 1'b0;
+        time_buffer_sel_sync2_ch1 <= 1'b0;
+        time_buffer_sel_sync1_ch2 <= 1'b0;
+        time_buffer_sel_sync2_ch2 <= 1'b0;
+    end else begin
+        time_buffer_sel_sync1_ch1 <= time_buffer_sel_ch1;
+        time_buffer_sel_sync2_ch1 <= time_buffer_sel_sync1_ch1;
+        time_buffer_sel_sync1_ch2 <= time_buffer_sel_ch2;
+        time_buffer_sel_sync2_ch2 <= time_buffer_sel_sync1_ch2;
+    end
+end
+
+//=============================================================================
+// 8.2 频谱模式：乒乓缓存切换逻辑（在FFT时钟域）
 //=============================================================================
 //--- 通道1乒乓缓存切换逻辑（在FFT时钟域）---
 always @(posedge clk_fft or negedge rst_n) begin
@@ -854,33 +952,146 @@ always @(posedge clk_hdmi_pixel or negedge rst_n) begin
     end
 end
 
-//--- 通道1写端口选择---
-assign ch1_ram0_we      = ch1_spectrum_valid && (ch1_buffer_sel == 1'b0);
-assign ch1_ram0_wr_addr = ch1_spectrum_wr_addr;
-assign ch1_ram0_wr_data = ch1_spectrum_magnitude;
+// 同步时域写使能和地址到FFT时钟域
+reg [9:0] time_wr_addr_ch1_sync1, time_wr_addr_ch1_sync2;
+reg [9:0] time_wr_addr_ch2_sync1, time_wr_addr_ch2_sync2;
+reg       time_wr_en_ch1_sync1, time_wr_en_ch1_sync2;
+reg       time_wr_en_ch2_sync1, time_wr_en_ch2_sync2;
+reg [15:0] ch1_data_sync_fft1, ch1_data_sync_fft2;
+reg [15:0] ch2_data_sync_fft1, ch2_data_sync_fft2;
+reg        test_mode_fft_sync1, test_mode_fft_sync2;
+reg [15:0] test_signal_fft_sync1, test_signal_fft_sync2;
 
-assign ch1_ram1_we      = ch1_spectrum_valid && (ch1_buffer_sel == 1'b1);
-assign ch1_ram1_wr_addr = ch1_spectrum_wr_addr;
-assign ch1_ram1_wr_data = ch1_spectrum_magnitude;
+always @(posedge clk_fft or negedge rst_n) begin
+    if (!rst_n) begin
+        time_wr_addr_ch1_sync1 <= 10'd0;
+        time_wr_addr_ch1_sync2 <= 10'd0;
+        time_wr_addr_ch2_sync1 <= 10'd0;
+        time_wr_addr_ch2_sync2 <= 10'd0;
+        time_wr_en_ch1_sync1 <= 1'b0;
+        time_wr_en_ch1_sync2 <= 1'b0;
+        time_wr_en_ch2_sync1 <= 1'b0;
+        time_wr_en_ch2_sync2 <= 1'b0;
+        ch1_data_sync_fft1 <= 16'd0;
+        ch1_data_sync_fft2 <= 16'd0;
+        ch2_data_sync_fft1 <= 16'd0;
+        ch2_data_sync_fft2 <= 16'd0;
+        test_mode_fft_sync1 <= 1'b0;
+        test_mode_fft_sync2 <= 1'b0;
+        test_signal_fft_sync1 <= 16'd0;
+        test_signal_fft_sync2 <= 16'd0;
+    end else begin
+        // 双级寄存器同步
+        time_wr_addr_ch1_sync1 <= time_wr_addr_ch1;
+        time_wr_addr_ch1_sync2 <= time_wr_addr_ch1_sync1;
+        time_wr_addr_ch2_sync1 <= time_wr_addr_ch2;
+        time_wr_addr_ch2_sync2 <= time_wr_addr_ch2_sync1;
+        time_wr_en_ch1_sync1 <= time_wr_en_ch1;
+        time_wr_en_ch1_sync2 <= time_wr_en_ch1_sync1;
+        time_wr_en_ch2_sync1 <= time_wr_en_ch2;
+        time_wr_en_ch2_sync2 <= time_wr_en_ch2_sync1;
+        // 数据同步（包含测试模式支持）
+        test_mode_fft_sync1 <= test_mode;
+        test_mode_fft_sync2 <= test_mode_fft_sync1;
+        test_signal_fft_sync1 <= test_signal_gen;
+        test_signal_fft_sync2 <= test_signal_fft_sync1;
+        ch1_data_sync_fft1 <= {ch1_data_sync, 6'h00};
+        ch1_data_sync_fft2 <= ch1_data_sync_fft1;
+        ch2_data_sync_fft1 <= {ch2_data_sync, 6'h00};
+        ch2_data_sync_fft2 <= ch2_data_sync_fft1;
+    end
+end
 
-//--- 通道2写端口选择---
-assign ch2_ram0_we      = ch2_spectrum_valid && (ch2_buffer_sel == 1'b0);
-assign ch2_ram0_wr_addr = ch2_spectrum_wr_addr;
-assign ch2_ram0_wr_data = ch2_spectrum_magnitude;
+//--- 通道1写端口选择（时域/频域模式多路复用）---
+// 时域模式：使用同步后的ADC数据或测试信号
+// 频域模式：使用FFT输出的频谱数据
+wire [15:0] ch1_time_data_src;
+// 时域数据源：测试模式用测试信号，否则用ADC数据
+assign ch1_time_data_src = test_mode_fft_sync2 ? test_signal_fft_sync2 : ch1_data_sync_fft2;
+wire       ch1_ram_wr_en;
+wire [9:0] ch1_ram_wr_addr;
+wire [15:0] ch1_ram_wr_data;
+reg [1:0]  work_mode_fft_sync;  // 同步到FFT时钟域的work_mode
 
-assign ch2_ram1_we      = ch2_spectrum_valid && (ch2_buffer_sel == 1'b1);
-assign ch2_ram1_wr_addr = ch2_spectrum_wr_addr;
-assign ch2_ram1_wr_data = ch2_spectrum_magnitude;
+always @(posedge clk_fft or negedge rst_n) begin
+    if (!rst_n)
+        work_mode_fft_sync <= 2'd0;
+    else
+        work_mode_fft_sync <= work_mode;
+end
 
-//--- 通道1读端口选择---
+assign ch1_ram_wr_en   = (work_mode_fft_sync == 2'd0) ? time_wr_en_ch1_sync2 : ch1_spectrum_valid;
+assign ch1_ram_wr_addr = (work_mode_fft_sync == 2'd0) ? time_wr_addr_ch1_sync2 : ch1_spectrum_wr_addr;
+assign ch1_ram_wr_data = (work_mode_fft_sync == 2'd0) ? ch1_time_data_src : ch1_spectrum_magnitude;  // ✅使用测试信号或ADC数据
+
+assign ch1_ram0_we      = ch1_ram_wr_en && (((work_mode_fft_sync == 2'd0) ? time_buffer_sel_sync2_ch1 : ch1_buffer_sel) == 1'b0);
+assign ch1_ram0_wr_addr = ch1_ram_wr_addr;
+assign ch1_ram0_wr_data = ch1_ram_wr_data;
+
+assign ch1_ram1_we      = ch1_ram_wr_en && (((work_mode_fft_sync == 2'd0) ? time_buffer_sel_sync2_ch1 : ch1_buffer_sel) == 1'b1);
+assign ch1_ram1_wr_addr = ch1_ram_wr_addr;
+assign ch1_ram1_wr_data = ch1_ram_wr_data;
+
+//--- 通道2写端口选择（时域/频域模式多路复用）---
+wire       ch2_ram_wr_en;
+wire [9:0] ch2_ram_wr_addr;
+wire [15:0] ch2_ram_wr_data;
+
+assign ch2_ram_wr_en   = (work_mode_fft_sync == 2'd0) ? time_wr_en_ch2_sync2 : ch2_spectrum_valid;
+assign ch2_ram_wr_addr = (work_mode_fft_sync == 2'd0) ? time_wr_addr_ch2_sync2 : ch2_spectrum_wr_addr;
+assign ch2_ram_wr_data = (work_mode_fft_sync == 2'd0) ? ch2_data_sync_fft2 : ch2_spectrum_magnitude;
+
+assign ch2_ram0_we      = ch2_ram_wr_en && (((work_mode_fft_sync == 2'd0) ? time_buffer_sel_sync2_ch2 : ch2_buffer_sel) == 1'b0);
+assign ch2_ram0_wr_addr = ch2_ram_wr_addr;
+assign ch2_ram0_wr_data = ch2_ram_wr_data;
+
+assign ch2_ram1_we      = ch2_ram_wr_en && (((work_mode_fft_sync == 2'd0) ? time_buffer_sel_sync2_ch2 : ch2_buffer_sel) == 1'b1);
+assign ch2_ram1_wr_addr = ch2_ram_wr_addr;
+assign ch2_ram1_wr_data = ch2_ram_wr_data;
+
+//--- 通道1读端口选择（使用同步后的buffer_sel，时域/频域自动切换）---
+// 同步work_mode到HDMI时钟域
+reg [1:0] work_mode_hdmi_sync1, work_mode_hdmi_sync2;
+
+always @(posedge clk_hdmi_pixel or negedge rst_n) begin
+    if (!rst_n) begin
+        work_mode_hdmi_sync1 <= 2'd0;
+        work_mode_hdmi_sync2 <= 2'd0;
+    end else begin
+        work_mode_hdmi_sync1 <= work_mode;
+        work_mode_hdmi_sync2 <= work_mode_hdmi_sync1;
+    end
+end
+
+// 同步时域buffer_sel到HDMI时钟域
+reg time_buffer_sel_hdmi_ch1_sync1, time_buffer_sel_hdmi_ch1_sync2;
+reg time_buffer_sel_hdmi_ch2_sync1, time_buffer_sel_hdmi_ch2_sync2;
+
+always @(posedge clk_hdmi_pixel or negedge rst_n) begin
+    if (!rst_n) begin
+        time_buffer_sel_hdmi_ch1_sync1 <= 1'b0;
+        time_buffer_sel_hdmi_ch1_sync2 <= 1'b0;
+        time_buffer_sel_hdmi_ch2_sync1 <= 1'b0;
+        time_buffer_sel_hdmi_ch2_sync2 <= 1'b0;
+    end else begin
+        time_buffer_sel_hdmi_ch1_sync1 <= time_buffer_sel_ch1;
+        time_buffer_sel_hdmi_ch1_sync2 <= time_buffer_sel_hdmi_ch1_sync1;
+        time_buffer_sel_hdmi_ch2_sync1 <= time_buffer_sel_ch2;
+        time_buffer_sel_hdmi_ch2_sync2 <= time_buffer_sel_hdmi_ch2_sync1;
+    end
+end
+
 assign ch1_ram0_rd_addr = spectrum_rd_addr;
 assign ch1_ram1_rd_addr = spectrum_rd_addr;
-assign ch1_spectrum_rd_data = ch1_buffer_sel_sync2 ? ch1_ram0_rd_data : ch1_ram1_rd_data;
+// 时域模式使用时域buffer_sel，频域模式使用频谱buffer_sel
+wire ch1_rd_buffer_sel = (work_mode_hdmi_sync2 == 2'd0) ? (~time_buffer_sel_hdmi_ch1_sync2) : ch1_buffer_sel_sync2;
+assign ch1_spectrum_rd_data = ch1_rd_buffer_sel ? ch1_ram1_rd_data : ch1_ram0_rd_data;
 
 //--- 通道2读端口选择---
 assign ch2_ram0_rd_addr = spectrum_rd_addr;
 assign ch2_ram1_rd_addr = spectrum_rd_addr;
-assign ch2_spectrum_rd_data = ch2_buffer_sel_sync2 ? ch2_ram0_rd_data : ch2_ram1_rd_data;
+wire ch2_rd_buffer_sel = (work_mode_hdmi_sync2 == 2'd0) ? (~time_buffer_sel_hdmi_ch2_sync2) : ch2_buffer_sel_sync2;
+assign ch2_spectrum_rd_data = ch2_rd_buffer_sel ? ch2_ram1_rd_data : ch2_ram0_rd_data;
 
 //--- 显示通道选择---
 assign spectrum_rd_data = display_channel ? ch2_spectrum_rd_data : ch1_spectrum_rd_data;
@@ -944,10 +1155,10 @@ signal_parameter_measure u_param_measure (
     .clk            (clk_100m),
     .rst_n          (rst_n),
     
-    // 时域数据输入
+    // 时域数据输入（使用通道1同步数据，支持测试信号）
     .sample_clk     (clk_adc),
-    .sample_data    (adc_data_sync),
-    .sample_valid   (adc_data_valid),
+    .sample_data    (ch1_data_sync[9:2]),  // ✅ 修正：直接使用CH1数据
+    .sample_valid   (dual_data_valid || test_mode),  // ✅ 测试模式也标记为有效
     
     // 频域数据输入（使用通道1）
     .spectrum_data  (ch1_spectrum_magnitude),
@@ -960,8 +1171,8 @@ signal_parameter_measure u_param_measure (
     .duty_out       (signal_duty),
     .thd_out        (signal_thd),
     
-    // 控制
-    .measure_en     (work_mode == 2'd2)
+    // 控制 - ✅ 始终启用测量，只是在mode=2时才重点显示
+    .measure_en     (run_flag)  // 运行时就测量
 );
 
 //=============================================================================
@@ -1019,9 +1230,9 @@ hdmi_display_ctrl u_hdmi_ctrl (
     .rst_n              (rst_n),
     
     // 显示数据输入
-    .spectrum_data      (spectrum_rd_data),
+    .spectrum_data      (spectrum_rd_data),     // 频域/时域数据都从RAM读取
     .spectrum_addr      (spectrum_rd_addr),
-    .time_data          (adc_data_ext),
+    .time_data          (spectrum_rd_data),     // ✅ 修正：时域模式也从RAM读取！
     
     // 参数显示
     .freq               (signal_freq),
@@ -1235,28 +1446,55 @@ always @(posedge clk_100m or negedge rst_n) begin
 end
 
 //=============================================================================
-// 改进的测试信号发生器 - 多频混合信号
+// 改进的测试信号发生器 - 简化的正弦波查表法
 //=============================================================================
 // 在clk_adc (1MHz)时钟域生成测试信号
-// 生成1kHz + 3kHz + 10kHz混合方波，用于FFT测试
+// 生成1kHz正弦波，用于清晰的时域和频域测试
 //=============================================================================
+
+// 16点简化正弦波查找表（0-2π）
+function [15:0] sin_lut;
+    input [3:0] index;  // 0-15对应0-360度
+    begin
+        case (index)
+            4'd0:  sin_lut = 16'd32768;  // sin(0°) = 0 (中心值)
+            4'd1:  sin_lut = 16'd44739;  // sin(22.5°) ≈ 0.383
+            4'd2:  sin_lut = 16'd55188;  // sin(45°) ≈ 0.707
+            4'd3:  sin_lut = 16'd62464;  // sin(67.5°) ≈ 0.924
+            4'd4:  sin_lut = 16'd65535;  // sin(90°) = 1.0
+            4'd5:  sin_lut = 16'd62464;  // sin(112.5°) ≈ 0.924
+            4'd6:  sin_lut = 16'd55188;  // sin(135°) ≈ 0.707
+            4'd7:  sin_lut = 16'd44739;  // sin(157.5°) ≈ 0.383
+            4'd8:  sin_lut = 16'd32768;  // sin(180°) = 0
+            4'd9:  sin_lut = 16'd20797;  // sin(202.5°) ≈ -0.383
+            4'd10: sin_lut = 16'd10348;  // sin(225°) ≈ -0.707
+            4'd11: sin_lut = 16'd3072;   // sin(247.5°) ≈ -0.924
+            4'd12: sin_lut = 16'd0;      // sin(270°) = -1.0
+            4'd13: sin_lut = 16'd3072;   // sin(292.5°) ≈ -0.924
+            4'd14: sin_lut = 16'd10348;  // sin(315°) ≈ -0.707
+            4'd15: sin_lut = 16'd20797;  // sin(337.5°) ≈ -0.383
+        endcase
+    end
+endfunction
+
 always @(posedge clk_adc or negedge rst_n) begin
     if (!rst_n) begin
         test_counter <= 10'd0;
-        test_signal_gen <= 16'd0;
+        test_signal_gen <= 16'd32768;  // 中间值
     end else if (test_mode && run_flag) begin
-        test_counter <= test_counter + 1'b1;
+        // 1kHz正弦波：1MHz / 1000Hz = 1000个采样点/周期
+        // 使用16点查表，每点重复约62.5次
+        if (test_counter == 10'd999)
+            test_counter <= 10'd0;
+        else
+            test_counter <= test_counter + 1'b1;
         
-        // 1kHz方波（周期1000，采样率1MHz）
-        // 3kHz方波（周期333）
-        // 10kHz方波（周期100）
-        test_signal_gen <= 
-            (test_counter < 10'd500 ? 16'h4000 : 16'h0000) +   // 1kHz基波
-            (test_counter % 10'd333 < 10'd166 ? 16'h2000 : 16'h0000) + // 3kHz
-            (test_counter[6:0] < 7'd50 ? 16'h1000 : 16'h0000); // 10kHz
+        // 将0-999映射到0-15（16点查表）
+        // 每个查表点覆盖约62.5个采样点
+        test_signal_gen <= sin_lut(test_counter[9:6]);  // 除以64，得到0-15
     end else begin
         test_counter <= 10'd0;
-        test_signal_gen <= 16'd0;
+        test_signal_gen <= 16'd32768;  // 中间值
     end
 end
 
@@ -1623,483 +1861,5 @@ uart_tx #(
     .uart_tx_pin(uart_tx),
     .busy(uart_busy)
 );
-
-// 在FFT时钟域捕获数据，避免跨时钟域问题
-always @(posedge clk_fft or negedge rst_n) begin
-    if (!rst_n) begin
-        capture_event <= 1'b0;
-    end else begin
-        capture_event <= 1'b0; // 默认为0
-        if (fft_dout_valid && fft_dout_last) begin
-            captured_blk_exp     <= fft_tuser[4:0];     // 捕获块指数
-            captured_fft_dout_re <= fft_dout[15:0];    // 捕获实部
-            capture_event        <= 1'b1;               // 产生捕获事件脉冲
-        end
-    end
-end
-// --- UART发送状态机 - HDMI调试输出 (在100MHz系统时钟域) ---
-// 输出格式（每0.5秒更新）:
-// 第1行: "HDMI: P1 P2 CLK INIT"  (系统状态)
-// 第2行: "Mode:X Trig:A/N Lv:xxx" (工作模式 + 触发信息，仅时域模式显示触发)
-// 第3行: "ADC:x FIFO:xxxx FFT:x xxxx" (调试信息)
-
-always @(posedge clk_100m or negedge rst_n) begin
-    if (!rst_n) begin
-        send_state        <= 8'd0;
-        uart_send_trigger <= 1'b0;
-    end else begin
-        uart_send_trigger <= 1'b0; // 脉冲信号，用完即清零
-
-        case(send_state)
-            8'd0: begin // 等待定时触发
-                if (hdmi_debug_trigger && !uart_busy) begin
-                    send_state <= 8'd1;
-                end
-            end
-
-            8'd1: begin // 发送 'H'
-                if (!uart_busy) begin
-                    uart_data_to_send <= "H";
-                    uart_send_trigger <= 1'b1;
-                    send_state        <= 8'd2;
-                end
-            end
-
-            8'd2: begin // 发送 'D'
-                if (!uart_busy) begin
-                    uart_data_to_send <= "D";
-                    uart_send_trigger <= 1'b1;
-                    send_state        <= 8'd3;
-                end
-            end
-            
-            8'd3: begin // 发送 'M'
-                if (!uart_busy) begin
-                    uart_data_to_send <= "M";
-                    uart_send_trigger <= 1'b1;
-                    send_state        <= 8'd4;
-                end
-            end
-
-            8'd4: begin // 发送 'I'
-                if (!uart_busy) begin
-                    uart_data_to_send <= "I";
-                    uart_send_trigger <= 1'b1;
-                    send_state        <= 8'd5;
-                end
-            end
-
-            8'd5: begin // 发送 ':'
-                if (!uart_busy) begin
-                    uart_data_to_send <= ":";
-                    uart_send_trigger <= 1'b1;
-                    send_state        <= 8'd6;
-                end
-            end
-            
-            8'd6: begin // 发送 ' '
-                if (!uart_busy) begin
-                    uart_data_to_send <= " ";
-                    uart_send_trigger <= 1'b1;
-                    send_state        <= 8'd7;
-                end
-            end
-            
-            8'd7: begin // 发送 PLL1状态
-                if (!uart_busy) begin
-                    uart_data_to_send <= pll1_lock ? "1" : "0";
-                    uart_send_trigger <= 1'b1;
-                    send_state        <= 8'd8;
-                end
-            end
-            
-            8'd8: begin // 发送 ' '
-                if (!uart_busy) begin
-                    uart_data_to_send <= " ";
-                    uart_send_trigger <= 1'b1;
-                    send_state        <= 8'd9;
-                end
-            end
-            
-            8'd9: begin // 发送 PLL2状态
-                if (!uart_busy) begin
-                    uart_data_to_send <= pll2_lock ? "1" : "0";
-                    uart_send_trigger <= 1'b1;
-                    send_state        <= 8'd10;
-                end
-            end
-            
-            8'd10: begin // 发送 ' '
-                if (!uart_busy) begin
-                    uart_data_to_send <= " ";
-                    uart_send_trigger <= 1'b1;
-                    send_state        <= 8'd11;
-                end
-            end
-            
-            8'd11: begin // 发送 HDMI时钟状态 (简化：使用PLL2状态代替)
-                if (!uart_busy) begin
-                    uart_data_to_send <= pll2_lock ? "1" : "0";
-                    uart_send_trigger <= 1'b1;
-                    send_state        <= 8'd12;
-                end
-            end
-            
-            8'd12: begin // 发送 ' '
-                if (!uart_busy) begin
-                    uart_data_to_send <= " ";
-                    uart_send_trigger <= 1'b1;
-                    send_state        <= 8'd13;
-                end
-            end
-            
-            8'd13: begin // 发送 MS7210初始化状态
-                if (!uart_busy) begin
-                    uart_data_to_send <= ms7210_init_over ? "1" : "0";
-                    uart_send_trigger <= 1'b1;
-                    send_state        <= 8'd40;
-                end
-            end
-            
-            8'd40: begin // 发送换行
-                if (!uart_busy) begin
-                    uart_data_to_send <= 8'd10;  // '\n'
-                    uart_send_trigger <= 1'b1;
-                    send_state        <= 8'd14; // 发送模式信息
-                end
-            end
-            
-            // ========== 工作模式显示 ==========
-            8'd14: begin // 发送 'Mode:'
-                if (!uart_busy) begin
-                    uart_data_to_send <= "M";
-                    uart_send_trigger <= 1'b1;
-                    send_state        <= 8'd15;
-                end
-            end
-            
-            8'd15: begin
-                if (!uart_busy) begin
-                    uart_data_to_send <= "o";
-                    uart_send_trigger <= 1'b1;
-                    send_state        <= 8'd16;
-                end
-            end
-            
-            8'd16: begin
-                if (!uart_busy) begin
-                    uart_data_to_send <= "d";
-                    uart_send_trigger <= 1'b1;
-                    send_state        <= 8'd17;
-                end
-            end
-            
-            8'd17: begin
-                if (!uart_busy) begin
-                    uart_data_to_send <= "e";
-                    uart_send_trigger <= 1'b1;
-                    send_state        <= 8'd18;
-                end
-            end
-            
-            8'd18: begin // ':'
-                if (!uart_busy) begin
-                    uart_data_to_send <= ":";
-                    uart_send_trigger <= 1'b1;
-                    send_state        <= 8'd19;
-                end
-            end
-            
-            8'd19: begin // 根据work_mode发送模式字符 'T'/'F'/'M'
-                if (!uart_busy) begin
-                    case (work_mode)
-                        2'd0: uart_data_to_send <= "T";  // TIME
-                        2'd1: uart_data_to_send <= "F";  // FFT
-                        2'd2: uart_data_to_send <= "M";  // MEASURE
-                        default: uart_data_to_send <= "?";
-                    endcase
-                    uart_send_trigger <= 1'b1;
-                    send_state        <= 8'd21;  // 改为21，添加触发信息
-                end
-            end
-            
-            // ========== 触发状态显示 (仅时域模式) ==========
-            8'd21: begin // 空格
-                if (!uart_busy) begin
-                    if (work_mode == 2'd0) begin  // 时域模式显示触发信息
-                        uart_data_to_send <= " ";
-                        uart_send_trigger <= 1'b1;
-                        send_state        <= 8'd22;
-                    end else begin  // 其他模式直接换行
-                        uart_data_to_send <= 8'd10;  // '\n'
-                        uart_send_trigger <= 1'b1;
-                        send_state        <= 8'd41;
-                    end
-                end
-            end
-            
-            8'd22: begin // 'Trig:'
-                if (!uart_busy) begin
-                    uart_data_to_send <= "T";
-                    uart_send_trigger <= 1'b1;
-                    send_state        <= 8'd23;
-                end
-            end
-            
-            8'd23: begin
-                if (!uart_busy) begin
-                    uart_data_to_send <= trigger_mode ? "N" : "A";  // Auto/Normal
-                    uart_send_trigger <= 1'b1;
-                    send_state        <= 8'd24;
-                end
-            end
-            
-            8'd24: begin // 空格
-                if (!uart_busy) begin
-                    uart_data_to_send <= " ";
-                    uart_send_trigger <= 1'b1;
-                    send_state        <= 8'd25;
-                end
-            end
-            
-            8'd25: begin // 'Lv:' 触发电平标识
-                if (!uart_busy) begin
-                    uart_data_to_send <= "L";
-                    uart_send_trigger <= 1'b1;
-                    send_state        <= 8'd26;
-                end
-            end
-            
-            8'd26: begin
-                if (!uart_busy) begin
-                    uart_data_to_send <= "v";
-                    uart_send_trigger <= 1'b1;
-                    send_state        <= 8'd27;
-                end
-            end
-            
-            8'd27: begin // ':'
-                if (!uart_busy) begin
-                    uart_data_to_send <= ":";
-                    uart_send_trigger <= 1'b1;
-                    send_state        <= 8'd28;
-                end
-            end
-            
-            8'd28: begin // 触发电平（百位）
-                if (!uart_busy) begin
-                    uart_data_to_send <= "0" + ((trigger_level / 100) % 10);
-                    uart_send_trigger <= 1'b1;
-                    send_state        <= 8'd29;
-                end
-            end
-            
-            8'd29: begin // 十位
-                if (!uart_busy) begin
-                    uart_data_to_send <= "0" + ((trigger_level / 10) % 10);
-                    uart_send_trigger <= 1'b1;
-                    send_state        <= 8'd30;
-                end
-            end
-            
-            8'd30: begin // 个位
-                if (!uart_busy) begin
-                    uart_data_to_send <= "0" + (trigger_level % 10);
-                    uart_send_trigger <= 1'b1;
-                    send_state        <= 8'd20;  // 跳到换行
-                end
-            end
-            
-            8'd20: begin // 发送换行，进入ADC信息
-                if (!uart_busy) begin
-                    uart_data_to_send <= 8'd10;  // '\n'
-                    uart_send_trigger <= 1'b1;
-                    send_state        <= 8'd41; // 继续输出ADC/FFT信息
-                end
-            end
-            
-            // ========== 新增：ADC和FFT调试信息 ==========
-            8'd41: begin // 发送 'ADC:'
-                if (!uart_busy) begin
-                    uart_data_to_send <= "A";
-                    uart_send_trigger <= 1'b1;
-                    send_state        <= 8'd42;
-                end
-            end
-            
-            8'd42: begin
-                if (!uart_busy) begin
-                    uart_data_to_send <= "D";
-                    uart_send_trigger <= 1'b1;
-                    send_state        <= 8'd43;
-                end
-            end
-            
-            8'd43: begin
-                if (!uart_busy) begin
-                    uart_data_to_send <= "C";
-                    uart_send_trigger <= 1'b1;
-                    send_state        <= 8'd44;
-                end
-            end
-            
-            8'd44: begin // ':'
-                if (!uart_busy) begin
-                    uart_data_to_send <= ":";
-                    uart_send_trigger <= 1'b1;
-                    send_state        <= 8'd45;
-                end
-            end
-            
-            8'd45: begin // 发送ADC有效标志
-                if (!uart_busy) begin
-                    uart_data_to_send <= debug_data_valid_sync ? "1" : "0";
-                    uart_send_trigger <= 1'b1;
-                    send_state        <= 8'd46;
-                end
-            end
-            
-            8'd46: begin // 空格
-                if (!uart_busy) begin
-                    uart_data_to_send <= " ";
-                    uart_send_trigger <= 1'b1;
-                    send_state        <= 8'd47;
-                end
-            end
-            
-            8'd47: begin // 发送FIFO写计数（千位）
-                if (!uart_busy) begin
-                    uart_data_to_send <= "0" + fifo_count_digit_1000;
-                    uart_send_trigger <= 1'b1;
-                    send_state        <= 8'd48;
-                end
-            end
-            
-            8'd48: begin // 百位
-                if (!uart_busy) begin
-                    uart_data_to_send <= "0" + fifo_count_digit_100;
-                    uart_send_trigger <= 1'b1;
-                    send_state        <= 8'd49;
-                end
-            end
-            
-            8'd49: begin // 十位
-                if (!uart_busy) begin
-                    uart_data_to_send <= "0" + fifo_count_digit_10;
-                    uart_send_trigger <= 1'b1;
-                    send_state        <= 8'd50;
-                end
-            end
-            
-            8'd50: begin // 个位
-                if (!uart_busy) begin
-                    uart_data_to_send <= "0" + fifo_count_digit_1;
-                    uart_send_trigger <= 1'b1;
-                    send_state        <= 8'd51;
-                end
-            end
-            
-            8'd51: begin // 发送 ' FFT:'
-                if (!uart_busy) begin
-                    uart_data_to_send <= " ";
-                    uart_send_trigger <= 1'b1;
-                    send_state        <= 8'd52;
-                end
-            end
-            
-            8'd52: begin
-                if (!uart_busy) begin
-                    uart_data_to_send <= "F";
-                    uart_send_trigger <= 1'b1;
-                    send_state        <= 8'd53;
-                end
-            end
-            
-            8'd53: begin
-                if (!uart_busy) begin
-                    uart_data_to_send <= "F";
-                    uart_send_trigger <= 1'b1;
-                    send_state        <= 8'd54;
-                end
-            end
-            
-            8'd54: begin
-                if (!uart_busy) begin
-                    uart_data_to_send <= "T";
-                    uart_send_trigger <= 1'b1;
-                    send_state        <= 8'd55;
-                end
-            end
-            
-            8'd55: begin
-                if (!uart_busy) begin
-                    uart_data_to_send <= ":";
-                    uart_send_trigger <= 1'b1;
-                    send_state        <= 8'd56;
-                end
-            end
-            
-            8'd56: begin // FFT完成标志
-                if (!uart_busy) begin
-                    uart_data_to_send <= debug_fft_done_sync ? "1" : "0";
-                    uart_send_trigger <= 1'b1;
-                    send_state        <= 8'd57;
-                end
-            end
-            
-            8'd57: begin // 空格
-                if (!uart_busy) begin
-                    uart_data_to_send <= " ";
-                    uart_send_trigger <= 1'b1;
-                    send_state        <= 8'd58;
-                end
-            end
-            
-            8'd58: begin // FFT输出计数（千位）
-                if (!uart_busy) begin
-                    uart_data_to_send <= "0" + fft_count_digit_1000;
-                    uart_send_trigger <= 1'b1;
-                    send_state        <= 8'd59;
-                end
-            end
-            
-            8'd59: begin // 百位
-                if (!uart_busy) begin
-                    uart_data_to_send <= "0" + fft_count_digit_100;
-                    uart_send_trigger <= 1'b1;
-                    send_state        <= 8'd60;
-                end
-            end
-            
-            8'd60: begin // 十位
-                if (!uart_busy) begin
-                    uart_data_to_send <= "0" + fft_count_digit_10;
-                    uart_send_trigger <= 1'b1;
-                    send_state        <= 8'd61;
-                end
-            end
-            
-            8'd61: begin // 个位
-                if (!uart_busy) begin
-                    uart_data_to_send <= "0" + fft_count_digit_1;
-                    uart_send_trigger <= 1'b1;
-                    send_state        <= 8'd62;
-                end
-            end
-            
-            8'd62: begin // 发送换行（简化版本：不再显示spectrum_addr）
-                if (!uart_busy) begin
-                    uart_data_to_send <= 8'd10;  // '\n'
-                    uart_send_trigger <= 1'b1;
-                    send_state        <= 8'd0;  // 回到等待状态
-                end
-            end
-            
-            // 状态63-67已删除：不再显示spectrum_addr（除法运算导致时序违例）
-
-            default: send_state <= 8'd0;
-        endcase
-    end
-end
 
 endmodule

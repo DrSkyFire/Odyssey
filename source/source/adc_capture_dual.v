@@ -10,12 +10,10 @@ module adc_capture_dual (
     // 通道1接口
     input  wire [9:0]   adc_ch1_in,
     output wire         adc_ch1_clk_out,
-    output wire         adc_ch1_oe_out,
     
     // 通道2接口
     input  wire [9:0]   adc_ch2_in,
     output wire         adc_ch2_clk_out,
-    output wire         adc_ch2_oe_out,
     
     // 数据输出
     output reg  [9:0]   ch1_data_out,
@@ -29,8 +27,6 @@ module adc_capture_dual (
 // 两个通道共用时钟和使能
 assign adc_ch1_clk_out = clk;
 assign adc_ch2_clk_out = clk;
-assign adc_ch1_oe_out = 1'b1;  // 始终使能输出
-assign adc_ch2_oe_out = 1'b1;
 
 // 两级寄存器同步
 reg [9:0] ch1_d1, ch1_d2;
