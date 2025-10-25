@@ -1,8 +1,9 @@
 //=============================================================================
-// 文件名: hdmi_display_ctrl.v (美化增强版 - 带参数显示)
+// 文件名: hdmi_display_ctrl.v (美化增强版 - 带参数显示 + 双通道独立控制)
 // 描述: 1080p HDMI显示控制器
-//       - 上部：双通道频谱显示（带网格线）
+//       - 上部：双通道频谱/波形显示（带网格线）
 //       - 下部：参数信息显示（大字体）
+//       - 支持独立通道开关：CH1(绿色) CH2(红色)
 //       - 配色：渐变频谱 + 深色背景 + 白色文字
 //=============================================================================
 
@@ -10,10 +11,10 @@ module hdmi_display_ctrl (
     input  wire         clk_pixel,
     input  wire         rst_n,
     
-    // 频谱数据接口
-    input  wire [15:0]  spectrum_data,
+    // ✅ 双通道数据接口
+    input  wire [15:0]  ch1_data,       // 通道1数据（时域/频域共用）
+    input  wire [15:0]  ch2_data,       // 通道2数据（时域/频域共用）
     output reg  [9:0]   spectrum_addr,
-    input  wire [15:0]  time_data,
     
     // 参数输入
     input  wire [15:0]  freq,           // 频率 (Hz)
@@ -21,7 +22,10 @@ module hdmi_display_ctrl (
     input  wire [15:0]  duty,           // 占空比 (0-1000 = 0-100%)
     input  wire [15:0]  thd,            // THD (0-1000 = 0-100%)
     input  wire [15:0]  phase_diff,     // 相位差 (0-3599 = 0-359.9°)
-    input  wire         current_channel,// 当前显示通道 (0=CH1, 1=CH2)
+    
+    // ✅ 双通道独立控制（替代current_channel）
+    input  wire         ch1_enable,     // 通道1显示使能
+    input  wire         ch2_enable,     // 通道2显示使能
     
     input  wire [1:0]   work_mode,
     
@@ -79,9 +83,15 @@ reg [1:0]  work_mode_d1, work_mode_d2, work_mode_d3;
 // 网格线标志（预计算，避免取模运算）
 reg        grid_x_flag, grid_y_flag;
 
-// 时域波形相关信号
-reg [15:0] time_data_q;             // 时域数据寄存器
-reg [11:0] waveform_height;         // 波形高度计算结果
+// ✅ 双通道波形相关信号
+reg [15:0] ch1_data_q, ch2_data_q;  // 双通道数据寄存器
+reg [11:0] ch1_waveform_height;     // CH1波形高度
+reg [11:0] ch2_waveform_height;     // CH2波形高度
+
+// 兼容旧变量名
+reg [15:0] time_data_q;             // 时域数据寄存器（兼容）
+reg [15:0] spectrum_data_q;         // 频谱数据寄存器（兼容）
+reg [11:0] waveform_height;         // 波形高度计算结果（兼容）
 wire [11:0] time_sample_x;          // 时域采样点X坐标（1920点对应1024采样点）
 
 // 时域波形参数
@@ -89,13 +99,29 @@ localparam WAVEFORM_CENTER_Y = (SPECTRUM_Y_START + SPECTRUM_Y_END) / 2;  // 波�
 reg        grid_x_flag_d1, grid_y_flag_d1;
 reg        grid_x_flag_d2, grid_y_flag_d2;
 reg        grid_x_flag_d3, grid_y_flag_d3;
+// ✅ 流水线优化：新增第4级延迟
+reg        grid_x_flag_d4, grid_y_flag_d4;
+reg [1:0]  work_mode_d4;
+reg [11:0] pixel_x_d4, pixel_y_d4;
 
 // 网格计数器（每行重置,避免大数取模）
 reg [6:0]  grid_x_cnt;  // 0-99 循环
 reg [5:0]  grid_y_cnt;  // 0-49 循环
 
-// BRAM输出流水寄存器（缓解时序压力）
-reg [15:0] spectrum_data_q;
+// (✅ spectrum_data_q已在上面双通道部分声明，删除此处重复声明)
+
+// ✅ 双通道波形绘制辅助信号
+reg        ch1_hit, ch2_hit;    // 波形命中标志（Stage 4计算结果）
+reg [11:0] ch1_spectrum_height; // CH1频谱高度
+reg [11:0] ch2_spectrum_height; // CH2频谱高度
+
+// ✅ 流水线优化：Stage 3输出寄存器
+reg [11:0] ch1_waveform_calc_d1, ch2_waveform_calc_d1;  // 波形高度计算结果
+reg [11:0] ch1_spectrum_calc_d1, ch2_spectrum_calc_d1;  // 频谱高度计算结果
+reg        ch1_enable_d4, ch2_enable_d4;                 // 通道使能同步
+
+// ✅ 方案3优化：频谱命中检测信号（避免在always块内声明）
+reg        ch1_spec_hit, ch2_spec_hit;
 
 reg [23:0] rgb_out_reg;
 reg        de_out_reg;
@@ -356,10 +382,29 @@ always @(posedge clk_pixel or negedge rst_n) begin
         grid_y_flag_d1 <= grid_y_flag;
         grid_y_flag_d2 <= grid_y_flag_d1;
         grid_y_flag_d3 <= grid_y_flag_d2;
-        // BRAM输出流水
-        spectrum_data_q <= spectrum_data;
-        // 时域数据采样（每2个像素对应1个采样点，1920/2=960 < 1024采样点）
-        time_data_q <= time_data;
+        
+        // ✅ 流水线优化：Stage 4延迟
+        grid_x_flag_d4 <= grid_x_flag_d3;
+        grid_y_flag_d4 <= grid_y_flag_d3;
+        work_mode_d4 <= work_mode_d3;
+        pixel_x_d4 <= pixel_x_d3;
+        pixel_y_d4 <= pixel_y_d3;
+        ch1_enable_d4 <= ch1_enable;
+        ch2_enable_d4 <= ch2_enable;
+        
+        // ✅ 双通道数据采样（3级流水线匹配显示延迟）
+        ch1_data_q <= ch1_data;
+        ch2_data_q <= ch2_data;
+        
+        // ✅ 流水线优化：Stage 3 - 仅计算波形/频谱高度
+        ch1_waveform_calc_d1 <= ch1_waveform_height;
+        ch2_waveform_calc_d1 <= ch2_waveform_height;
+        ch1_spectrum_calc_d1 <= ch1_spectrum_height;
+        ch2_spectrum_calc_d1 <= ch2_spectrum_height;
+        
+        // 兼容旧变量名（用于调试显示）
+        spectrum_data_q <= ch1_enable ? ch1_data : ch2_data;
+        time_data_q <= ch1_enable ? ch1_data : ch2_data;
     end
 end
 
@@ -372,17 +417,53 @@ end
 assign time_sample_x = {spectrum_addr[9:0], 1'b0} - {3'b000, spectrum_addr[9:1]};
 
 //=============================================================================
-// 波形高度计算（将16位数据映射到显示区域）
+// ✅ 双通道波形高度计算（Stage 3组合逻辑）
 //=============================================================================
 always @(*) begin
-    // time_data_q是16位的ADC数据（高10位有效，低6位为0）
-    // 提取高10位：time_data_q[15:6]
-    // 映射到频谱区域高度：750像素
-    // 增加增益：左移1位（乘以2），但不超过显示范围
-    if (time_data_q[15:6] > 10'd350)
-        waveform_height = 12'd700;
+    // CH1波形高度计算
+    if (ch1_data_q[15:6] > 10'd350)
+        ch1_waveform_height = 12'd700;
     else
-        waveform_height = {1'b0, time_data_q[15:6], 1'b0};  // 乘以2
+        ch1_waveform_height = {1'b0, ch1_data_q[15:6], 1'b0};  // 乘以2
+    
+    // CH2波形高度计算
+    if (ch2_data_q[15:6] > 10'd350)
+        ch2_waveform_height = 12'd700;
+    else
+        ch2_waveform_height = {1'b0, ch2_data_q[15:6], 1'b0};  // 乘以2
+    
+    // 兼容旧变量（用于其他地方）
+    waveform_height = ch1_enable ? ch1_waveform_height : ch2_waveform_height;
+end
+
+//=============================================================================
+// ✅ 流水线优化：Stage 4 - 波形命中检测（时序关键路径）
+//=============================================================================
+always @(posedge clk_pixel or negedge rst_n) begin
+    if (!rst_n) begin
+        ch1_hit <= 1'b0;
+        ch2_hit <= 1'b0;
+    end else begin
+        // CH1波形命中检测（使用Stage 3的计算结果）
+        if (ch1_waveform_calc_d1 >= 12'd350) begin
+            // 波形在上半部分
+            ch1_hit <= (pixel_y_d3 >= (WAVEFORM_CENTER_Y - (ch1_waveform_calc_d1 - 12'd350) - 12'd2)) &&
+                       (pixel_y_d3 <= (WAVEFORM_CENTER_Y - (ch1_waveform_calc_d1 - 12'd350) + 12'd2));
+        end else begin
+            // 波形在下半部分
+            ch1_hit <= (pixel_y_d3 >= (WAVEFORM_CENTER_Y + (12'd350 - ch1_waveform_calc_d1) - 12'd2)) &&
+                       (pixel_y_d3 <= (WAVEFORM_CENTER_Y + (12'd350 - ch1_waveform_calc_d1) + 12'd2));
+        end
+        
+        // CH2波形命中检测
+        if (ch2_waveform_calc_d1 >= 12'd350) begin
+            ch2_hit <= (pixel_y_d3 >= (WAVEFORM_CENTER_Y - (ch2_waveform_calc_d1 - 12'd350) - 12'd2)) &&
+                       (pixel_y_d3 <= (WAVEFORM_CENTER_Y - (ch2_waveform_calc_d1 - 12'd350) + 12'd2));
+        end else begin
+            ch2_hit <= (pixel_y_d3 >= (WAVEFORM_CENTER_Y + (12'd350 - ch2_waveform_calc_d1) - 12'd2)) &&
+                       (pixel_y_d3 <= (WAVEFORM_CENTER_Y + (12'd350 - ch2_waveform_calc_d1) + 12'd2));
+        end
+    end
 end
 
 //=============================================================================
@@ -640,6 +721,12 @@ always @(*) begin
     spectrum_height_calc = 12'd0;
     char_color = 24'hFFFFFF;  // 默认白色文字
     
+    // ✅ 避免latch：为频谱高度变量赋默认值
+    ch1_spectrum_height = 12'd0;
+    ch2_spectrum_height = 12'd0;
+    ch1_spec_hit = 1'b0;
+    ch2_spec_hit = 1'b0;
+    
     if (video_active_d3) begin
         // ========== 顶部标题栏 ==========
         if (pixel_y_d3 < 50) begin
@@ -650,12 +737,15 @@ always @(*) begin
                 rgb_data = 24'h1A1A2E;  // 深蓝灰背景
             end
             
-            // 显示通道指示 (简单的色块)
+            // ✅ 显示通道指示（独立开关状态，类似示波器）
             if (pixel_y_d3 >= 15 && pixel_y_d3 < 35) begin
+                // CH1指示器：开启=亮绿色，关闭=暗灰色
                 if (pixel_x_d3 >= 20 && pixel_x_d3 < 120) begin
-                    rgb_data = current_channel ? 24'h404040 : 24'h00FF00;  // CH1
-                end else if (pixel_x_d3 >= 140 && pixel_x_d3 < 240) begin
-                    rgb_data = current_channel ? 24'hFF0000 : 24'h404040;  // CH2
+                    rgb_data = ch1_enable ? 24'h00FF00 : 24'h404040;
+                end 
+                // CH2指示器：开启=亮红色，关闭=暗灰色
+                else if (pixel_x_d3 >= 140 && pixel_x_d3 < 240) begin
+                    rgb_data = ch2_enable ? 24'hFF0000 : 24'h404040;
                 end
                 // ✅ 调试：显示当前数据值（渐变色条）
                 else if (pixel_x_d3 >= 300 && pixel_x_d3 < 500) begin
@@ -674,72 +764,86 @@ always @(*) begin
         else if (pixel_y_d3 >= SPECTRUM_Y_START && pixel_y_d3 < SPECTRUM_Y_END) begin
             
             // ========== 工作模式0：时域波形显示 ==========
-            if (work_mode_d3 == 2'd0) begin
-                // 网格线
-                if (grid_x_flag_d3 || grid_y_flag_d3) begin
+            if (work_mode_d4 == 2'd0) begin
+                // 网格线（使用d4信号）
+                if (grid_x_flag_d4 || grid_y_flag_d4) begin
                     rgb_data = 24'h303030;  // 深灰网格
                 end
                 // 中心参考线（0V参考）
-                else if (pixel_y_d3 == WAVEFORM_CENTER_Y || 
-                         pixel_y_d3 == WAVEFORM_CENTER_Y + 1) begin
+                else if (pixel_y_d4 == WAVEFORM_CENTER_Y || 
+                         pixel_y_d4 == WAVEFORM_CENTER_Y + 1) begin
                     rgb_data = 24'h606060;  // 灰色中心线
                 end
-                // 简化波形绘制：直接画点（上下5像素容差）
-                else if (waveform_height >= 12'd350) begin
-                    // 波形在上半部分
-                    if ((pixel_y_d3 >= (WAVEFORM_CENTER_Y - (waveform_height - 12'd350) - 12'd2)) && 
-                        (pixel_y_d3 <= (WAVEFORM_CENTER_Y - (waveform_height - 12'd350) + 12'd2))) begin
-                        rgb_data = 24'h00FF00;  // 绿色波形点
-                    end else begin
-                        rgb_data = {8'd16, 8'd16, (8'd20 + {5'd0, pixel_y_d3[8:6]})};
-                    end
-                end else begin
-                    // 波形在下半部分
-                    if ((pixel_y_d3 >= (WAVEFORM_CENTER_Y + (12'd350 - waveform_height) - 12'd2)) && 
-                        (pixel_y_d3 <= (WAVEFORM_CENTER_Y + (12'd350 - waveform_height) + 12'd2))) begin
-                        rgb_data = 24'h00FF00;  // 绿色波形点
-                    end else begin
-                        rgb_data = {8'd16, 8'd16, (8'd20 + {5'd0, pixel_y_d3[8:6]})};
-                    end
+                else begin
+                    // ✅ 方案3优化：简化RGB选择逻辑（使用Stage 4计算的ch1_hit/ch2_hit）
+                    // 使用case语句替代多层if-else，减少多路选择器层数
+                    case ({ch1_hit & ch1_enable_d4, ch2_hit & ch2_enable_d4})
+                        2'b11: rgb_data = 24'hFFFF00;  // 黄色（两通道重叠）
+                        2'b10: rgb_data = 24'h00FF00;  // 绿色（仅CH1）
+                        2'b01: rgb_data = 24'hFF0000;  // 红色（仅CH2）
+                        default: rgb_data = {8'd16, 8'd16, (8'd20 + {5'd0, pixel_y_d4[8:6]})};  // 背景渐变
+                    endcase
                 end
             end
             
             // ========== 工作模式1：频域频谱显示 ==========
             else begin
-                // 计算频谱高度（增加增益，使频谱更明显）
-                // 原始：spectrum_data_q[15:4] (除以16)
-                // 优化：增加8倍增益
-                if (spectrum_data_q > 16'd8000)
-                    spectrum_height_calc = 12'd700;  // 限制最大高度（接近显示区域高度750）
-                else if (spectrum_data_q < 16'd4)
-                    spectrum_height_calc = 12'd0;    // 噪声抑制
+                // ✅ 双通道频谱高度计算（4x增益）
+                // CH1频谱高度
+                if (ch1_data_q > 16'd8000)
+                    ch1_spectrum_height = 12'd700;
+                else if (ch1_data_q < 16'd4)
+                    ch1_spectrum_height = 12'd0;
                 else
-                    spectrum_height_calc = {spectrum_data_q[12:0], 2'b00};  // 左移2位 = 乘以4，再取低13位约等于 *4 / 8 = /2
+                    ch1_spectrum_height = {ch1_data_q[12:0], 2'b00};
                 
-                // 网格线（使用预计算的标志，避免取模）
-                if (grid_x_flag_d3 || grid_y_flag_d3) begin
-                    rgb_data = 24'h303030;  // 深灰网格
+                // CH2频谱高度
+                if (ch2_data_q > 16'd8000)
+                    ch2_spectrum_height = 12'd700;
+                else if (ch2_data_q < 16'd4)
+                    ch2_spectrum_height = 12'd0;
+                else
+                    ch2_spectrum_height = {ch2_data_q[12:0], 2'b00};
+                
+                // 兼容旧变量（用于调试显示等）
+                spectrum_height_calc = ch1_enable ? ch1_spectrum_height : ch2_spectrum_height;
+                
+                // 网格线（使用d4信号）
+                if (grid_x_flag_d4 || grid_y_flag_d4) begin
+                    rgb_data = 24'h303030;
                 end
-                // 频谱柱状图
-                else if (pixel_y_d3 >= (SPECTRUM_Y_END - spectrum_height_calc - 10)) begin
-                    // 渐变色频谱（高度越高颜色越亮）
-                    if (spectrum_height_calc > 500) begin
-                        rgb_data = 24'hFF0000;  // 红色（高电平）
-                    end else if (spectrum_height_calc > 350) begin
-                        rgb_data = 24'hFFFF00;  // 黄色
-                    end else if (spectrum_height_calc > 200) begin
-                        rgb_data = 24'h00FF00;  // 绿色
-                    end else if (spectrum_height_calc > 80) begin
-                        rgb_data = 24'h00FFFF;  // 青色
-                    end else begin
-                        rgb_data = 24'h0080FF;  // 蓝色（低电平）
-                    end
-                end
-                // 背景（带轻微渐变）
                 else begin
-                    rgb_data = {8'd16, 8'd16, (8'd20 + {5'd0, pixel_y_d3[8:6]})}; // 深蓝黑渐变
+                    // ✅ 流水线优化：频谱命中检测也在Stage 4完成
+                    // 使用Stage 3计算的频谱高度（ch1_spectrum_calc_d1, ch2_spectrum_calc_d1）
+                    
+                    // ✅ 方案3优化：简化频谱RGB选择（减少嵌套if）
+                    ch1_spec_hit = ch1_enable_d4 && (pixel_y_d4 >= (SPECTRUM_Y_END - ch1_spectrum_calc_d1 - 10));
+                    ch2_spec_hit = ch2_enable_d4 && (pixel_y_d4 >= (SPECTRUM_Y_END - ch2_spectrum_calc_d1 - 10));
+                    
+                    // 简化的颜色选择
+                    case ({ch1_spec_hit, ch2_spec_hit})
+                        2'b11: begin  // 双通道重叠
+                            if (ch1_spectrum_calc_d1 > ch2_spectrum_calc_d1)
+                                rgb_data = (ch1_spectrum_calc_d1 > 500) ? 24'hFFFF00 : 24'h80FF80;
+                            else
+                                rgb_data = (ch2_spectrum_calc_d1 > 500) ? 24'hFF8000 : 24'hFF8080;
+                        end
+                        2'b10: begin  // 仅CH1
+                            if (ch1_spectrum_calc_d1 > 500)      rgb_data = 24'h00FF00;
+                            else if (ch1_spectrum_calc_d1 > 350) rgb_data = 24'h00DD00;
+                            else if (ch1_spectrum_calc_d1 > 200) rgb_data = 24'h00BB00;
+                            else                                  rgb_data = 24'h008800;
+                        end
+                        2'b01: begin  // 仅CH2
+                            if (ch2_spectrum_calc_d1 > 500)      rgb_data = 24'hFF0000;
+                            else if (ch2_spectrum_calc_d1 > 350) rgb_data = 24'hDD0000;
+                            else if (ch2_spectrum_calc_d1 > 200) rgb_data = 24'hBB0000;
+                            else                                  rgb_data = 24'h880000;
+                        end
+                        default: rgb_data = {8'd16, 8'd16, (8'd20 + {5'd0, pixel_y_d4[8:6]})};  // 背景
+                    endcase
                 end
-            end  // 结束 work_mode_d3 else 块
+            end  // 结束 work_mode_d4 else 块
         end
         
         // ========== 中间分隔条 ==========

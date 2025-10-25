@@ -69,15 +69,15 @@ set_output_delay -clock clk_adc -min -2.000 [get_ports {adc_ch1_clk}]
 set_output_delay -clock clk_adc -max 2.000 [get_ports {adc_ch2_clk}]
 set_output_delay -clock clk_adc -min -2.000 [get_ports {adc_ch2_clk}]
 
-# HDMI���ʱ��Լ�� (MS7210)
-# MS7210��ͬ�����գ�FPGA���͵�ʱ�Ӻ���������ͬ��PCB����
-# ϵͳͬ����ƣ�����Ҫ�ϸ��output delayԼ��
-# ����Ϊfalse path��ֻҪ��FPGA�ڲ�ʱ����������
+# HDMI????????? (MS7210)
+# MS7210??????????FPGA????????????????????PCB????
+# ??????????????????output delay???
+# ?????false path??????FPGA??????????????
 set_false_path -to [get_ports {hd_tx_data[*]}]
 set_false_path -to [get_ports {hd_tx_vs}]
 set_false_path -to [get_ports {hd_tx_hs}]
 set_false_path -to [get_ports {hd_tx_de}]
-# ʱ���������ͬ������
+# ?????????????????
 set_false_path -to [get_ports {hd_tx_pclk}]
 
 #=============================================================================
@@ -605,11 +605,11 @@ define_attribute {p:adc_ch1_clk} {PAP_IO_VCCIO} {3.3}
 define_attribute {p:adc_ch1_clk} {PAP_IO_STANDARD} {LVCMOS33}
 define_attribute {p:adc_ch1_clk} {PAP_IO_DRIVE} {8}
 define_attribute {p:adc_ch1_clk} {PAP_IO_NONE} {TRUE}
-define_attribute {p:adc_ch1_clk} {PAP_IO_SLEW} {FAST}
+define_attribute {p:adc_ch1_clk} {PAP_IO_SLEW} {SLOW}
 define_attribute {p:adc_ch2_clk} {PAP_IO_DIRECTION} {OUTPUT}
 define_attribute {p:adc_ch2_clk} {PAP_IO_LOC} {T12}
 define_attribute {p:adc_ch2_clk} {PAP_IO_VCCIO} {3.3}
 define_attribute {p:adc_ch2_clk} {PAP_IO_STANDARD} {LVCMOS33}
 define_attribute {p:adc_ch2_clk} {PAP_IO_DRIVE} {8}
 define_attribute {p:adc_ch2_clk} {PAP_IO_NONE} {TRUE}
-define_attribute {p:adc_ch2_clk} {PAP_IO_SLEW} {FAST}
+define_attribute {p:adc_ch2_clk} {PAP_IO_SLEW} {SLOW}
