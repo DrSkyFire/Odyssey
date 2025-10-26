@@ -299,6 +299,48 @@ reg        auto_test_enable;        // 自动测试使能
 wire       btn_auto_test;           // 自动测试按键
 
 //=============================================================================
+// CORDIC算法模块信号
+//=============================================================================
+// CORDIC模式控制
+reg  [2:0]  cordic_mode;                // CORDIC模式: 0=禁用, 1=sin/cos, 2=sinh/cosh, 3=exp, 4=ln, 5=arctanh
+wire        btn_cordic_mode;            // CORDIC模式切换按键
+reg         cordic_enable;              // CORDIC计算使能
+
+// CORDIC输入信号（32位，16位小数）
+reg  signed [31:0]  cordic_input;       // CORDIC输入数据
+reg                 cordic_input_valid; // CORDIC输入有效
+
+// sin/cos模块信号
+wire signed [31:0]  cordic_sin;         // 正弦输出
+wire signed [31:0]  cordic_cos;         // 余弦输出
+wire                cordic_sincos_valid;// sin/cos输出有效
+
+// sinh/cosh模块信号
+wire signed [31:0]  cordic_sinh;        // 双曲正弦输出
+wire signed [31:0]  cordic_cosh;        // 双曲余弦输出
+wire                cordic_sinhcosh_valid; // sinh/cosh输出有效
+
+// exp模块信号
+wire signed [31:0]  cordic_exp;         // 指数输出
+wire                cordic_exp_valid;   // exp输出有效
+
+// ln模块信号
+wire signed [31:0]  cordic_ln;          // 对数输出
+wire                cordic_ln_valid;    // ln输出有效
+
+// arctanh模块信号
+wire signed [31:0]  cordic_arctanh;     // 反双曲正切输出
+wire                cordic_arctanh_valid; // arctanh输出有效
+
+// CORDIC结果寄存器（用于显示和输出）
+reg  signed [31:0]  cordic_result_1;    // CORDIC结果1（如sin, sinh, exp等）
+reg  signed [31:0]  cordic_result_2;    // CORDIC结果2（如cos, cosh）
+reg                 cordic_result_valid;// CORDIC结果有效
+
+// 数据延迟对齐信号（用于时序匹配）
+wire [15:0]         adc_data_delayed;   // 延迟后的ADC数据
+
+//=============================================================================
 // UART发送模块信号
 //=============================================================================
 wire        uart_busy;
@@ -1429,6 +1471,14 @@ key_debounce u_key_auto_test (
     .key_pulse  (btn_auto_test)
 );
 
+// CORDIC模式切换按键
+key_debounce u_key_cordic_mode (
+    .clk        (clk_100m),
+    .rst_n      (rst_n),
+    .key_in     (user_button[1]),  // 使用user_button[1]控制CORDIC模式（原启动按键位置）
+    .key_pulse  (btn_cordic_mode)
+);
+
 // FFT启动信号
 assign fft_start = run_flag && (work_mode == 2'd1);
 
@@ -1852,6 +1902,7 @@ localparam UART_SEND_TRIG     = 8'd30;  // "Trig:X "
 localparam UART_SEND_FIFO     = 8'd40;  // "FIFO:XXXX "
 localparam UART_SEND_FFT      = 8'd50;  // "FFT:XXX "
 localparam UART_SEND_TEST     = 8'd60;  // "Test:X "
+localparam UART_SEND_CORDIC   = 8'd65;  // "CORDIC:X R1:XXXX R2:XXXX "
 localparam UART_SEND_NEWLINE  = 8'd70;  // "\r\n"
 localparam UART_WAIT_BUSY     = 8'd255; // 等待UART空闲
 
@@ -2086,12 +2137,112 @@ always @(posedge clk_100m or negedge rst_n) begin
                         6'd5: uart_data_to_send <= test_mode ? "1" : "0";
                         6'd6: uart_data_to_send <= " ";
                         default: begin
-                            send_state <= UART_SEND_NEWLINE;
+                            send_state <= UART_SEND_CORDIC;
                             uart_char_index <= 6'd0;
                         end
                     endcase
                     
                     if (uart_char_index <= 6'd6) begin
+                        uart_send_trigger <= 1'b1;
+                        uart_char_index <= uart_char_index + 1'b1;
+                        send_state <= UART_WAIT_BUSY;
+                    end
+                end
+            end
+            
+            //===== 发送CORDIC模式和结果 "CORDIC:M R1:±XXXXX R2:±XXXXX " =====
+            UART_SEND_CORDIC: begin
+                if (!uart_busy) begin
+                    case (uart_char_index)
+                        6'd0: uart_data_to_send <= "C";
+                        6'd1: uart_data_to_send <= "O";
+                        6'd2: uart_data_to_send <= "R";
+                        6'd3: uart_data_to_send <= "D";
+                        6'd4: uart_data_to_send <= "I";
+                        6'd5: uart_data_to_send <= "C";
+                        6'd6: uart_data_to_send <= ":";
+                        6'd7: begin
+                            // 发送CORDIC模式
+                            case (cordic_mode)
+                                3'd0: uart_data_to_send <= "D";  // Disabled
+                                3'd1: uart_data_to_send <= "S";  // Sin/Cos
+                                3'd2: uart_data_to_send <= "H";  // Sinh/Cosh
+                                3'd3: uart_data_to_send <= "E";  // Exp
+                                3'd4: uart_data_to_send <= "L";  // Ln
+                                3'd5: uart_data_to_send <= "A";  // Arctanh
+                                default: uart_data_to_send <= "?";
+                            endcase
+                        end
+                        6'd8: uart_data_to_send <= " ";
+                        6'd9: uart_data_to_send <= "R";
+                        6'd10: uart_data_to_send <= "1";
+                        6'd11: uart_data_to_send <= ":";
+                        6'd12: uart_data_to_send <= cordic_result_1[31] ? "-" : "+";  // 符号位
+                        // R1值的前4位十六进制 (高16位)
+                        6'd13: uart_data_to_send <= (cordic_result_1[31:28] < 10) ? 
+                                                    (8'd48 + cordic_result_1[31:28]) : 
+                                                    (8'd55 + cordic_result_1[31:28]);
+                        6'd14: uart_data_to_send <= (cordic_result_1[27:24] < 10) ? 
+                                                    (8'd48 + cordic_result_1[27:24]) : 
+                                                    (8'd55 + cordic_result_1[27:24]);
+                        6'd15: uart_data_to_send <= (cordic_result_1[23:20] < 10) ? 
+                                                    (8'd48 + cordic_result_1[23:20]) : 
+                                                    (8'd55 + cordic_result_1[23:20]);
+                        6'd16: uart_data_to_send <= (cordic_result_1[19:16] < 10) ? 
+                                                    (8'd48 + cordic_result_1[19:16]) : 
+                                                    (8'd55 + cordic_result_1[19:16]);
+                        // R1值的后4位十六进制 (低16位)
+                        6'd17: uart_data_to_send <= (cordic_result_1[15:12] < 10) ? 
+                                                    (8'd48 + cordic_result_1[15:12]) : 
+                                                    (8'd55 + cordic_result_1[15:12]);
+                        6'd18: uart_data_to_send <= (cordic_result_1[11:8] < 10) ? 
+                                                    (8'd48 + cordic_result_1[11:8]) : 
+                                                    (8'd55 + cordic_result_1[11:8]);
+                        6'd19: uart_data_to_send <= (cordic_result_1[7:4] < 10) ? 
+                                                    (8'd48 + cordic_result_1[7:4]) : 
+                                                    (8'd55 + cordic_result_1[7:4]);
+                        6'd20: uart_data_to_send <= (cordic_result_1[3:0] < 10) ? 
+                                                    (8'd48 + cordic_result_1[3:0]) : 
+                                                    (8'd55 + cordic_result_1[3:0]);
+                        6'd21: uart_data_to_send <= " ";
+                        6'd22: uart_data_to_send <= "R";
+                        6'd23: uart_data_to_send <= "2";
+                        6'd24: uart_data_to_send <= ":";
+                        6'd25: uart_data_to_send <= cordic_result_2[31] ? "-" : "+";  // 符号位
+                        // R2值的前4位十六进制
+                        6'd26: uart_data_to_send <= (cordic_result_2[31:28] < 10) ? 
+                                                    (8'd48 + cordic_result_2[31:28]) : 
+                                                    (8'd55 + cordic_result_2[31:28]);
+                        6'd27: uart_data_to_send <= (cordic_result_2[27:24] < 10) ? 
+                                                    (8'd48 + cordic_result_2[27:24]) : 
+                                                    (8'd55 + cordic_result_2[27:24]);
+                        6'd28: uart_data_to_send <= (cordic_result_2[23:20] < 10) ? 
+                                                    (8'd48 + cordic_result_2[23:20]) : 
+                                                    (8'd55 + cordic_result_2[23:20]);
+                        6'd29: uart_data_to_send <= (cordic_result_2[19:16] < 10) ? 
+                                                    (8'd48 + cordic_result_2[19:16]) : 
+                                                    (8'd55 + cordic_result_2[19:16]);
+                        // R2值的后4位十六进制
+                        6'd30: uart_data_to_send <= (cordic_result_2[15:12] < 10) ? 
+                                                    (8'd48 + cordic_result_2[15:12]) : 
+                                                    (8'd55 + cordic_result_2[15:12]);
+                        6'd31: uart_data_to_send <= (cordic_result_2[11:8] < 10) ? 
+                                                    (8'd48 + cordic_result_2[11:8]) : 
+                                                    (8'd55 + cordic_result_2[11:8]);
+                        6'd32: uart_data_to_send <= (cordic_result_2[7:4] < 10) ? 
+                                                    (8'd48 + cordic_result_2[7:4]) : 
+                                                    (8'd55 + cordic_result_2[7:4]);
+                        6'd33: uart_data_to_send <= (cordic_result_2[3:0] < 10) ? 
+                                                    (8'd48 + cordic_result_2[3:0]) : 
+                                                    (8'd55 + cordic_result_2[3:0]);
+                        6'd34: uart_data_to_send <= " ";
+                        default: begin
+                            send_state <= UART_SEND_NEWLINE;
+                            uart_char_index <= 6'd0;
+                        end
+                    endcase
+                    
+                    if (uart_char_index <= 6'd34) begin
                         uart_send_trigger <= 1'b1;
                         uart_char_index <= uart_char_index + 1'b1;
                         send_state <= UART_WAIT_BUSY;
@@ -2163,6 +2314,214 @@ always @(posedge clk_100m or negedge rst_n) begin
             hdmi_hs_toggle_flag <= 1'b0;
     end
 end
+
+//=============================================================================
+// CORDIC算法模块集成
+//=============================================================================
+
+// CORDIC模式控制逻辑（通过按键切换模式）
+always @(posedge clk_100m or negedge rst_n) begin
+    if (!rst_n) begin
+        cordic_mode <= 3'd0;
+        cordic_enable <= 1'b0;
+    end else begin
+        // 模式循环切换: 0(禁用)->1(sin/cos)->2(sinh/cosh)->3(exp)->4(ln)->5(arctanh)->0
+        if (btn_cordic_mode) begin
+            if (cordic_mode == 3'd5)
+                cordic_mode <= 3'd0;
+            else
+                cordic_mode <= cordic_mode + 1'b1;
+        end
+        
+        // CORDIC使能控制（模式非0时使能）
+        cordic_enable <= (cordic_mode != 3'd0);
+    end
+end
+
+// CORDIC输入数据准备逻辑
+// 从ADC数据或频率测量结果中提取并转换为CORDIC格式
+always @(posedge clk_100m or negedge rst_n) begin
+    if (!rst_n) begin
+        cordic_input <= 32'sd0;
+        cordic_input_valid <= 1'b0;
+    end else begin
+        if (cordic_enable && adc_data_valid) begin
+            case (cordic_mode)
+                3'd1: begin  // sin/cos: 将ADC数据映射到角度范围 -180~+180度
+                    // ADC: 0-1023 -> 角度: -180~+180度
+                    // 公式: angle = (adc_data - 512) * 360 / 1024 = (adc_data - 512) * 180 / 512
+                    // 16位小数: angle_fixed = angle * 65536
+                    cordic_input <= ($signed({1'b0, selected_adc_data[9:0]}) - 32'sd512) * 32'sd23040; // 23040 = 180*65536/512
+                    cordic_input_valid <= 1'b1;
+                end
+                3'd2: begin  // sinh/cosh: 输入范围 -1.13~+1.13 (16位小数)
+                    // ADC: 0-1023 -> -1.13~+1.13
+                    cordic_input <= ($signed({1'b0, selected_adc_data[9:0]}) - 32'sd512) * 32'sd145; // 145 ≈ 1.13*65536/512
+                    cordic_input_valid <= 1'b1;
+                end
+                3'd3: begin  // exp: 输入范围 -1.13~+1.13
+                    cordic_input <= ($signed({1'b0, selected_adc_data[9:0]}) - 32'sd512) * 32'sd145;
+                    cordic_input_valid <= 1'b1;
+                end
+                3'd4: begin  // ln: 输入范围 0.1~9.58
+                    // ADC: 0-1023 -> 0.1~9.58
+                    cordic_input <= 32'sd6554 + ($signed({1'b0, selected_adc_data[9:0]}) * 32'sd605); // 6554=0.1*65536, 605≈9.48*65536/1024
+                    cordic_input_valid <= 1'b1;
+                end
+                3'd5: begin  // arctanh: 输入范围 -1~+1
+                    // ADC: 0-1023 -> -1~+1
+                    cordic_input <= ($signed({1'b0, selected_adc_data[9:0]}) - 32'sd512) * 32'sd128; // 128 = 65536/512
+                    cordic_input_valid <= 1'b1;
+                end
+                default: begin
+                    cordic_input <= 32'sd0;
+                    cordic_input_valid <= 1'b0;
+                end
+            endcase
+        end else begin
+            cordic_input_valid <= 1'b0;
+        end
+    end
+end
+
+// CORDIC结果选择和寄存逻辑
+always @(posedge clk_100m or negedge rst_n) begin
+    if (!rst_n) begin
+        cordic_result_1 <= 32'sd0;
+        cordic_result_2 <= 32'sd0;
+        cordic_result_valid <= 1'b0;
+    end else begin
+        case (cordic_mode)
+            3'd1: begin  // sin/cos
+                if (cordic_sincos_valid) begin
+                    cordic_result_1 <= cordic_sin;
+                    cordic_result_2 <= cordic_cos;
+                    cordic_result_valid <= 1'b1;
+                end else begin
+                    cordic_result_valid <= 1'b0;
+                end
+            end
+            3'd2: begin  // sinh/cosh
+                if (cordic_sinhcosh_valid) begin
+                    cordic_result_1 <= cordic_sinh;
+                    cordic_result_2 <= cordic_cosh;
+                    cordic_result_valid <= 1'b1;
+                end else begin
+                    cordic_result_valid <= 1'b0;
+                end
+            end
+            3'd3: begin  // exp
+                if (cordic_exp_valid) begin
+                    cordic_result_1 <= cordic_exp;
+                    cordic_result_2 <= 32'sd0;
+                    cordic_result_valid <= 1'b1;
+                end else begin
+                    cordic_result_valid <= 1'b0;
+                end
+            end
+            3'd4: begin  // ln
+                if (cordic_ln_valid) begin
+                    cordic_result_1 <= cordic_ln;
+                    cordic_result_2 <= 32'sd0;
+                    cordic_result_valid <= 1'b1;
+                end else begin
+                    cordic_result_valid <= 1'b0;
+                end
+            end
+            3'd5: begin  // arctanh
+                if (cordic_arctanh_valid) begin
+                    cordic_result_1 <= cordic_arctanh;
+                    cordic_result_2 <= 32'sd0;
+                    cordic_result_valid <= 1'b1;
+                end else begin
+                    cordic_result_valid <= 1'b0;
+                end
+            end
+            default: begin
+                cordic_result_1 <= 32'sd0;
+                cordic_result_2 <= 32'sd0;
+                cordic_result_valid <= 1'b0;
+            end
+        endcase
+    end
+end
+
+// 数据延迟模块实例化（用于时序对齐）
+data_delay #(
+    .DATA_WIDTH(16),
+    .DATA_DELAY(18)  // 匹配CORDIC流水线延迟(16级+2拍)
+) u_adc_data_delay (
+    .I_video_clk(clk_100m),
+    .I_rst_n(rst_n),
+    .I_data(selected_adc_data),
+    .O_data(adc_data_delayed)
+);
+
+// CORDIC sin/cos模块实例化
+cordic_sin_cos #(
+    .PIPELINE(16)
+) u_cordic_sin_cos (
+    .clk(clk_100m),
+    .rst_n(rst_n),
+    .angle(cordic_input),
+    .pre_vaild(cordic_input_valid && (cordic_mode == 3'd1)),
+    .sin(cordic_sin),
+    .cos(cordic_cos),
+    .post_vaild(cordic_sincos_valid)
+);
+
+// CORDIC sinh/cosh模块实例化
+cordic_sinh_cosh #(
+    .PIPELINE(16)
+) u_cordic_sinh_cosh (
+    .clk(clk_100m),
+    .rst_n(rst_n),
+    .alpha(cordic_input),
+    .pre_vaild(cordic_input_valid && (cordic_mode == 3'd2)),
+    .sinh(cordic_sinh),
+    .cosh(cordic_cosh),
+    .post_vaild(cordic_sinhcosh_valid)
+);
+
+// CORDIC exp模块实例化
+cordic_exp #(
+    .PIPELINE(16)
+) u_cordic_exp (
+    .clk(clk_100m),
+    .rst_n(rst_n),
+    .iData(cordic_input),
+    .pre_vaild(cordic_input_valid && (cordic_mode == 3'd3)),
+    .exp(cordic_exp),
+    .post_vaild(cordic_exp_valid)
+);
+
+// CORDIC ln模块实例化
+cordic_In #(
+    .PIPELINE(16)
+) u_cordic_ln (
+    .clk(clk_100m),
+    .rst_n(rst_n),
+    .iData(cordic_input),
+    .pre_vaild(cordic_input_valid && (cordic_mode == 3'd4)),
+    .In(cordic_ln),
+    .post_vaild(cordic_ln_valid)
+);
+
+// CORDIC arctanh模块实例化
+cordic_arctanh #(
+    .PIPELINE(16)
+) u_cordic_arctanh (
+    .clk(clk_100m),
+    .rst_n(rst_n),
+    .iData(cordic_input),
+    .pre_vaild(cordic_input_valid && (cordic_mode == 3'd5)),
+    .arctanh(cordic_arctanh),
+    .post_vaild(cordic_arctanh_valid)
+);
+
+//=============================================================================
+// UART发送模块
+//=============================================================================
 
 uart_tx #(
     .CLOCK_FREQ(100_000_000),
