@@ -173,11 +173,11 @@ GTP_GRS GRS_INST(
  );
 
 pll_hdmi U_pll_hdmi (
-.clkout0 (clkout0),
+.clkout0(clkout0),
     
-    .clkin1 (clkin1),
+    .clkin1(clkin1),
     
-    .pll_lock (pll_lock)
+    .pll_lock(pll_lock)
     );
 
 

@@ -208,10 +208,20 @@ localparam  AUTO_TRIG_TIMEOUT = 24'd10_000_000;  // 100ms超时
 //=============================================================================
 // 信号参数测量
 //=============================================================================
-wire [15:0] signal_freq;                    // 信号频率
-wire [15:0] signal_amplitude;               // 信号幅度
-wire [15:0] signal_duty;                    // 占空比
-wire [15:0] signal_thd;                     // 总谐波失真
+// CH1参数测量信号
+//=============================================================================
+wire [15:0] ch1_freq;                       // CH1信号频率
+wire [15:0] ch1_amplitude;                  // CH1信号幅度
+wire [15:0] ch1_duty;                       // CH1占空比
+wire [15:0] ch1_thd;                        // CH1总谐波失真
+
+//=============================================================================
+// CH2参数测量信号
+//=============================================================================
+wire [15:0] ch2_freq;                       // CH2信号频率
+wire [15:0] ch2_amplitude;                  // CH2信号幅度
+wire [15:0] ch2_duty;                       // CH2占空比
+wire [15:0] ch2_thd;                        // CH2总谐波失真
 
 //=============================================================================
 // 相位差测量信号
@@ -471,12 +481,19 @@ pll_sys u_pll_sys (
 pll_hdmi u_pll_hdmi (
     .clkin1         (sys_clk_27m),          // 27MHz输入
     .pll_lock       (pll2_lock),            // PLL2锁定
-    .clkout0        (clk_hdmi_pixel)        // 148.5MHz HDMI像素时钟 (1080p)
+    .clkout0        (clk_hdmi_pixel)        // 74.25MHz HDMI像素时钟 (DDR模式)
 );
 
-// PLL2配置说明：
-// VCO = 1188MHz (27MHz × 44 / 1)
-// CLKOUT0 = 148.5MHz (1188MHz / 8) - 1080p@60Hz像素时钟
+// PLL2配置说明 (DDR模式):
+// ⚠️ 请在IP Compiler中配置: CLKOUT0 = 74.25MHz (而非148.5MHz)
+// VCO = 1485MHz (27MHz × 55 / 1)
+// CLKOUT0 = 74.25MHz (1485MHz / 20) - DDR模式像素时钟
+// 
+// DDR模式原理:
+// - MS7210配置为DDR模式 (寄存器0x00C0=0x01, 0x1202=0x08)
+// - 74.25MHz时钟，上升沿和下降沿都输出数据
+// - 等效数据率: 74.25MHz × 2 = 148.5MHz (1080p@60Hz)
+// - 时序优势: FPGA内部逻辑周期从6.734ns提升到13.468ns
 
 assign clk_fft = clk_100m;                  // FFT使用100MHz时钟
 
@@ -1234,10 +1251,10 @@ dpram_8192x11 u_ch2_spectrum_ram1 (
 );
 
 //=============================================================================
-// 9. 信号参数测量模块（暂使用通道1数据）
+// 9. CH1信号参数测量模块 (⚠️ 使用10MHz时钟降低时序压力)
 //=============================================================================
-signal_parameter_measure u_param_measure (
-    .clk            (clk_100m),
+signal_parameter_measure u_param_measure_ch1 (
+    .clk            (clk_10m),              // ⚠️ 改用10MHz (100ns周期,时序要求宽松10倍)
     .rst_n          (rst_n),
     
     // 时域数据输入（使用通道1同步数据，支持测试信号）
@@ -1251,13 +1268,40 @@ signal_parameter_measure u_param_measure (
     .spectrum_valid (ch1_spectrum_valid),
     
     // 参数输出
-    .freq_out       (signal_freq),
-    .amplitude_out  (signal_amplitude),
-    .duty_out       (signal_duty),
-    .thd_out        (signal_thd),
+    .freq_out       (ch1_freq),
+    .amplitude_out  (ch1_amplitude),
+    .duty_out       (ch1_duty),
+    .thd_out        (ch1_thd),
     
     // 控制 - ✅ 始终启用测量，只是在mode=2时才重点显示
     .measure_en     (run_flag)  // 运行时就测量
+);
+
+//=============================================================================
+// 9.2 CH2信号参数测量模块 (⚠️ 使用10MHz时钟降低时序压力)
+//=============================================================================
+signal_parameter_measure u_param_measure_ch2 (
+    .clk            (clk_10m),              // ⚠️ 改用10MHz
+    .rst_n          (rst_n),
+    
+    // 时域数据输入（使用通道2同步数据）
+    .sample_clk     (clk_adc),
+    .sample_data    (ch2_data_sync[9:2]),  // CH2数据
+    .sample_valid   (dual_data_valid || test_mode),
+    
+    // 频域数据输入（使用通道2）
+    .spectrum_data  (ch2_spectrum_magnitude),
+    .spectrum_addr  (ch2_spectrum_wr_addr),
+    .spectrum_valid (ch2_spectrum_valid),
+    
+    // 参数输出
+    .freq_out       (ch2_freq),
+    .amplitude_out  (ch2_amplitude),
+    .duty_out       (ch2_duty),
+    .thd_out        (ch2_thd),
+    
+    // 控制
+    .measure_en     (run_flag)
 );
 
 //=============================================================================
@@ -1403,13 +1447,13 @@ end
 // 假设FFT模块有输出：fft_magnitude_out, fft_bin_index_out, fft_valid_out
 // 这里需要连接实际的FFT输出信号
 
-// CH1 AI识别器
+// CH1 AI识别器 (⚠️ 使用10MHz时钟降低时序压力)
 ai_signal_recognizer #(
     .DATA_WIDTH   (11),
     .WINDOW_SIZE  (1024),
     .FFT_BINS     (512)
 ) u_ch1_ai_recognizer (
-    .clk              (clk_fft),
+    .clk              (clk_10m),            // ⚠️ 改用10MHz (降低特征提取运算时序压力)
     .rst_n            (rst_n),
     
     // 时域信号输入
@@ -1434,13 +1478,13 @@ ai_signal_recognizer #(
     .dbg_thd          (ch1_dbg_thd)
 );
 
-// CH2 AI识别器
+// CH2 AI识别器 (⚠️ 使用10MHz时钟降低时序压力)
 ai_signal_recognizer #(
     .DATA_WIDTH   (11),
     .WINDOW_SIZE  (1024),
     .FFT_BINS     (512)
 ) u_ch2_ai_recognizer (
-    .clk              (clk_fft),
+    .clk              (clk_10m),            // ⚠️ 改用10MHz
     .rst_n            (rst_n),
     
     // 时域信号输入
@@ -1477,11 +1521,19 @@ hdmi_display_ctrl u_hdmi_ctrl (
     .ch2_data           (ch2_spectrum_rd_data), // 通道2数据（时域/频域）
     .spectrum_addr      (spectrum_rd_addr),
     
-    // 参数显示
-    .freq               (signal_freq),
-    .amplitude          (signal_amplitude),
-    .duty               (signal_duty),
-    .thd                (signal_thd),
+    // CH1参数显示
+    .ch1_freq           (ch1_freq),
+    .ch1_amplitude      (ch1_amplitude),
+    .ch1_duty           (ch1_duty),
+    .ch1_thd            (ch1_thd),
+    
+    // CH2参数显示
+    .ch2_freq           (ch2_freq),
+    .ch2_amplitude      (ch2_amplitude),
+    .ch2_duty           (ch2_duty),
+    .ch2_thd            (ch2_thd),
+    
+    // 相位差
     .phase_diff         (phase_difference),     // 相位差
     
     // ✅ AI识别结果输入
