@@ -29,7 +29,7 @@ create_generated_clock -name clk_10m \
 create_generated_clock -name {clk_adc} -source [get_ports sys_clk_50m] [get_pins u_pll_sys/clkout2] -master_clock {sys_clk_50m} -multiply_by {14} -divide_by {20}
 
 # PLL2 - HDMI??? (27MHz????)
-create_generated_clock -name {clk_hdmi_pixel} -source [get_ports sys_clk_27m] [get_pins u_pll_hdmi/clkout0] -master_clock {sys_clk_27m} -multiply_by {44} -divide_by {8}
+create_generated_clock -name {clk_hdmi_pixel} -source [get_ports sys_clk_27m] [get_pins u_pll_hdmi/clkout0] -master_clock {sys_clk_27m} -multiply_by {33} -divide_by {12}
 
 #=============================================================================
 # 3. ???????
@@ -83,7 +83,10 @@ set_false_path -from [get_clocks {clk_adc}] -to [get_clocks {clk_100m}]
 set_false_path -from [get_clocks {clk_100m}] -to [get_clocks {clk_adc}]
 set_false_path -from [get_clocks {clk_100m}] -to [get_clocks {clk_hdmi_pixel}]
 set_false_path -from [get_clocks {clk_hdmi_pixel}] -to [get_clocks {clk_100m}]
-
+set_false_path -from [get_clocks {clk_100m}] -to [get_clocks {clk_10m}]
+set_false_path -from [get_clocks {clk_10m}] -to [get_clocks {clk_100m}]
+set_false_path -from [get_clocks {clk_10m}] -to [get_clocks {clk_hdmi_pixel}]
+set_false_path -from [get_clocks {clk_hdmi_pixel}] -to [get_clocks {clk_10m}]
 #=============================================================================
 # 7. ????????
 #=============================================================================
@@ -609,3 +612,4 @@ define_attribute {p:adc_ch2_clk} {PAP_IO_STANDARD} {LVCMOS33}
 define_attribute {p:adc_ch2_clk} {PAP_IO_DRIVE} {8}
 define_attribute {p:adc_ch2_clk} {PAP_IO_NONE} {TRUE}
 define_attribute {p:adc_ch2_clk} {PAP_IO_SLEW} {SLOW}
+set_multicycle_path {2} -from [get_cells {u_hdmi_ctrl.pixel_x_d1[11:0]}] -to [get_cells {u_hdmi_ctrl.char_code[7:0]}]

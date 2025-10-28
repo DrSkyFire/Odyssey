@@ -23,37 +23,19 @@ module pll_hdmi (
     );
 
     localparam real CLKIN_FREQ          = 27.0;
-    localparam PFDEN_EN                 = "FALSE";
-    localparam VCODIV2_ENABLE           = "FALSE";
-    localparam DYNAMIC_RATIOI_EN        = "FALSE";
-    localparam DYNAMIC_RATIO0_EN        = "FALSE";
-    localparam DYNAMIC_RATIO1_EN        = "FALSE";
-    localparam DYNAMIC_RATIO2_EN        = "FALSE";
-    localparam DYNAMIC_RATIO3_EN        = "FALSE";
-    localparam DYNAMIC_RATIO4_EN        = "FALSE";
-    localparam DYNAMIC_RATIOF_EN        = "FALSE";
     localparam integer STATIC_RATIOI    = 1;
-    localparam integer STATIC_RATIO0    = 8;
-    localparam integer STATIC_RATIO1    = 16;
+    localparam integer STATIC_RATIO0    = 12;
+    localparam integer STATIC_RATIO1    = 104;
     localparam integer STATIC_RATIO2    = 16;
     localparam integer STATIC_RATIO3    = 16;
     localparam integer STATIC_RATIO4    = 16;
-    localparam integer STATIC_RATIOF    = 44;
-    localparam DYNAMIC_DUTY0_EN         = "FALSE";
-    localparam DYNAMIC_DUTY1_EN         = "FALSE";
-    localparam DYNAMIC_DUTY2_EN         = "FALSE";
-    localparam DYNAMIC_DUTY3_EN         = "FALSE";
-    localparam DYNAMIC_DUTY4_EN         = "FALSE";
-    localparam integer STATIC_DUTY0     = 8;
-    localparam integer STATIC_DUTY1     = 16;
+    localparam integer STATIC_RATIOF    = 33;
+    localparam integer STATIC_DUTY0     = 12;
+    localparam integer STATIC_DUTY1     = 104;
     localparam integer STATIC_DUTY2     = 16;
     localparam integer STATIC_DUTY3     = 16;
     localparam integer STATIC_DUTY4     = 16;
-    localparam DYNAMIC_PHASE0_EN        = "FALSE";
-    localparam DYNAMIC_PHASE1_EN        = "FALSE";
-    localparam DYNAMIC_PHASE2_EN        = "FALSE";
-    localparam DYNAMIC_PHASE3_EN        = "FALSE";
-    localparam DYNAMIC_PHASE4_EN        = "FALSE";
+    localparam integer STATIC_DUTYF     = 33;
     localparam integer STATIC_PHASE0    = 16;
     localparam integer STATIC_PHASE1    = 16;
     localparam integer STATIC_PHASE2    = 16;
@@ -63,7 +45,6 @@ module pll_hdmi (
     localparam CLK_CAS2_EN              = "FALSE";
     localparam CLK_CAS3_EN              = "FALSE";
     localparam CLK_CAS4_EN              = "FALSE";
-    localparam integer CLKOUT5_SEL      = 0;
     localparam CLKIN_BYPASS_EN          = "FALSE";
     localparam CLKOUT0_GATE_EN          = "FALSE";
     localparam CLKOUT0_EXT_GATE_EN      = "FALSE";
@@ -71,22 +52,39 @@ module pll_hdmi (
     localparam CLKOUT2_GATE_EN          = "FALSE";
     localparam CLKOUT3_GATE_EN          = "FALSE";
     localparam CLKOUT4_GATE_EN          = "FALSE";
-    localparam CLKOUT5_GATE_EN          = "FALSE";
-    localparam integer FBDIV_SEL        = 0;
     localparam FBMODE                   = "FALSE";
+    localparam integer FBDIV_SEL        = 0;
     localparam BANDWIDTH                = "OPTIMIZED";
-    localparam RSTODIV_ENABLE           = "FALSE";
-    localparam VCOCLK_DIV2              = (VCODIV2_ENABLE == "TRUE" ? 1'b1 : 1'b0);
+    localparam PFDEN_EN                 = "FALSE";
+    localparam VCOCLK_DIV2              = 1'b0;
+    localparam DYNAMIC_RATIOI_EN        = "FALSE";
+    localparam DYNAMIC_RATIO0_EN        = "FALSE";
+    localparam DYNAMIC_RATIO1_EN        = "FALSE";
+    localparam DYNAMIC_RATIO2_EN        = "FALSE";
+    localparam DYNAMIC_RATIO3_EN        = "FALSE";
+    localparam DYNAMIC_RATIO4_EN        = "FALSE";
+    localparam DYNAMIC_RATIOF_EN        = "FALSE";
+    localparam DYNAMIC_DUTY0_EN         = "FALSE";
+    localparam DYNAMIC_DUTY1_EN         = "FALSE";
+    localparam DYNAMIC_DUTY2_EN         = "FALSE";
+    localparam DYNAMIC_DUTY3_EN         = "FALSE";
+    localparam DYNAMIC_DUTY4_EN         = "FALSE";
     localparam DYNAMIC_DUTYF_EN         = "FALSE";
-    localparam integer STATIC_DUTYF     = 16;
     localparam PHASE_ADJUST0_EN         = "TRUE";
     localparam PHASE_ADJUST1_EN         = (CLK_CAS1_EN == "TRUE") ? "FALSE" : "TRUE";
     localparam PHASE_ADJUST2_EN         = (CLK_CAS2_EN == "TRUE") ? "FALSE" : "TRUE";
     localparam PHASE_ADJUST3_EN         = (CLK_CAS3_EN == "TRUE") ? "FALSE" : "TRUE";
     localparam PHASE_ADJUST4_EN         = (CLK_CAS4_EN == "TRUE") ? "FALSE" : "TRUE";
+    localparam DYNAMIC_PHASE0_EN        = "FALSE";
+    localparam DYNAMIC_PHASE1_EN        = "FALSE";
+    localparam DYNAMIC_PHASE2_EN        = "FALSE";
+    localparam DYNAMIC_PHASE3_EN        = "FALSE";
+    localparam DYNAMIC_PHASE4_EN        = "FALSE";
     localparam DYNAMIC_PHASEF_EN        = "FALSE";
     localparam integer STATIC_PHASEF    = 16;
     localparam CLK_CAS0_EN              = "FALSE";
+    localparam integer CLKOUT5_SEL      = 0;
+    localparam CLKOUT5_GATE_EN          = "FALSE";
     localparam INTERNAL_FB              = (FBMODE == "FALSE") ? "ENABLE":"DISABLE";
     localparam EXTERNAL_FB              = (FBMODE == "FALSE") ? "DISABLE":
                                           (FBDIV_SEL == 0)  ? "CLKOUT0":
@@ -94,10 +92,8 @@ module pll_hdmi (
                                           (FBDIV_SEL == 2)  ? "CLKOUT2":
                                           (FBDIV_SEL == 3)  ? "CLKOUT3":
                                           (FBDIV_SEL == 4)  ? "CLKOUT4":"DISABLE";
-    localparam DYNAMIC_RATIOM_EN        = "FALSE";
+    localparam RSTODIV_ENABLE           = "FALSE";
     localparam integer STATIC_RATIOM    = 1;
-    localparam DYNAMIC_LOOP_EN          = "FALSE";
-    localparam LOOP_MAPPING_EN          = "FALSE";
     
 
     input clkin1;
@@ -139,13 +135,11 @@ module pll_hdmi (
     wire [9:0] dyn_duty2;
     wire [9:0] dyn_duty3;
     wire [9:0] dyn_duty4;
-    wire [9:0] dyn_dutyf;
     wire [12:0] dyn_phase0;
     wire [12:0] dyn_phase1;
     wire [12:0] dyn_phase2;
     wire [12:0] dyn_phase3;
     wire [12:0] dyn_phase4;
-    wire [12:0] dyn_phasef;
     wire pll_pwd;
     wire pll_rst;
     wire rstodiv;
@@ -157,18 +151,7 @@ module pll_hdmi (
     wire       phase_dir;
     wire       phase_step_n;
     wire       load_phase;
-    wire [6:0] dyn_mdiv;  
-    assign icp_base=1'b0;
-    assign icp_sel=4'b0;
-    assign lpfres_sel=3'b0;
-    assign cripple_sel=1'b0;
-    assign phase_sel=3'b0;
-    assign phase_dir=1'b0;
-    assign phase_step_n=1'b0;
-    assign load_phase=1'b0;
-    assign dyn_mdiv=7'b0;
-       
-    assign dyn_phasef = 13'd16;
+    wire [6:0] dyn_mdiv;    
     
     assign clkin2       = 1'b0;
     assign clkin_sel    = 1'b0;
@@ -179,12 +162,13 @@ module pll_hdmi (
     assign pll_rst      = 1'b0;
     
     assign rstodiv      = 1'b0;
-    GTP_PLL_E3 #(
+
+GTP_PLL_E3 #(
         .CLKIN_FREQ(CLKIN_FREQ),
         .PFDEN_EN(PFDEN_EN),
         .VCOCLK_DIV2(VCOCLK_DIV2),
         .DYNAMIC_RATIOI_EN(DYNAMIC_RATIOI_EN),
-        .DYNAMIC_RATIOM_EN(DYNAMIC_RATIOM_EN),
+        .DYNAMIC_RATIOM_EN("FALSE"),
         .DYNAMIC_RATIO0_EN(DYNAMIC_RATIO0_EN),
         .DYNAMIC_RATIO1_EN(DYNAMIC_RATIO1_EN),
         .DYNAMIC_RATIO2_EN(DYNAMIC_RATIO2_EN),
@@ -238,8 +222,8 @@ module pll_hdmi (
         .CLKOUT5_SYN_EN(CLKOUT5_GATE_EN),
         .INTERNAL_FB(INTERNAL_FB),
         .EXTERNAL_FB(EXTERNAL_FB),
-        .DYNAMIC_LOOP_EN(DYNAMIC_LOOP_EN),
-        .LOOP_MAPPING_EN(LOOP_MAPPING_EN),
+        .DYNAMIC_LOOP_EN("FALSE"),
+        .LOOP_MAPPING_EN("FALSE"),
         .BANDWIDTH(BANDWIDTH)
         ) u_pll_e3 (
         .CLKOUT0(clkout0),
@@ -257,15 +241,15 @@ module pll_hdmi (
         .CLKIN_SEL(clkin_sel),
         .CLKIN_SEL_EN(clkin_sel_en),
         .PFDEN(pfden),
-        .ICP_BASE(icp_base),
-        .ICP_SEL(icp_sel),
-        .LPFRES_SEL(lpfres_sel),
-        .CRIPPLE_SEL(cripple_sel),
-        .PHASE_SEL(phase_sel),
-        .PHASE_DIR(phase_dir),
-        .PHASE_STEP_N(phase_step_n),
-        .LOAD_PHASE(load_phase),
-        .RATIOM(dyn_mdiv),
+        .ICP_BASE(1'b0),
+        .ICP_SEL(4'b0),
+        .LPFRES_SEL(3'b0),
+        .CRIPPLE_SEL(1'b0),
+        .PHASE_SEL(3'b0),
+        .PHASE_DIR(1'b0),
+        .PHASE_STEP_N(1'b0),
+        .LOAD_PHASE(1'b0),
+        .RATIOM(7'b0),
         .RATIOI(dyn_idiv),
         .RATIO0(dyn_odiv0),
         .RATIO1(dyn_odiv1),

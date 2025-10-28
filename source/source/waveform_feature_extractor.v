@@ -48,12 +48,13 @@ localparam IDLE       = 3'd0;
 localparam COLLECTING = 3'd1;
 localparam COMPUTE1   = 3'd2;  // 计算阶段1: 准备数据
 localparam COMPUTE2   = 3'd3;  // 计算阶段2: 乘法运算 + LUT查询
-localparam COMPUTE3   = 3'd4;  // 计算阶段3: 倒数插值
+localparam COMPUTE3   = 3'd4;  // 计算阶段3: 倒数插值 (时序优化:分2拍)
 localparam COMPUTE4   = 3'd5;  // 计算阶段4: 最终乘法(替代除法)
 localparam OUTPUT     = 3'd6;  // 输出阶段
 
 reg [2:0] state;
 reg [10:0] sample_cnt;  // 样本计数器
+reg compute3_step;      // ⚠️ 时序优化: COMPUTE3子状态 (0=计算delta, 1=计算插值)
 
 //=============================================================================
 // 流水线寄存器 (用于查找表除法优化 - 4级流水线)
@@ -81,6 +82,12 @@ reg [15:0] centroid_recip_base, centroid_recip_next;
 reg [7:0]  centroid_offset;
 reg [31:0] centroid_mult_pipe;
 
+// ⚠️ 时序优化：插值计算中间结果 (COMPUTE3_STEP1 → COMPUTE3_STEP2)
+reg [15:0] thd_delta;          // thd_recip_next - thd_recip_base
+reg [15:0] crest_delta;
+reg [15:0] form_delta;
+reg [15:0] centroid_delta;
+
 // 插值结果 (COMPUTE3 → COMPUTE4 流水线)
 reg [15:0] thd_recip_interp_reg;
 reg [15:0] crest_recip_interp_reg;
@@ -98,6 +105,11 @@ reg [15:0] thd_divisor_pipe;
 reg [15:0] crest_divisor_pipe;
 reg [15:0] form_divisor_pipe;
 reg [15:0] centroid_divisor_pipe;
+
+// 中间值寄存器 (COMPUTE1 → COMPUTE2, 用于LUT输入)
+reg [15:0] rms_value_reg;
+reg [15:0] avg_abs_value_reg;
+reg [15:0] fft_sum_mag_reg;
 
 //=============================================================================
 // 2. 过零率计算 (Zero Crossing Rate)
@@ -345,9 +357,7 @@ assign avg_abs_value = sum_abs >> 10;
 
 // 流水线阶段1: 准备中间变量
 reg [15:0] peak_to_peak_reg;
-reg [15:0] rms_value_reg;
-reg [15:0] avg_abs_value_reg;
-reg [15:0] fft_sum_mag_reg;
+// 注：rms_value_reg, avg_abs_value_reg, fft_sum_mag_reg 已在前面声明（用于LUT输入）
 reg [15:0] fft_fundamental_reg;
 reg [15:0] fft_harmonic_sum_reg;
 reg [31:0] fft_weighted_sum_reg;
@@ -442,11 +452,17 @@ always @(posedge clk or negedge rst_n) begin
     end
 end
 
-// 流水线阶段3: 倒数插值计算 (时序优化:单独一个周期)
-// 算法: reciprocal = recip_base + (recip_next - recip_base) * (offset / 256)
+// 流水线阶段3: 倒数插值计算 (时序优化:分2拍执行，打断组合逻辑链)
+// Step 1: 计算差值 delta = recip_next - recip_base
+// Step 2: 插值计算 result = base + (delta * offset) >>> 8
 
 always @(posedge clk or negedge rst_n) begin
     if (!rst_n) begin
+        thd_delta <= 0;
+        crest_delta <= 0;
+        form_delta <= 0;
+        centroid_delta <= 0;
+        
         thd_recip_interp_reg <= 0;
         crest_recip_interp_reg <= 0;
         form_recip_interp_reg <= 0;
@@ -461,30 +477,37 @@ always @(posedge clk or negedge rst_n) begin
         crest_divisor_pipe <= 0;
         form_divisor_pipe <= 0;
         centroid_divisor_pipe <= 0;
+        
+        compute3_step <= 0;
     end else if (state == COMPUTE3) begin
-        // THD 插值计算
-        thd_recip_interp_reg <= thd_recip_base + 
-            (((thd_recip_next - thd_recip_base) * thd_offset) >>> 8);
-        thd_dividend_pipe <= thd_mult_pipe;
-        thd_divisor_pipe <= thd_divisor;
-        
-        // Crest Factor 插值计算
-        crest_recip_interp_reg <= crest_recip_base + 
-            (((crest_recip_next - crest_recip_base) * crest_offset) >>> 8);
-        crest_dividend_pipe <= crest_mult_pipe;
-        crest_divisor_pipe <= rms_value_reg;
-        
-        // Form Factor 插值计算
-        form_recip_interp_reg <= form_recip_base + 
-            (((form_recip_next - form_recip_base) * form_offset) >>> 8);
-        form_dividend_pipe <= form_mult_pipe;
-        form_divisor_pipe <= avg_abs_value_reg;
-        
-        // Spectral Centroid 插值计算
-        centroid_recip_interp_reg <= centroid_recip_base + 
-            (((centroid_recip_next - centroid_recip_base) * centroid_offset) >>> 8);
-        centroid_dividend_pipe <= centroid_mult_pipe;
-        centroid_divisor_pipe <= fft_sum_mag_reg;
+        if (!compute3_step) begin
+            // Step 1: 计算差值 (减法，约3-4层逻辑)
+            thd_delta <= thd_recip_next - thd_recip_base;
+            crest_delta <= crest_recip_next - crest_recip_base;
+            form_delta <= form_recip_next - form_recip_base;
+            centroid_delta <= centroid_recip_next - centroid_recip_base;
+            compute3_step <= 1;  // 下一拍进入Step 2
+        end else begin
+            // Step 2: 插值计算 (乘法+移位+加法，约6-7层逻辑)
+            thd_recip_interp_reg <= thd_recip_base + ((thd_delta * thd_offset) >>> 8);
+            crest_recip_interp_reg <= crest_recip_base + ((crest_delta * crest_offset) >>> 8);
+            form_recip_interp_reg <= form_recip_base + ((form_delta * form_offset) >>> 8);
+            centroid_recip_interp_reg <= centroid_recip_base + ((centroid_delta * centroid_offset) >>> 8);
+            
+            // 传递被除数和除数到下一级
+            thd_dividend_pipe <= thd_mult_pipe;
+            thd_divisor_pipe <= thd_divisor;
+            crest_dividend_pipe <= crest_mult_pipe;
+            crest_divisor_pipe <= rms_value_reg;
+            form_dividend_pipe <= form_mult_pipe;
+            form_divisor_pipe <= avg_abs_value_reg;
+            centroid_dividend_pipe <= centroid_mult_pipe;
+            centroid_divisor_pipe <= fft_sum_mag_reg;
+            
+            compute3_step <= 0;  // 复位子状态
+        end
+    end else begin
+        compute3_step <= 0;
     end
 end
 

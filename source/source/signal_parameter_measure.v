@@ -36,7 +36,8 @@ module signal_parameter_measure (
 // 参数定义
 //=============================================================================
 localparam SAMPLE_RATE = 1_000_000;         // 采样率 1MHz
-localparam MEASURE_TIME = 1_000_000;        // 测量周期 1秒
+localparam MEASURE_TIME = 100_000;          // ⚠️ 100k采样=100ms测量周期(采样率1MHz)
+localparam DUTY_AVG_DEPTH = 8;              // ⚠️ 占空比滑动平均深度（8次平均）
 
 //=============================================================================
 // 信号定义
@@ -53,26 +54,53 @@ reg [7:0]   max_val;
 reg [7:0]   min_val;
 reg [15:0]  amplitude_calc;
 
-// 占空比测量 - 添加流水线
+// 占空比测量 - 添加流水线和滑动平均
 reg [31:0]  high_cnt;                       // 高电平计数
 reg [31:0]  total_cnt;                      // 总计数
-reg [39:0]  duty_mult_stage1;               // 流水线第1级：乘法
-reg [39:0]  duty_mult_stage2;               // 流水线第2级：延迟对齐
-reg [15:0]  duty_calc;                      // 流水线第3级：移位除法
+reg [15:0]  duty_instant;                   // 瞬时占空比
+reg [15:0]  duty_history [0:DUTY_AVG_DEPTH-1]; // 历史记录（用于滑动平均）
+reg [2:0]   duty_history_idx;               // 历史索引
+reg [19:0]  duty_sum;                       // 累加和（最大8*1000=8000需要14位，给20位余量）
+reg [15:0]  duty_calc;                      // 平均后的占空比
+integer     i;
 
-// THD测量 - 添加流水线
+// THD测量 - 添加流水线和滑动平均
 reg [31:0]  fundamental_power;              // 基波功率
-reg [31:0]  harmonic_power;                 // 谐波功率
-reg [39:0]  thd_mult_stage1;                // 流水线第1级：乘法
-reg [39:0]  thd_mult_stage2;                // 流水线第2级：延迟对齐
-reg [15:0]  thd_calc;                       // 流水线第3级：移位除法
-reg [3:0]   harmonic_cnt;                   // 谐波计数
+reg [31:0]  harmonic_power;                 // 谐波功率总和
+reg [12:0]  fundamental_index;              // 基波频点索引（动态检测）
+reg [15:0]  max_spectrum;                   // 最大频谱值（用于寻找基波）
+reg [12:0]  spectrum_scan_addr;             // 频谱扫描地址
+reg         thd_scan_done;                  // 扫描完成标志
+reg [15:0]  thd_instant;                    // 瞬时THD值
+reg [15:0]  thd_history [0:DUTY_AVG_DEPTH-1]; // THD历史记录
+reg [2:0]   thd_history_idx;                // THD历史索引
+reg [19:0]  thd_sum;                        // THD累加和
+reg [15:0]  thd_calc;                       // 平滑后的THD
 
 // 流水线控制信号
 reg         duty_calc_trigger;              // 占空比计算触发
 reg         thd_calc_trigger;               // THD计算触发
-reg [2:0]   duty_pipe_valid;                // 占空比流水线有效标志
-reg [2:0]   thd_pipe_valid;                 // THD流水线有效标志
+
+// ⚠️ 占空比计算流水线（优化版:使用16位除法降低时序压力）
+reg [2:0]   duty_pipe_state;                // 流水线状态
+reg [23:0]  duty_numerator;                 // 分子: high*1000, 最大100k*1000=100M需要27位,取24位
+reg [16:0]  duty_denominator;               // 分母: total, 最大100k需要17位
+reg [15:0]  duty_quotient;                  // 商
+localparam DUTY_IDLE   = 3'd0;
+localparam DUTY_MUL    = 3'd1;              // 计算 high*1000
+localparam DUTY_DIV    = 3'd2;              // 执行除法
+localparam DUTY_AVG    = 3'd3;              // 滑动平均
+
+// ⚠️ THD计算流水线（优化版:使用缩小的位宽）
+reg [2:0]   thd_pipe_state;                 // 流水线状态
+reg [23:0]  thd_numerator;                  // 分子: harmonic*1000, 缩小到24位
+reg [16:0]  thd_denominator;                // 分母: fundamental, 缩小到17位
+reg [15:0]  thd_quotient;                   // 商
+localparam THD_PIPE_IDLE   = 3'd0;
+localparam THD_PIPE_MUL    = 3'd1;          // 计算 harmonic*1000
+localparam THD_PIPE_DIV    = 3'd2;          // 执行除法
+localparam THD_PIPE_LIMIT  = 3'd3;          // 限幅
+localparam THD_PIPE_AVG    = 3'd4;          // 滑动平均
 
 //=============================================================================
 // 采样数据同步到系统时钟域
@@ -163,7 +191,12 @@ always @(posedge clk or negedge rst_n) begin
 end
 
 //=============================================================================
-// 3. 占空比测量 - 流水线优化版本
+// 3. 占空比测量 - 滑动平均优化版本
+// 策略：
+//   1. 缩短测量周期到100ms（快速响应）
+//   2. 每个周期计算瞬时占空比
+//   3. 使用8次滑动平均平滑结果（减少跳动）
+//   4. 使用正确的定点除法
 //=============================================================================
 always @(posedge clk or negedge rst_n) begin
     if (!rst_n) begin
@@ -172,8 +205,10 @@ always @(posedge clk or negedge rst_n) begin
         duty_calc_trigger <= 1'b0;
     end else if (measure_en) begin
         if (sample_cnt >= MEASURE_TIME) begin
-            // 测量周期结束，触发计算
+            // 测量周期结束，触发计算并清零（开始新一轮测量）
             duty_calc_trigger <= 1'b1;
+            high_cnt <= 32'd0;
+            total_cnt <= 32'd0;
         end else begin
             duty_calc_trigger <= 1'b0;
             if (sample_valid) begin
@@ -189,148 +224,215 @@ always @(posedge clk or negedge rst_n) begin
     end
 end
 
-// 占空比计算 - 3级流水线
-// 使用移位近似代替除法：duty = (high * 1024) >> 10 ≈ (high * 1000) / total
-// 修正系数：1024/1000 = 1.024，需要补偿
+// ⚠️ 占空比计算流水线（4级流水线消除时序违例）
+// 原因: 单周期内完成 ((high*1000)<<10) / ((total<<10)+1) 会产生34级加法器级联
+// 解决: 分4个时钟周期完成
+//   周期1 (MUL): 计算分子 = (high_cnt * 1000) << 10
+//   周期2 (DIV): 计算分母 = (total_cnt << 10) + 1, 启动除法
+//   周期3 (DIV): 完成除法 quotient = numerator / denominator
+//   周期4 (AVG): 更新滑动平均
 always @(posedge clk or negedge rst_n) begin
     if (!rst_n) begin
-        duty_mult_stage1 <= 40'd0;
-        duty_mult_stage2 <= 40'd0;
+        duty_pipe_state <= DUTY_IDLE;
+        duty_numerator <= 42'd0;
+        duty_denominator <= 42'd0;
+        duty_quotient <= 16'd0;
+        duty_instant <= 16'd0;
+        duty_sum <= 20'd0;
         duty_calc <= 16'd0;
-        duty_pipe_valid <= 3'd0;
+        duty_history_idx <= 3'd0;
+        for (i = 0; i < DUTY_AVG_DEPTH; i = i + 1)
+            duty_history[i] <= 16'd0;
     end else begin
-        // 流水线第1级：乘法 (high_cnt * 1024)
-        if (duty_calc_trigger && total_cnt != 0) begin
-            duty_mult_stage1 <= high_cnt << 10;  // 乘以1024
-            duty_pipe_valid[0] <= 1'b1;
-        end else begin
-            duty_pipe_valid[0] <= 1'b0;
-        end
-        
-        // 流水线第2级：保存乘法结果，准备除法
-        duty_mult_stage2 <= duty_mult_stage1;
-        duty_pipe_valid[1] <= duty_pipe_valid[0];
-        
-        // 流水线第3级：近似除法（使用移位）
-        // duty ≈ (high * 1024) / total_cnt
-        // 为了接近1000倍，再乘以1000/1024 ≈ 0.9765625
-        // 简化：直接用 (high * 1024) / total 然后调整
-        duty_pipe_valid[2] <= duty_pipe_valid[1];
-        if (duty_pipe_valid[1]) begin
-            // 使用多级移位近似除法
-            if (total_cnt >= (1 << 20))
-                duty_calc <= duty_mult_stage2[39:24];      // 除以 2^24
-            else if (total_cnt >= (1 << 19))
-                duty_calc <= duty_mult_stage2[38:23];      // 除以 2^23
-            else if (total_cnt >= (1 << 18))
-                duty_calc <= duty_mult_stage2[37:22];      // 除以 2^22
-            else if (total_cnt >= (1 << 17))
-                duty_calc <= duty_mult_stage2[36:21];      // 除以 2^21
-            else if (total_cnt >= (1 << 16))
-                duty_calc <= duty_mult_stage2[35:20];      // 除以 2^20
-            else if (total_cnt >= (1 << 15))
-                duty_calc <= duty_mult_stage2[34:19];      // 除以 2^19
-            else if (total_cnt >= (1 << 14))
-                duty_calc <= duty_mult_stage2[33:18];      // 除以 2^18
-            else if (total_cnt >= (1 << 13))
-                duty_calc <= duty_mult_stage2[32:17];      // 除以 2^17
-            else if (total_cnt >= (1 << 12))
-                duty_calc <= duty_mult_stage2[31:16];      // 除以 2^16
-            else if (total_cnt >= (1 << 11))
-                duty_calc <= duty_mult_stage2[30:15];      // 除以 2^15
-            else
-                duty_calc <= duty_mult_stage2[29:14];      // 除以 2^14
-        end
+        case (duty_pipe_state)
+            DUTY_IDLE: begin
+                if (duty_calc_trigger && total_cnt > 32'd100) begin
+                    duty_pipe_state <= DUTY_MUL;
+                end
+            end
+            
+            DUTY_MUL: begin
+                // 第1级: 计算 high_cnt * 1000 (截断到24位避免溢出)
+                duty_numerator <= (high_cnt[16:0] * 17'd1000);  // 17位*1000=27位,取低24位
+                duty_denominator <= total_cnt[16:0];            // 取低17位
+                duty_pipe_state <= DUTY_DIV;
+            end
+            
+            DUTY_DIV: begin
+                // 第2级: 24位/17位除法 (比32位快很多)
+                if (duty_denominator != 0) begin
+                    duty_quotient <= duty_numerator / duty_denominator;
+                end else begin
+                    duty_quotient <= 16'd0;
+                end
+                duty_pipe_state <= DUTY_AVG;
+            end
+            
+            DUTY_AVG: begin
+                // 第4级: 更新滑动平均
+                duty_instant <= duty_quotient;
+                
+                // 滑动平均窗口更新
+                duty_sum <= duty_sum - duty_history[duty_history_idx] + duty_quotient;
+                duty_history[duty_history_idx] <= duty_quotient;
+                duty_history_idx <= duty_history_idx + 1'b1;
+                if (duty_history_idx >= DUTY_AVG_DEPTH - 1)
+                    duty_history_idx <= 3'd0;
+                
+                // 计算平均值：sum / 8（移位除法）
+                duty_calc <= duty_sum[19:3];
+                
+                // 回到空闲状态
+                duty_pipe_state <= DUTY_IDLE;
+            end
+            
+            default: duty_pipe_state <= DUTY_IDLE;
+        endcase
     end
 end
 
 //=============================================================================
-// 4. THD测量 - 基于FFT频谱，流水线优化版本
-// THD = sqrt(P2^2 + P3^2 + ... + Pn^2) / P1
-// 简化计算: THD ≈ (P2 + P3 + ... + Pn) / P1
+// 4. THD测量 - 简化版本（修复除法Bug）
+// 策略：
+//   1. 扫描频谱找到最大值作为基波
+//   2. 累加所有其他频点功率作为谐波+噪声
+//   3. THD = (总功率 - 基波功率) / 基波功率 * 1000
+//   4. 添加滑动平均平滑结果
 //=============================================================================
+
+// 状态机：扫描频谱找基波
+localparam THD_IDLE = 2'd0;
+localparam THD_SCAN = 2'd1;
+localparam THD_CALC = 2'd2;
+
+reg [1:0]   thd_state;
+reg [31:0]  total_power;                    // 总功率（所有频点之和）
+
 always @(posedge clk or negedge rst_n) begin
     if (!rst_n) begin
         fundamental_power <= 32'd0;
         harmonic_power <= 32'd0;
-        harmonic_cnt <= 4'd0;
+        total_power <= 32'd0;
+        fundamental_index <= 13'd0;
+        max_spectrum <= 16'd0;
+        spectrum_scan_addr <= 13'd0;
+        thd_state <= THD_IDLE;
+        thd_scan_done <= 1'b0;
         thd_calc_trigger <= 1'b0;
-    end else if (spectrum_valid && measure_en) begin
-        // 假设基波在第10个频点（可根据实际调整）
-        if (spectrum_addr == 10'd10) begin
-            fundamental_power <= {16'd0, spectrum_data};
-            harmonic_power <= 32'd0;
-            harmonic_cnt <= 4'd0;
-            thd_calc_trigger <= 1'b0;
-        end
-        // 收集2~10次谐波（频点20, 30, 40, ..., 100）
-        else if (spectrum_addr == 10'd20 || spectrum_addr == 10'd30 ||
-                 spectrum_addr == 10'd40 || spectrum_addr == 10'd50 ||
-                 spectrum_addr == 10'd60 || spectrum_addr == 10'd70 ||
-                 spectrum_addr == 10'd80 || spectrum_addr == 10'd90 ||
-                 spectrum_addr == 10'd100) begin
-            harmonic_power <= harmonic_power + {16'd0, spectrum_data};
-            harmonic_cnt <= harmonic_cnt + 1'b1;
-            if (harmonic_cnt == 4'd8)  // 即将收集完
-                thd_calc_trigger <= 1'b1;
-            else
+    end else if (measure_en && spectrum_valid) begin
+        case (thd_state)
+            THD_IDLE: begin
+                // 等待新一轮FFT结果
+                if (spectrum_addr == 13'd0) begin
+                    // 重置状态，开始扫描
+                    fundamental_power <= 32'd0;
+                    harmonic_power <= 32'd0;
+                    total_power <= 32'd0;
+                    max_spectrum <= 16'd0;
+                    fundamental_index <= 13'd0;
+                    thd_state <= THD_SCAN;
+                    thd_scan_done <= 1'b0;
+                end
+            end
+            
+            THD_SCAN: begin
+                // 扫描前512个频点（低频部分，避免噪声）
+                if (spectrum_addr < 13'd512) begin
+                    total_power <= total_power + {16'd0, spectrum_data};
+                    
+                    // 跳过DC分量(addr=0),从第1个频点开始找基波
+                    if (spectrum_addr > 13'd0 && spectrum_data > max_spectrum) begin
+                        max_spectrum <= spectrum_data;
+                        fundamental_index <= spectrum_addr;
+                        fundamental_power <= {16'd0, spectrum_data};
+                    end
+                end else if (spectrum_addr == 13'd512) begin
+                    // 扫描完成，计算谐波功率
+                    harmonic_power <= total_power - fundamental_power;
+                    thd_state <= THD_CALC;
+                    thd_scan_done <= 1'b1;
+                    thd_calc_trigger <= 1'b1;  // 触发THD计算
+                end
+            end
+            
+            THD_CALC: begin
                 thd_calc_trigger <= 1'b0;
-        end else begin
-            thd_calc_trigger <= 1'b0;
-        end
+                thd_state <= THD_IDLE;  // 回到空闲，等待下一轮
+            end
+            
+            default: thd_state <= THD_IDLE;
+        endcase
     end else begin
         thd_calc_trigger <= 1'b0;
     end
 end
 
-// THD计算 - 3级流水线，使用移位近似除法
-// THD = (harmonic * 1024) / fundamental，然后调整到1000倍
+// ⚠️ THD计算流水线（4级流水线消除时序违例）
+// 原理同占空比计算
 always @(posedge clk or negedge rst_n) begin
     if (!rst_n) begin
-        thd_mult_stage1 <= 40'd0;
-        thd_mult_stage2 <= 40'd0;
+        thd_pipe_state <= THD_PIPE_IDLE;
+        thd_numerator <= 42'd0;
+        thd_denominator <= 42'd0;
+        thd_quotient <= 16'd0;
+        thd_instant <= 16'd0;
+        thd_sum <= 20'd0;
         thd_calc <= 16'd0;
-        thd_pipe_valid <= 3'd0;
+        thd_history_idx <= 3'd0;
+        for (i = 0; i < DUTY_AVG_DEPTH; i = i + 1)
+            thd_history[i] <= 16'd0;
     end else begin
-        // 流水线第1级：乘法 (harmonic_power * 1024)
-        if (thd_calc_trigger && fundamental_power != 0) begin
-            thd_mult_stage1 <= harmonic_power << 10;  // 乘以1024
-            thd_pipe_valid[0] <= 1'b1;
-        end else begin
-            thd_pipe_valid[0] <= 1'b0;
-        end
-        
-        // 流水线第2级：保存乘法结果
-        thd_mult_stage2 <= thd_mult_stage1;
-        thd_pipe_valid[1] <= thd_pipe_valid[0];
-        
-        // 流水线第3级：近似除法（使用移位）
-        thd_pipe_valid[2] <= thd_pipe_valid[1];
-        if (thd_pipe_valid[1]) begin
-            // 根据fundamental_power的大小选择合适的移位量
-            if (fundamental_power >= (1 << 20))
-                thd_calc <= thd_mult_stage2[39:24];
-            else if (fundamental_power >= (1 << 19))
-                thd_calc <= thd_mult_stage2[38:23];
-            else if (fundamental_power >= (1 << 18))
-                thd_calc <= thd_mult_stage2[37:22];
-            else if (fundamental_power >= (1 << 17))
-                thd_calc <= thd_mult_stage2[36:21];
-            else if (fundamental_power >= (1 << 16))
-                thd_calc <= thd_mult_stage2[35:20];
-            else if (fundamental_power >= (1 << 15))
-                thd_calc <= thd_mult_stage2[34:19];
-            else if (fundamental_power >= (1 << 14))
-                thd_calc <= thd_mult_stage2[33:18];
-            else if (fundamental_power >= (1 << 13))
-                thd_calc <= thd_mult_stage2[32:17];
-            else if (fundamental_power >= (1 << 12))
-                thd_calc <= thd_mult_stage2[31:16];
-            else if (fundamental_power >= (1 << 11))
-                thd_calc <= thd_mult_stage2[30:15];
-            else
-                thd_calc <= thd_mult_stage2[29:14];
-        end
+        case (thd_pipe_state)
+            THD_PIPE_IDLE: begin
+                if (thd_calc_trigger && fundamental_power > 32'd100) begin
+                    thd_pipe_state <= THD_PIPE_MUL;
+                end
+            end
+            
+            THD_PIPE_MUL: begin
+                // 第1级: 计算 harmonic * 1000 (截断到24位)
+                thd_numerator <= (harmonic_power[16:0] * 17'd1000);  // 取低17位*1000
+                thd_denominator <= fundamental_power[16:0];           // 取低17位
+                thd_pipe_state <= THD_PIPE_DIV;
+            end
+            
+            THD_PIPE_DIV: begin
+                // 第2级: 24位/17位除法
+                if (thd_denominator != 0) begin
+                    thd_quotient <= thd_numerator / thd_denominator;
+                end else begin
+                    thd_quotient <= 16'd0;
+                end
+                thd_pipe_state <= THD_PIPE_LIMIT;
+            end
+            
+            THD_PIPE_LIMIT: begin
+                // 第3级: 限幅
+                if (thd_quotient > 16'd1000)
+                    thd_quotient <= 16'd1000;
+                thd_pipe_state <= THD_PIPE_AVG;
+            end
+            
+            THD_PIPE_AVG: begin
+                // 第4级: 滑动平均
+                thd_instant <= thd_quotient;
+                
+                // 滑动平均窗口更新
+                thd_sum <= thd_sum - thd_history[thd_history_idx] + thd_quotient;
+                thd_history[thd_history_idx] <= thd_quotient;
+                thd_history_idx <= thd_history_idx + 1'b1;
+                if (thd_history_idx >= DUTY_AVG_DEPTH - 1)
+                    thd_history_idx <= 3'd0;
+                
+                // 计算平均值：sum / 8
+                thd_calc <= thd_sum[19:3];
+                
+                // 回到空闲状态
+                thd_pipe_state <= THD_PIPE_IDLE;
+            end
+            
+            default: thd_pipe_state <= THD_PIPE_IDLE;
+        endcase
     end
 end
 
