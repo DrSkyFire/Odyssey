@@ -47,55 +47,32 @@ input [5:0] index;
             6'd5     : cmd_data = {16'h000A,8'hF0};  // 系统配置
             6'd6     : cmd_data = {16'h0006,8'h11};  // 时钟使能
             6'd7     : cmd_data = {16'h0531,8'h84};  // 音频配置
-            // === DDR模式时钟配置 (关键) ===
-            6'd8     : cmd_data = {16'h00C0,8'h01};  // dvin_lat_clk_sel=1 (DDR必须)
+            // === DDR模式关键配置 ===
+            6'd8     : cmd_data = {16'h00C0,8'h01};  // ★ dvin_lat_clk_sel=1 (DDR必须)
             // === DVIN模块配置 ===
             6'd9     : cmd_data = {16'h1200,8'h01};  // 同步格式: HS+VS+DE
             6'd10    : cmd_data = {16'h1201,8'h00};  // 标准数据映射
-            6'd11    : cmd_data = {16'h1202,8'h08};  // DDR模式使能 ★★★ (bit[3]=1)
+            6'd11    : cmd_data = {16'h1202,8'h08};  // ★ DDR模式使能 (bit[3]=1)
             6'd12    : cmd_data = {16'h1204,8'h00};  // 24-bit RGB444
             6'd13    : cmd_data = {16'h1206,8'h00};  // 极性配置
             // === 1080p时序参数 ===
-            6'd14    : cmd_data = {16'h120C,8'h98};  // htotal = 2200 (低字节)
-            6'd15    : cmd_data = {16'h120D,8'h08};  // htotal = 2200 (高字节)
-            6'd16    : cmd_data = {16'h120E,8'h65};  // vtotal = 1125 (低字节)
-            6'd17    : cmd_data = {16'h120F,8'h04};  // vtotal = 1125 (高字节)
-            // === 色彩空间和HDMI TX ===
+            6'd14    : cmd_data = {16'h120C,8'h98};  // htotal = 2200
+            6'd15    : cmd_data = {16'h120D,8'h08};
+            6'd16    : cmd_data = {16'h120E,8'h65};  // vtotal = 1125
+            6'd17    : cmd_data = {16'h120F,8'h04};
+            // === 色彩空间转换 ===
             6'd18    : cmd_data = {16'h8000,8'h00};  // RGB输入
-            6'd19    : cmd_data = {16'h0920,8'h1E};  // 中断使能
-            6'd20    : cmd_data = {16'h0018,8'h20};  // 中断配置
-            6'd21    : cmd_data = {16'h05c0,8'hFE};  // HDMI配置
-            6'd22    : cmd_data = {16'h000B,8'h00};  // EDID设置
-            6'd23    : cmd_data = {16'h0507,8'h06};  // EDID控制
-            6'd24    : cmd_data = {16'h0920,8'h5E};  // 中断更新
-            6'd25    : cmd_data = {16'h0926,8'hDD};  // 视频格式
-            6'd26    : cmd_data = {16'h0927,8'h0D};
-            6'd27    : cmd_data = {16'h0928,8'h88};
-            6'd28    : cmd_data = {16'h0929,8'h08};
-            6'd29    : cmd_data = {16'h0910,8'h10};  // 1080p@60Hz (0x10=16)
-            // === EDID数据写入 ===
-            // === EDID数据写入 ===
-            6'd30    : cmd_data = {16'h000B,8'h11};
-            6'd31    : cmd_data = {16'h050E,8'h00};
-            6'd32    : cmd_data = {16'h050A,8'h82};
-            6'd33    : cmd_data = {16'h0509,8'h02};
-            6'd34    : cmd_data = {16'h050B,8'h0D};
-            6'd35    : cmd_data = {16'h050D,8'h06};
-            6'd36    : cmd_data = {16'h050D,8'h11};
-            6'd37    : cmd_data = {16'h050D,8'h58};
-            6'd38    : cmd_data = {16'h050D,8'h00};
-            6'd39    : cmd_data = {16'h050D,8'h00};
-            6'd40    : cmd_data = {16'h050D,8'h00};
-            6'd41    : cmd_data = {16'h050D,8'h00};
-            6'd42    : cmd_data = {16'h050D,8'h00};
-            6'd43    : cmd_data = {16'h050D,8'h00};
-            6'd44    : cmd_data = {16'h050D,8'h00};
-            6'd45    : cmd_data = {16'h050D,8'h00};
-            6'd46    : cmd_data = {16'h050D,8'h00};
-            6'd47    : cmd_data = {16'h050D,8'h00};
-            6'd48    : cmd_data = {16'h050D,8'h00};
-            6'd49    : cmd_data = {16'h050E,8'h40};
-            6'd50    : cmd_data = {16'h0507,8'h00};
+            // === HDMI TX配置 ===
+            6'd19    : cmd_data = {16'h0920,8'h1E};
+            6'd20    : cmd_data = {16'h0018,8'h20};
+            6'd21    : cmd_data = {16'h05C0,8'hFE};
+            // === EDID和视频格式 ===
+            6'd22    : cmd_data = {16'h000B,8'h00};
+            6'd23    : cmd_data = {16'h0507,8'h06};
+            6'd24    : cmd_data = {16'h0920,8'h5E};
+            6'd25    : cmd_data = {16'h0910,8'h10};  // 1080p@60Hz
+            // === EDID数据写入 (可选，当前不使用) ===
+            default  : cmd_data = 24'h0;
        endcase 
     end
 endfunction
@@ -110,7 +87,7 @@ endfunction
     parameter    STA_RD = 6'b10_0000;
     reg [ 5:0]   state;
     reg [ 5:0]   state_n;
-    reg [ 4:0]   dri_cnt;
+    reg [ 5:0]   dri_cnt;       // 扩展为6位以支持38步配置
     reg [21:0]   delay_cnt;
     reg [ 5:0]   cmd_index;
 
@@ -142,13 +119,13 @@ endfunction
                 state_n = CONECT;
             end
             CONECT   : begin
-                if(dri_cnt == 5'd1 && busy_falling && data_out == 8'h5A)
+                if(dri_cnt == 6'd1 && busy_falling && data_out == 8'h5A)
                     state_n = INIT;
                 else
                     state_n = state;
             end
             INIT     : begin
-                if(dri_cnt == 5'd18 && busy_falling)
+                if(dri_cnt == 6'd18 && busy_falling)
                     state_n = WAIT;
                 else
                     state_n = state;
@@ -160,7 +137,7 @@ endfunction
                     state_n = state;
             end
             SETING   : begin
-                if(dri_cnt == 5'd31 && busy_falling)  // 改为31 (DDR模式多了3个配置)
+                if(dri_cnt == 6'd25 && busy_falling)  // DDR模式25步配置
                     state_n = STA_RD;
                 else
                     state_n = state;
@@ -179,20 +156,20 @@ endfunction
     always @(posedge clk)
     begin
         if(!rstn)
-            dri_cnt <= 5'd0;
+            dri_cnt <= 6'd0;
         else
         begin
             case(state)
                 IDLE     ,
                 WAIT     ,
-                STA_RD   : dri_cnt <= 5'd0;
+                STA_RD   : dri_cnt <= 6'd0;
                 CONECT   : begin
                     if(busy_falling)
                     begin
-                        if(dri_cnt == 5'd1)
-                            dri_cnt <= 5'd0;
+                        if(dri_cnt == 6'd1)
+                            dri_cnt <= 6'd0;
                         else
-                            dri_cnt <= dri_cnt + 5'd1;
+                            dri_cnt <= dri_cnt + 6'd1;
                     end
                     else
                         dri_cnt <= dri_cnt;
@@ -200,10 +177,10 @@ endfunction
                 INIT     : begin
                     if(busy_falling)
                     begin
-                        if(dri_cnt == 5'd18)
-                            dri_cnt <= 5'd0;
+                        if(dri_cnt == 6'd18)
+                            dri_cnt <= 6'd0;
                         else
-                            dri_cnt <= dri_cnt + 5'd1;
+                            dri_cnt <= dri_cnt + 6'd1;
                     end
                     else
                         dri_cnt <= dri_cnt;
@@ -211,15 +188,15 @@ endfunction
                 SETING   : begin
                     if(busy_falling)
                     begin
-                        if(dri_cnt == 5'd31)  // 改为31 (DDR模式配置)
-                            dri_cnt <= 5'd0;
+                        if(dri_cnt == 6'd25)  // DDR模式25步配置
+                            dri_cnt <= 6'd0;
                         else
-                            dri_cnt <= dri_cnt + 5'd1;
+                            dri_cnt <= dri_cnt + 6'd1;
                     end
                     else
                         dri_cnt <= dri_cnt;
                 end
-                default  : dri_cnt <= 5'd0;
+                default  : dri_cnt <= 6'd0;
             endcase
         end
     end

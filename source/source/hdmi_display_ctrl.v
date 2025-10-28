@@ -53,27 +53,27 @@ module hdmi_display_ctrl (
 );
 
 //=============================================================================
-// 时序参数 - 720p@60Hz (降低时钟频率以满足时序)
+// 时序参数 - 1080p@60Hz
 //=============================================================================
-localparam H_ACTIVE     = 1280;
-localparam H_FP         = 110;
-localparam H_SYNC       = 40;
-localparam H_BP         = 220;
-localparam H_TOTAL      = 1650;
+localparam H_ACTIVE     = 1920;
+localparam H_FP         = 88;
+localparam H_SYNC       = 44;
+localparam H_BP         = 148;
+localparam H_TOTAL      = 2200;
 
-localparam V_ACTIVE     = 720;
-localparam V_FP         = 5;
+localparam V_ACTIVE     = 1080;
+localparam V_FP         = 4;
 localparam V_SYNC       = 5;
-localparam V_BP         = 20;
-localparam V_TOTAL      = 750;
+localparam V_BP         = 36;
+localparam V_TOTAL      = 1125;
 
 //=============================================================================
-// 显示区域参数 (720p)
+// 显示区域参数 (1080p)
 //=============================================================================
-localparam SPECTRUM_Y_START = 50;       // 频谱区域起始Y
-localparam SPECTRUM_Y_END   = 550;      // 频谱区域结束Y (500像素高度)
-localparam PARAM_Y_START    = 580;      // 参数区域起始Y
-localparam PARAM_Y_END      = 720;      // 参数区域结束Y (140像素高度)
+localparam SPECTRUM_Y_START = 75;       // 频谱区域起始Y
+localparam SPECTRUM_Y_END   = 825;      // 频谱区域结束Y
+localparam PARAM_Y_START    = 870;      // 参数区域起始Y
+localparam PARAM_Y_END      = 1080;     // 参数区域结束Y（使用全部屏幕空间）
 
 //=============================================================================
 // 信号定义

@@ -612,4 +612,4 @@ define_attribute {p:adc_ch2_clk} {PAP_IO_STANDARD} {LVCMOS33}
 define_attribute {p:adc_ch2_clk} {PAP_IO_DRIVE} {8}
 define_attribute {p:adc_ch2_clk} {PAP_IO_NONE} {TRUE}
 define_attribute {p:adc_ch2_clk} {PAP_IO_SLEW} {SLOW}
-
+set_multicycle_path {2} -from [get_cells {u_hdmi_ctrl.pixel_x_d1[11:0]}] -to [get_cells {u_hdmi_ctrl.char_code[7:0]}]
