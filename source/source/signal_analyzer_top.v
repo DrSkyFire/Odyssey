@@ -370,6 +370,70 @@ reg         debug_fft_done;            // FFT完成标志 (clk_fft域)
 // BCD计数器（避免除法运算，时序优化）
 reg  [3:0]  debug_fifo_wr_bcd_1;       // FIFO计数个位
 reg  [3:0]  debug_fifo_wr_bcd_10;      // FIFO计数十位
+
+//=============================================================================
+// 微弱信号检测模块信号
+//=============================================================================
+// 配置信号
+reg  [1:0]  weak_sig_ref_mode;          // 参考模式: 0=内部DDS, 1=CH2作参考, 2=外部, 3=自动
+reg  [31:0] weak_sig_ref_freq;          // 参考频率（Hz）
+reg  [3:0]  weak_sig_gain;              // 数字增益: 0-15
+// weak_sig_lpf_tc 已移除 - 滤波器阶数固定为8（256点）
+reg         weak_sig_auto_gain;         // 自动增益控制使能
+reg         weak_sig_enable;            // 微弱信号检测使能
+
+// CH1检测结果
+wire signed [23:0] ch1_lia_i;           // CH1 I分量
+wire signed [23:0] ch1_lia_q;           // CH1 Q分量
+wire [23:0]        ch1_lia_magnitude;   // CH1 幅度
+wire [15:0]        ch1_lia_phase;       // CH1 相位
+wire               ch1_lia_locked;      // CH1 锁定状态
+wire               ch1_lia_valid;       // CH1 结果有效
+
+// CH2检测结果
+wire signed [23:0] ch2_lia_i;           // CH2 I分量
+wire signed [23:0] ch2_lia_q;           // CH2 Q分量
+wire [23:0]        ch2_lia_magnitude;   // CH2 幅度
+wire [15:0]        ch2_lia_phase;       // CH2 相位
+wire               ch2_lia_locked;      // CH2 锁定状态
+wire               ch2_lia_valid;       // CH2 结果有效
+
+// SNR和状态
+wire [15:0]        weak_sig_snr;        // 信噪比估计（dB）
+
+//=============================================================================
+// AI信号识别模块信号
+//=============================================================================
+// 配置信号
+reg         ai_enable;                  // AI识别使能
+wire        btn_ai_enable;              // AI识别使能按键
+
+// CH1识别结果
+wire [2:0]  ch1_waveform_type;          // CH1波形类型: 0=未知,1=正弦,2=方波,3=三角,4=锯齿,5=噪声
+wire [7:0]  ch1_confidence;             // CH1置信度 (0-100%)
+wire        ch1_ai_valid;               // CH1识别结果有效
+
+// CH2识别结果
+wire [2:0]  ch2_waveform_type;          // CH2波形类型
+wire [7:0]  ch2_confidence;             // CH2置信度
+wire        ch2_ai_valid;               // CH2识别结果有效
+
+// 调试特征输出
+wire [15:0] ch1_dbg_zcr;                // CH1过零率
+wire [15:0] ch1_dbg_crest_factor;       // CH1峰值因子
+wire [15:0] ch1_dbg_thd;                // CH1 THD
+wire [15:0] ch2_dbg_zcr;
+wire [15:0] ch2_dbg_crest_factor;
+wire [15:0] ch2_dbg_thd;
+wire               weak_sig_snr_valid;  // SNR有效
+wire [3:0]         weak_sig_current_gain; // 当前增益
+wire [31:0]        weak_sig_detected_freq; // 检测到的频率
+
+// 按键控制
+wire               btn_weak_sig_enable; // 微弱信号检测使能按键
+wire               btn_ref_freq_up;     // 参考频率增加
+wire               btn_ref_freq_dn;     // 参考频率减少
+wire               btn_ref_mode;        // 参考模式切换
 reg  [3:0]  debug_fifo_wr_bcd_100;     // FIFO计数百位
 reg  [3:0]  debug_fifo_wr_bcd_1000;    // FIFO计数千位
 reg  [3:0]  debug_fft_out_bcd_1;       // FFT计数个位
@@ -466,7 +530,7 @@ pll_hdmi u_pll_hdmi (
 // ⚠️ 请在IP Compiler中配置: CLKOUT0 = 74.25MHz (而非148.5MHz)
 // VCO = 1485MHz (27MHz × 55 / 1)
 // CLKOUT0 = 74.25MHz (1485MHz / 20) - DDR模式像素时钟
-//
+// 
 // DDR模式原理:
 // - MS7210配置为DDR模式 (寄存器0x00C0=0x01, 0x1202=0x08)
 // - 74.25MHz时钟，上升沿和下降沿都输出数据
@@ -1229,10 +1293,10 @@ dpram_8192x11 u_ch2_spectrum_ram1 (
 );
 
 //=============================================================================
-// 9. 信号参数测量模块（暂使用通道1数据）
+// 9. CH1信号参数测量模块 (⚠️ 使用10MHz时钟降低时序压力)
 //=============================================================================
-signal_parameter_measure u_param_measure (
-    .clk            (clk_100m),
+signal_parameter_measure u_param_measure_ch1 (
+    .clk            (clk_10m),              // ⚠️ 改用10MHz (100ns周期,时序要求宽松10倍)
     .rst_n          (rst_n),
     
     // 时域数据输入（使用通道1同步数据，支持测试信号）
@@ -1246,13 +1310,40 @@ signal_parameter_measure u_param_measure (
     .spectrum_valid (ch1_spectrum_valid),
     
     // 参数输出
-    .freq_out       (signal_freq),
-    .amplitude_out  (signal_amplitude),
-    .duty_out       (signal_duty),
-    .thd_out        (signal_thd),
+    .freq_out       (ch1_freq),
+    .amplitude_out  (ch1_amplitude),
+    .duty_out       (ch1_duty),
+    .thd_out        (ch1_thd),
     
     // 控制 - ✅ 始终启用测量，只是在mode=2时才重点显示
     .measure_en     (run_flag)  // 运行时就测量
+);
+
+//=============================================================================
+// 9.2 CH2信号参数测量模块 (⚠️ 使用10MHz时钟降低时序压力)
+//=============================================================================
+signal_parameter_measure u_param_measure_ch2 (
+    .clk            (clk_10m),              // ⚠️ 改用10MHz
+    .rst_n          (rst_n),
+    
+    // 时域数据输入（使用通道2同步数据）
+    .sample_clk     (clk_adc),
+    .sample_data    (ch2_data_sync[9:2]),  // CH2数据
+    .sample_valid   (dual_data_valid || test_mode),
+    
+    // 频域数据输入（使用通道2）
+    .spectrum_data  (ch2_spectrum_magnitude),
+    .spectrum_addr  (ch2_spectrum_wr_addr),
+    .spectrum_valid (ch2_spectrum_valid),
+    
+    // 参数输出
+    .freq_out       (ch2_freq),
+    .amplitude_out  (ch2_amplitude),
+    .duty_out       (ch2_duty),
+    .thd_out        (ch2_thd),
+    
+    // 控制
+    .measure_en     (run_flag)
 );
 
 //=============================================================================
@@ -1303,6 +1394,164 @@ auto_test u_auto_test (
 );
 
 //=============================================================================
+// 9.7 微弱信号检测模块（锁相放大器）
+//=============================================================================
+// 配置逻辑
+always @(posedge clk_100m or negedge rst_n) begin
+    if (!rst_n) begin
+        weak_sig_enable   <= 1'b0;
+        weak_sig_ref_mode <= 2'd0;      // 默认内部DDS
+        weak_sig_ref_freq <= 32'd1000;  // 默认1kHz参考频率
+        weak_sig_gain     <= 4'd4;      // 默认16x增益
+        // weak_sig_lpf_tc 已移除，固定为8（256点滤波）
+        weak_sig_auto_gain <= 1'b1;     // 默认开启自动增益
+    end else begin
+        // 按键控制（预留）
+        if (btn_weak_sig_enable)
+            weak_sig_enable <= ~weak_sig_enable;
+        
+        if (btn_ref_mode) begin
+            if (weak_sig_ref_mode < 2'd3)
+                weak_sig_ref_mode <= weak_sig_ref_mode + 1'b1;
+            else
+                weak_sig_ref_mode <= 2'd0;
+        end
+        
+        if (btn_ref_freq_up && weak_sig_ref_freq < 32'd17_500_000)  // 最大17.5MHz
+            weak_sig_ref_freq <= weak_sig_ref_freq + 32'd100;  // 100Hz步进
+        
+        if (btn_ref_freq_dn && weak_sig_ref_freq > 32'd100)
+            weak_sig_ref_freq <= weak_sig_ref_freq - 32'd100;
+    end
+end
+
+// 微弱信号检测器实例化
+// 注意：滤波器阶数固定为8（256点），如需不同配置请修改weak_signal_detector.v
+weak_signal_detector #(
+    .DATA_WIDTH     (16),
+    .OUTPUT_WIDTH   (24)
+) u_weak_sig_detector (
+    .clk                (clk_fft),
+    .rst_n              (rst_n && weak_sig_enable),  // 检测器独立使能
+    
+    // 双通道输入（使用11位扩展数据）
+    .ch1_data           ({5'd0, ch1_data_11b}),
+    .ch2_data           ({5'd0, ch2_data_11b}),
+    .data_valid         (dual_data_valid),
+    
+    // 参考信号配置
+    .ref_mode           (weak_sig_ref_mode),
+    .ref_frequency      (weak_sig_ref_freq),
+    .clk_frequency      (32'd35_000_000),  // 35MHz采样时钟
+    
+    // 增益配置（滤波器阶数已固定为8）
+    .digital_gain       (weak_sig_gain),
+    .lpf_time_constant  (4'd8),  // 固定传入8，实际在模块内部已硬编码
+    .auto_gain_enable   (weak_sig_auto_gain),
+    
+    // CH1检测结果
+    .ch1_i_component    (ch1_lia_i),
+    .ch1_q_component    (ch1_lia_q),
+    .ch1_magnitude      (ch1_lia_magnitude),
+    .ch1_phase          (ch1_lia_phase),
+    .ch1_locked         (ch1_lia_locked),
+    .ch1_valid          (ch1_lia_valid),
+    
+    // CH2检测结果
+    .ch2_i_component    (ch2_lia_i),
+    .ch2_q_component    (ch2_lia_q),
+    .ch2_magnitude      (ch2_lia_magnitude),
+    .ch2_phase          (ch2_lia_phase),
+    .ch2_locked         (ch2_lia_locked),
+    .ch2_valid          (ch2_lia_valid),
+    
+    // SNR和状态
+    .snr_estimate       (weak_sig_snr),
+    .snr_valid          (weak_sig_snr_valid),
+    .current_gain       (weak_sig_current_gain),
+    .detected_freq      (weak_sig_detected_freq)
+);
+
+//=============================================================================
+// 9.8 AI信号识别模块
+//=============================================================================
+// AI使能控制
+always @(posedge clk_100m or negedge rst_n) begin
+    if (!rst_n) begin
+        ai_enable <= 1'b1;  // 默认开启AI识别
+    end else begin
+        if (btn_ai_enable)
+            ai_enable <= ~ai_enable;
+    end
+end
+
+// 需要FFT数据选择（根据当前处理通道）
+// 假设FFT模块有输出：fft_magnitude_out, fft_bin_index_out, fft_valid_out
+// 这里需要连接实际的FFT输出信号
+
+// CH1 AI识别器 (⚠️ 使用10MHz时钟降低时序压力)
+ai_signal_recognizer #(
+    .DATA_WIDTH   (11),
+    .WINDOW_SIZE  (1024),
+    .FFT_BINS     (512)
+) u_ch1_ai_recognizer (
+    .clk              (clk_10m),            // ⚠️ 改用10MHz (降低特征提取运算时序压力)
+    .rst_n            (rst_n),
+    
+    // 时域信号输入
+    .signal_in        (ch1_data_11b),
+    .signal_valid     (dual_data_valid && ai_enable),
+    
+    // FFT频谱输入（需要根据实际FFT模块连接）
+    .fft_magnitude    (ch1_spectrum_rd_data),  // 使用频谱RAM读出数据
+    .fft_bin_index    (spectrum_rd_addr[9:0]),
+    .fft_valid        (ai_enable && (current_fft_channel == 1'b0)),  // 仅CH1 FFT期间有效
+    
+    .ai_enable        (ai_enable),
+    
+    // 识别结果
+    .waveform_type    (ch1_waveform_type),
+    .confidence       (ch1_confidence),
+    .result_valid     (ch1_ai_valid),
+    
+    // 调试输出
+    .dbg_zcr          (ch1_dbg_zcr),
+    .dbg_crest_factor (ch1_dbg_crest_factor),
+    .dbg_thd          (ch1_dbg_thd)
+);
+
+// CH2 AI识别器 (⚠️ 使用10MHz时钟降低时序压力)
+ai_signal_recognizer #(
+    .DATA_WIDTH   (11),
+    .WINDOW_SIZE  (1024),
+    .FFT_BINS     (512)
+) u_ch2_ai_recognizer (
+    .clk              (clk_10m),            // ⚠️ 改用10MHz
+    .rst_n            (rst_n),
+    
+    // 时域信号输入
+    .signal_in        (ch2_data_11b),
+    .signal_valid     (dual_data_valid && ai_enable),
+    
+    // FFT频谱输入
+    .fft_magnitude    (ch2_spectrum_rd_data),
+    .fft_bin_index    (spectrum_rd_addr[9:0]),
+    .fft_valid        (ai_enable && (current_fft_channel == 1'b1)),  // 仅CH2 FFT期间有效
+    
+    .ai_enable        (ai_enable),
+    
+    // 识别结果
+    .waveform_type    (ch2_waveform_type),
+    .confidence       (ch2_confidence),
+    .result_valid     (ch2_ai_valid),
+    
+    // 调试输出
+    .dbg_zcr          (ch2_dbg_zcr),
+    .dbg_crest_factor (ch2_dbg_crest_factor),
+    .dbg_thd          (ch2_dbg_thd)
+);
+
+//=============================================================================
 // 10. HDMI显示控制模块
 //=============================================================================
 hdmi_display_ctrl u_hdmi_ctrl (
@@ -1314,12 +1563,28 @@ hdmi_display_ctrl u_hdmi_ctrl (
     .ch2_data           (ch2_spectrum_rd_data), // 通道2数据（时域/频域）
     .spectrum_addr      (spectrum_rd_addr),
     
-    // 参数显示
-    .freq               (signal_freq),
-    .amplitude          (signal_amplitude),
-    .duty               (signal_duty),
-    .thd                (signal_thd),
+    // CH1参数显示
+    .ch1_freq           (ch1_freq),
+    .ch1_amplitude      (ch1_amplitude),
+    .ch1_duty           (ch1_duty),
+    .ch1_thd            (ch1_thd),
+    
+    // CH2参数显示
+    .ch2_freq           (ch2_freq),
+    .ch2_amplitude      (ch2_amplitude),
+    .ch2_duty           (ch2_duty),
+    .ch2_thd            (ch2_thd),
+    
+    // 相位差
     .phase_diff         (phase_difference),     // 相位差
+    
+    // ✅ AI识别结果输入
+    .ch1_waveform_type  (ch1_waveform_type),
+    .ch1_confidence     (ch1_confidence),
+    .ch1_ai_valid       (ch1_ai_valid),
+    .ch2_waveform_type  (ch2_waveform_type),
+    .ch2_confidence     (ch2_confidence),
+    .ch2_ai_valid       (ch2_ai_valid),
     
     // ✅ 双通道控制
     .ch1_enable         (ch1_enable),           // 通道1显示使能
@@ -1495,6 +1760,16 @@ key_debounce u_key_cordic_mode (
     .key_in     (user_button[1]),  // 使用user_button[1]控制CORDIC模式（原启动按键位置）
     .key_pulse  (btn_cordic_mode)
 );
+// 微弱信号检测使能按键（预留：user_button[6]）
+assign btn_weak_sig_enable = 1'b0;  // 暂时禁用，未连接按键
+
+// 参考频率调整按键（预留）
+assign btn_ref_freq_up = 1'b0;
+assign btn_ref_freq_dn = 1'b0;
+assign btn_ref_mode = 1'b0;
+
+// AI信号识别使能按键（预留：user_button[7]）
+assign btn_ai_enable = 1'b0;  // 暂时禁用，未连接按键
 
 // FFT启动信号
 assign fft_start = run_flag && (work_mode == 2'd1);

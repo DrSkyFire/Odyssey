@@ -49,11 +49,11 @@
                 )
                 (_file "source/source/signal_analyzer_top.v" + "signal_analyzer_top"
                     (_format verilog)
-                    (_timespec "2025-10-26T23:39:18")
+                    (_timespec "2025-10-27T21:08:38")
                 )
                 (_file "source/source/signal_parameter_measure.v"
                     (_format verilog)
-                    (_timespec "2025-10-26T22:51:36")
+                    (_timespec "2025-10-27T19:25:58")
                 )
                 (_file "source/source/spectrum_magnitude_calc.v"
                     (_format verilog)
@@ -81,7 +81,7 @@
                 )
                 (_file "source/source/ms7210_ctl.v"
                     (_format verilog)
-                    (_timespec "2025-10-26T22:51:36")
+                    (_timespec "2025-10-27T21:08:38")
                 )
                 (_file "source/source/dpram_8192x11.v"
                     (_format verilog)
@@ -111,14 +111,46 @@
                     (_format verilog)
                     (_timespec "2025-10-26T18:21:18")
                 )
+                (_file "source/source/weak_signal_detector.v"
+                    (_format verilog)
+                    (_timespec "2025-10-26T13:22:30")
+                )
+                (_file "source/source/lock_in_amplifier.v"
+                    (_format verilog)
+                    (_timespec "2025-10-26T13:36:06")
+                )
+                (_file "source/source/ai_signal_recognizer.v"
+                    (_format verilog)
+                    (_timespec "2025-10-26T14:43:07")
+                )
+                (_file "source/source/waveform_classifier.v"
+                    (_format verilog)
+                    (_timespec "2025-10-26T14:53:22")
+                )
+                (_file "source/source/waveform_feature_extractor.v"
+                    (_format verilog)
+                    (_timespec "2025-10-27T01:58:24")
+                )
+                (_file "source/source/reciprocal_lut.v"
+                    (_format verilog)
+                    (_timespec "2025-10-26T17:30:14")
+                )
+                (_file "source/source/hdmi_display_ctrl.v"
+                    (_format verilog)
+                    (_timespec "2025-10-27T20:47:15")
+                )
+                (_file "source/source/ascii_rom_16x32_full.v"
+                    (_format verilog)
+                    (_timespec "2025-10-26T22:28:27")
+                )
             )
         )
         (_widget wgt_my_ips_src
             (_input
                 (_ip "source/pll_hdmi/pll_hdmi.idf"
-                    (_timespec "2025-10-26T22:51:36")
+                    (_timespec "2025-10-27T21:12:11")
                     (_ip_source_item "source/pll_hdmi/pll_hdmi.v"
-                        (_timespec "2025-10-26T22:51:36")
+                        (_timespec "2025-10-27T21:12:11")
                     )
                 )
                 (_ip "source/pll_sys/pll_sys.idf"
@@ -178,7 +210,7 @@
             (_input
                 (_file "source/source/source/signal_analyzer.fdc"
                     (_format fdc)
-                    (_timespec "2025-10-26T22:51:36")
+                    (_timespec "2025-10-27T22:05:09")
                 )
             )
         )
@@ -189,7 +221,8 @@
             (_option compiled_lib_location (_string ""))
             (_option verilog_options (_string ""))
             (_option gen_param (_string ""))
-            (_option sim_exe_dir (_string ""))
+            (_option elaborate_acc (_boolean TRUE))
+            (_option sim_exe_dir (_string "../Program Files/Modelsim/win64"))
         )
     )
     (_task tsk_compile
@@ -199,17 +232,17 @@
             (_db_output
                 (_file "compile/signal_analyzer_top_comp.adf"
                     (_format adif)
-                    (_timespec "2025-10-26T23:49:00")
+                    (_timespec "2025-10-27T21:13:06")
                 )
             )
             (_output
                 (_file "compile/signal_analyzer_top.cmr"
                     (_format verilog)
-                    (_timespec "2025-10-26T23:49:00")
+                    (_timespec "2025-10-27T21:13:06")
                 )
                 (_file "compile/cmr.db"
                     (_format text)
-                    (_timespec "2025-10-26T23:49:00")
+                    (_timespec "2025-10-27T21:13:06")
                 )
             )
         )
@@ -224,25 +257,25 @@
             (_db_output
                 (_file "synthesize/signal_analyzer_top_syn.adf"
                     (_format adif)
-                    (_timespec "2025-10-26T23:49:45")
+                    (_timespec "2025-10-27T22:06:21")
                 )
             )
             (_output
                 (_file "synthesize/signal_analyzer_top_syn.vm"
                     (_format structural_verilog)
-                    (_timespec "2025-10-26T23:49:46")
+                    (_timespec "2025-10-27T22:06:21")
                 )
                 (_file "synthesize/signal_analyzer_top_controlsets.txt"
                     (_format text)
-                    (_timespec "2025-10-26T23:49:40")
+                    (_timespec "2025-10-27T22:06:13")
                 )
                 (_file "synthesize/snr.db"
                     (_format text)
-                    (_timespec "2025-10-26T23:49:48")
+                    (_timespec "2025-10-27T22:06:24")
                 )
                 (_file "synthesize/signal_analyzer_top.snr"
                     (_format text)
-                    (_timespec "2025-10-26T23:49:48")
+                    (_timespec "2025-10-27T22:06:24")
                 )
             )
         )
@@ -263,21 +296,21 @@
             (_db_output
                 (_file "device_map/signal_analyzer_top_map.adf"
                     (_format adif)
-                    (_timespec "2025-10-26T23:50:19")
+                    (_timespec "2025-10-27T22:06:34")
                 )
             )
             (_output
                 (_file "device_map/signal_analyzer_top_dmr.prt"
                     (_format text)
-                    (_timespec "2025-10-26T23:50:10")
+                    (_timespec "2025-10-27T22:06:28")
                 )
                 (_file "device_map/signal_analyzer_top.dmr"
                     (_format text)
-                    (_timespec "2025-10-26T23:50:19")
+                    (_timespec "2025-10-27T22:06:34")
                 )
                 (_file "device_map/dmr.db"
                     (_format text)
-                    (_timespec "2025-10-26T23:50:19")
+                    (_timespec "2025-10-27T22:06:35")
                 )
             )
         )
@@ -286,7 +319,7 @@
             (_input
                 (_file "device_map/signal_analyzer_top.pcf"
                     (_format pcf)
-                    (_timespec "2025-10-26T23:50:19")
+                    (_timespec "2025-10-27T22:06:34")
                 )
             )
         )
@@ -303,33 +336,33 @@
             (_db_output
                 (_file "place_route/signal_analyzer_top_pnr.adf"
                     (_format adif)
-                    (_timespec "2025-10-26T23:53:42")
+                    (_timespec "2025-10-27T22:08:13")
                 )
             )
             (_output
                 (_file "place_route/clock_utilization.txt"
                     (_format text)
-                    (_timespec "2025-10-26T23:53:27")
+                    (_timespec "2025-10-27T22:08:01")
                 )
                 (_file "place_route/signal_analyzer_top_plc.adf"
                     (_format adif)
-                    (_timespec "2025-10-26T23:52:05")
+                    (_timespec "2025-10-27T22:07:16")
                 )
                 (_file "place_route/signal_analyzer_top.prr"
                     (_format text)
-                    (_timespec "2025-10-26T23:53:43")
+                    (_timespec "2025-10-27T22:08:14")
                 )
                 (_file "place_route/signal_analyzer_top_prr.prt"
                     (_format text)
-                    (_timespec "2025-10-26T23:53:27")
+                    (_timespec "2025-10-27T22:08:01")
                 )
                 (_file "place_route/signal_analyzer_top_pnr.netlist"
                     (_format text)
-                    (_timespec "2025-10-26T23:53:42")
+                    (_timespec "2025-10-27T22:08:13")
                 )
                 (_file "place_route/prr.db"
                     (_format text)
-                    (_timespec "2025-10-26T23:53:43")
+                    (_timespec "2025-10-27T22:08:14")
                 )
             )
         )
@@ -345,17 +378,17 @@
             (_db_output
                 (_file "report_timing/signal_analyzer_top_rtp.adf"
                     (_format adif)
-                    (_timespec "2025-10-26T23:53:59")
+                    (_timespec "2025-10-27T22:08:25")
                 )
             )
             (_output
                 (_file "report_timing/signal_analyzer_top.rtr"
                     (_format text)
-                    (_timespec "2025-10-26T23:54:01")
+                    (_timespec "2025-10-27T22:08:26")
                 )
                 (_file "report_timing/rtr.db"
                     (_format text)
-                    (_timespec "2025-10-26T23:54:01")
+                    (_timespec "2025-10-27T22:08:26")
                 )
             )
         )
