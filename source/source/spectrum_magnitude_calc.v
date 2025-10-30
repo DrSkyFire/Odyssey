@@ -25,6 +25,7 @@ reg  [15:0] max_val;
 reg  [15:0] min_val;
 reg  [15:0] min_half;
 reg  [15:0] mag_calc;
+reg  [16:0] mag_temp;  // 17位临时变量，用于Hann窗补偿计算
 
 // ✓ 添加更多流水线寄存器
 reg  [15:0] max_val_d3;  // 延迟max_val以对齐min_half
@@ -107,13 +108,23 @@ always @(posedge clk or negedge rst_n) begin
 end
 
 //=============================================================================
-// 第4级：计算幅度
+// 第4级：计算幅度并应用Hann窗能量补偿
+// Hann窗能量损失约50%，需要补偿 × 2
+// 使用饱和处理防止溢出
 //=============================================================================
 always @(posedge clk or negedge rst_n) begin
     if (!rst_n) begin
+        mag_temp <= 17'd0;
         mag_calc <= 16'd0;
     end else begin
-        mag_calc <= max_val_d3 + min_half;  // ✓ 使用同步的数据
+        // 计算原始幅度（17位，避免溢出）
+        mag_temp <= {1'b0, max_val_d3} + {1'b0, min_half};
+        
+        // Hann窗补偿：× 2，饱和处理
+        if (mag_temp[16:15] != 2'b00)  // 检测溢出（高2位不全为0）
+            mag_calc <= 16'hFFFF;  // 饱和到最大值
+        else
+            mag_calc <= mag_temp[15:0] << 1;  // 正常情况，× 2
     end
 end
 

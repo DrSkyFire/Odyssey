@@ -86,8 +86,63 @@ wire [15:0] spectrum_magnitude;
 wire [12:0] spectrum_addr;      // 8192需要13位地址
 wire        spectrum_valid;
 
+//=============================================================================
+// Hann窗函数相关信号
+//=============================================================================
+reg  [15:0] hann_window_rom [0:8191];  // Hann窗系数ROM (16位Q15格式)
+reg  [15:0] window_coeff;              // 窗系数寄存器
+reg  [12:0] window_addr;               // 窗系数读取地址（独立计数器）
+wire signed [15:0] adc_signed;         // ADC数据符号扩展
+wire signed [31:0] windowed_mult;      // 乘法结果
+wire signed [15:0] windowed_data;      // 加窗后的数据
+
+// 初始化Hann窗ROM（HEX文件位于source目录）
+initial begin
+    $readmemh("source/hann_window_8192.hex", hann_window_rom);
+end
+
 // 从FIFO输出的16位数据中提取11位有效数据（高11位）
 assign data_11bit = fifo_dout_mux[15:5];
+
+//=============================================================================
+// Hann窗地址计数器（提前1拍，补偿ROM读取延迟）
+//=============================================================================
+always @(posedge clk or negedge rst_n) begin
+    if (!rst_n) begin
+        window_addr <= 13'd0;
+    end else begin
+        if (state == CH1_WAIT || state == CH2_WAIT) begin
+            window_addr <= 13'd0;  // 准备开始，地址清零
+        end
+        else if (state == CH1_READ || state == CH2_READ) begin
+            window_addr <= 13'd1;  // READ状态，预读下一个地址
+        end
+        else if (fifo_rd_en && (state == CH1_SEND || state == CH2_SEND)) begin
+            if (window_addr == FFT_POINTS - 1)
+                window_addr <= 13'd0;
+            else
+                window_addr <= window_addr + 1'b1;
+        end
+    end
+end
+
+//=============================================================================
+// Hann窗加窗处理（3级流水线：ROM读取 → 数据缓存 → 乘法）
+//=============================================================================
+// 第1级：读取窗系数（ROM读取有1周期延迟）
+always @(posedge clk or negedge rst_n) begin
+    if (!rst_n)
+        window_coeff <= 16'd0;
+    else
+        window_coeff <= hann_window_rom[window_addr];
+end
+
+// 第2级：ADC数据符号扩展（11位->16位）
+assign adc_signed = {{5{data_buffer[15]}}, data_buffer[15:5]};
+
+// 第3级：乘法（组合逻辑）
+assign windowed_mult = adc_signed * $signed({1'b0, window_coeff});
+assign windowed_data = windowed_mult[30:15];
 
 //=============================================================================
 // 通道选择多路复用
@@ -258,7 +313,7 @@ end
 //=============================================================================
 // FFT输入数据生成（参考官方例程）
 // 格式：32位 = {虚部[31:16], 实部[15:0]}
-// 实际使用：虚部=0，实部=11位ADC数据（符号扩展到16位）
+// 实际使用：虚部=0，实部=加窗后的16位数据
 //=============================================================================
 always @(posedge clk or negedge rst_n) begin
     if (!rst_n) begin
@@ -268,8 +323,8 @@ always @(posedge clk or negedge rst_n) begin
     end else begin
         if (state == CH1_SEND || state == CH2_SEND) begin
             fft_din_valid <= 1'b1;
-            // FFT输入格式：{虚部16位（0），实部16位（11位数据+符号扩展）}
-            fft_din <= {16'd0, {5'd0, data_buffer[15:5]}};  // 提取高11位作为实部
+            // FFT输入格式：{虚部16位（0），实部16位（加窗后的数据）}
+            fft_din <= {16'd0, windowed_data};
             
             // 在倒数第二个数据时拉高tlast
             if (send_cnt == FFT_POINTS - 2)

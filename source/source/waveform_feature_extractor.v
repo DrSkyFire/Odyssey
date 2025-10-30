@@ -44,15 +44,16 @@ module waveform_feature_extractor #(
 //=============================================================================
 // 1. 时域特征计算状态机
 //=============================================================================
-localparam IDLE       = 3'd0;
-localparam COLLECTING = 3'd1;
-localparam COMPUTE1   = 3'd2;  // 计算阶段1: 准备数据
-localparam COMPUTE2   = 3'd3;  // 计算阶段2: 乘法运算 + LUT查询
-localparam COMPUTE3   = 3'd4;  // 计算阶段3: 倒数插值
-localparam COMPUTE4   = 3'd5;  // 计算阶段4: 最终乘法(替代除法)
-localparam OUTPUT     = 3'd6;  // 输出阶段
+localparam IDLE       = 4'd0;
+localparam COLLECTING = 4'd1;
+localparam COMPUTE1   = 4'd2;  // 计算阶段1: 准备数据
+localparam COMPUTE2   = 4'd3;  // 计算阶段2: 乘法运算 + LUT查询
+localparam COMPUTE3A  = 4'd4;  // 计算阶段3A: 倒数差值计算 (时序优化)
+localparam COMPUTE3B  = 4'd5;  // 计算阶段3B: 倒数插值 (时序优化)
+localparam COMPUTE4   = 4'd6;  // 计算阶段4: 最终乘法(替代除法)
+localparam OUTPUT     = 4'd7;  // 输出阶段
 
-reg [2:0] state;
+reg [3:0] state;
 reg [10:0] sample_cnt;  // 样本计数器
 
 //=============================================================================
@@ -64,7 +65,7 @@ reg [15:0] crest_div_result;     // 峰值因子结果
 reg [15:0] form_div_result;      // 波形因子结果
 reg [15:0] centroid_div_result;  // 频谱质心结果
 
-// 倒数查找表查询结果 (COMPUTE2 → COMPUTE3 流水线)
+// 倒数查找表查询结果 (COMPUTE2 → COMPUTE3A 流水线)
 reg [15:0] thd_recip_base, thd_recip_next;
 reg [7:0]  thd_offset;
 reg [23:0] thd_mult_pipe;
@@ -81,13 +82,39 @@ reg [15:0] centroid_recip_base, centroid_recip_next;
 reg [7:0]  centroid_offset;
 reg [31:0] centroid_mult_pipe;
 
-// 插值结果 (COMPUTE3 → COMPUTE4 流水线)
+// 倒数差值 (COMPUTE3A → COMPUTE3B 流水线 - 时序优化新增)
+reg signed [16:0] thd_recip_diff;
+reg signed [16:0] crest_recip_diff;
+reg signed [16:0] form_recip_diff;
+reg signed [16:0] centroid_recip_diff;
+
+reg [15:0] thd_recip_base_pipe;
+reg [15:0] crest_recip_base_pipe;
+reg [15:0] form_recip_base_pipe;
+reg [15:0] centroid_recip_base_pipe;
+
+reg [7:0]  thd_offset_pipe;
+reg [7:0]  crest_offset_pipe;
+reg [7:0]  form_offset_pipe;
+reg [7:0]  centroid_offset_pipe;
+
+reg [23:0] thd_mult_pipe2;
+reg [23:0] crest_mult_pipe2;
+reg [23:0] form_mult_pipe2;
+reg [31:0] centroid_mult_pipe2;
+
+reg [15:0] thd_divisor_pipe2;
+reg [15:0] crest_divisor_pipe2;
+reg [15:0] form_divisor_pipe2;
+reg [15:0] centroid_divisor_pipe2;
+
+// 插值结果 (COMPUTE3B → COMPUTE4 流水线)
 reg [15:0] thd_recip_interp_reg;
 reg [15:0] crest_recip_interp_reg;
 reg [15:0] form_recip_interp_reg;
 reg [15:0] centroid_recip_interp_reg;
 
-// 被除数传递 (COMPUTE3 → COMPUTE4)
+// 被除数传递 (COMPUTE3B → COMPUTE4)
 reg [23:0] thd_dividend_pipe;
 reg [23:0] crest_dividend_pipe;
 reg [23:0] form_dividend_pipe;
@@ -98,6 +125,15 @@ reg [15:0] thd_divisor_pipe;
 reg [15:0] crest_divisor_pipe;
 reg [15:0] form_divisor_pipe;
 reg [15:0] centroid_divisor_pipe;
+
+// COMPUTE1阶段中间变量寄存器（用于LUT输入）
+reg [15:0] peak_to_peak_reg;
+reg [15:0] rms_value_reg;
+reg [15:0] avg_abs_value_reg;
+reg [15:0] fft_sum_mag_reg;
+reg [15:0] fft_fundamental_reg;
+reg [15:0] fft_harmonic_sum_reg;
+reg [31:0] fft_weighted_sum_reg;
 
 //=============================================================================
 // 2. 过零率计算 (Zero Crossing Rate)
@@ -309,11 +345,16 @@ always @(posedge clk or negedge rst_n) begin
             
             COMPUTE2: begin
                 // 第2阶段: 乘法运算 + LUT查询
-                state <= COMPUTE3;
+                state <= COMPUTE3A;
             end
             
-            COMPUTE3: begin
-                // 第3阶段: 倒数插值
+            COMPUTE3A: begin
+                // 第3A阶段: 倒数差值计算 (时序优化)
+                state <= COMPUTE3B;
+            end
+            
+            COMPUTE3B: begin
+                // 第3B阶段: 倒数插值
                 state <= COMPUTE4;
             end
             
@@ -344,14 +385,6 @@ assign rms_value     = sum_square >> 10;  // 除以1024（近似）
 assign avg_abs_value = sum_abs >> 10;
 
 // 流水线阶段1: 准备中间变量
-reg [15:0] peak_to_peak_reg;
-reg [15:0] rms_value_reg;
-reg [15:0] avg_abs_value_reg;
-reg [15:0] fft_sum_mag_reg;
-reg [15:0] fft_fundamental_reg;
-reg [15:0] fft_harmonic_sum_reg;
-reg [31:0] fft_weighted_sum_reg;
-
 always @(posedge clk or negedge rst_n) begin
     if (!rst_n) begin
         peak_to_peak_reg    <= 0;
@@ -442,8 +475,67 @@ always @(posedge clk or negedge rst_n) begin
     end
 end
 
-// 流水线阶段3: 倒数插值计算 (时序优化:单独一个周期)
-// 算法: reciprocal = recip_base + (recip_next - recip_base) * (offset / 256)
+// 流水线阶段3A: 倒数差值计算 (时序优化: 只做减法)
+always @(posedge clk or negedge rst_n) begin
+    if (!rst_n) begin
+        thd_recip_diff <= 0;
+        crest_recip_diff <= 0;
+        form_recip_diff <= 0;
+        centroid_recip_diff <= 0;
+        
+        thd_recip_base_pipe <= 0;
+        crest_recip_base_pipe <= 0;
+        form_recip_base_pipe <= 0;
+        centroid_recip_base_pipe <= 0;
+        
+        thd_offset_pipe <= 0;
+        crest_offset_pipe <= 0;
+        form_offset_pipe <= 0;
+        centroid_offset_pipe <= 0;
+        
+        thd_mult_pipe2 <= 0;
+        crest_mult_pipe2 <= 0;
+        form_mult_pipe2 <= 0;
+        centroid_mult_pipe2 <= 0;
+        
+        thd_divisor_pipe2 <= 0;
+        crest_divisor_pipe2 <= 0;
+        form_divisor_pipe2 <= 0;
+        centroid_divisor_pipe2 <= 0;
+    end else if (state == COMPUTE3A) begin
+        // 计算差值: recip_next - recip_base
+        thd_recip_diff <= $signed({1'b0, thd_recip_next}) - $signed({1'b0, thd_recip_base});
+        crest_recip_diff <= $signed({1'b0, crest_recip_next}) - $signed({1'b0, crest_recip_base});
+        form_recip_diff <= $signed({1'b0, form_recip_next}) - $signed({1'b0, form_recip_base});
+        centroid_recip_diff <= $signed({1'b0, centroid_recip_next}) - $signed({1'b0, centroid_recip_base});
+        
+        // 传递基准值和偏移量
+        thd_recip_base_pipe <= thd_recip_base;
+        crest_recip_base_pipe <= crest_recip_base;
+        form_recip_base_pipe <= form_recip_base;
+        centroid_recip_base_pipe <= centroid_recip_base;
+        
+        thd_offset_pipe <= thd_offset;
+        crest_offset_pipe <= crest_offset;
+        form_offset_pipe <= form_offset;
+        centroid_offset_pipe <= centroid_offset;
+        
+        // 传递被除数
+        thd_mult_pipe2 <= thd_mult_pipe;
+        crest_mult_pipe2 <= crest_mult_pipe;
+        form_mult_pipe2 <= form_mult_pipe;
+        centroid_mult_pipe2 <= centroid_mult_pipe;
+        
+        // 传递除数
+        thd_divisor_pipe2 <= thd_divisor;
+        crest_divisor_pipe2 <= rms_value_reg;
+        form_divisor_pipe2 <= avg_abs_value_reg;
+        centroid_divisor_pipe2 <= fft_sum_mag_reg;
+    end
+end
+
+// 流水线阶段3B: 倒数插值计算 (时序优化: 乘法和加法分离)
+// 算法: reciprocal = recip_base + (recip_diff * offset / 256)
 
 always @(posedge clk or negedge rst_n) begin
     if (!rst_n) begin
@@ -461,30 +553,30 @@ always @(posedge clk or negedge rst_n) begin
         crest_divisor_pipe <= 0;
         form_divisor_pipe <= 0;
         centroid_divisor_pipe <= 0;
-    end else if (state == COMPUTE3) begin
-        // THD 插值计算
-        thd_recip_interp_reg <= thd_recip_base + 
-            (((thd_recip_next - thd_recip_base) * thd_offset) >>> 8);
-        thd_dividend_pipe <= thd_mult_pipe;
-        thd_divisor_pipe <= thd_divisor;
+    end else if (state == COMPUTE3B) begin
+        // THD 插值计算: base + (diff * offset) >> 8
+        thd_recip_interp_reg <= thd_recip_base_pipe + 
+            (((thd_recip_diff * $signed({1'b0, thd_offset_pipe}))) >>> 8);
+        thd_dividend_pipe <= thd_mult_pipe2;
+        thd_divisor_pipe <= thd_divisor_pipe2;
         
         // Crest Factor 插值计算
-        crest_recip_interp_reg <= crest_recip_base + 
-            (((crest_recip_next - crest_recip_base) * crest_offset) >>> 8);
-        crest_dividend_pipe <= crest_mult_pipe;
-        crest_divisor_pipe <= rms_value_reg;
+        crest_recip_interp_reg <= crest_recip_base_pipe + 
+            (((crest_recip_diff * $signed({1'b0, crest_offset_pipe}))) >>> 8);
+        crest_dividend_pipe <= crest_mult_pipe2;
+        crest_divisor_pipe <= crest_divisor_pipe2;
         
         // Form Factor 插值计算
-        form_recip_interp_reg <= form_recip_base + 
-            (((form_recip_next - form_recip_base) * form_offset) >>> 8);
-        form_dividend_pipe <= form_mult_pipe;
-        form_divisor_pipe <= avg_abs_value_reg;
+        form_recip_interp_reg <= form_recip_base_pipe + 
+            (((form_recip_diff * $signed({1'b0, form_offset_pipe}))) >>> 8);
+        form_dividend_pipe <= form_mult_pipe2;
+        form_divisor_pipe <= form_divisor_pipe2;
         
         // Spectral Centroid 插值计算
-        centroid_recip_interp_reg <= centroid_recip_base + 
-            (((centroid_recip_next - centroid_recip_base) * centroid_offset) >>> 8);
-        centroid_dividend_pipe <= centroid_mult_pipe;
-        centroid_divisor_pipe <= fft_sum_mag_reg;
+        centroid_recip_interp_reg <= centroid_recip_base_pipe + 
+            (((centroid_recip_diff * $signed({1'b0, centroid_offset_pipe}))) >>> 8);
+        centroid_dividend_pipe <= centroid_mult_pipe2;
+        centroid_divisor_pipe <= centroid_divisor_pipe2;
     end
 end
 

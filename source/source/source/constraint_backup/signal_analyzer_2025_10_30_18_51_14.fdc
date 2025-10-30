@@ -609,13 +609,3 @@ define_attribute {p:adc_ch2_clk} {PAP_IO_STANDARD} {LVCMOS33}
 define_attribute {p:adc_ch2_clk} {PAP_IO_DRIVE} {8}
 define_attribute {p:adc_ch2_clk} {PAP_IO_NONE} {TRUE}
 define_attribute {p:adc_ch2_clk} {PAP_IO_SLEW} {SLOW}
-define_attribute {p:adc_ch1_otr} {PAP_IO_DIRECTION} {INPUT}
-define_attribute {p:adc_ch1_otr} {PAP_IO_LOC} {AB5}
-define_attribute {p:adc_ch1_otr} {PAP_IO_VCCIO} {3.3}
-define_attribute {p:adc_ch1_otr} {PAP_IO_STANDARD} {LVCMOS33}
-define_attribute {p:adc_ch1_otr} {PAP_IO_NONE} {TRUE}
-define_attribute {p:adc_ch2_otr} {PAP_IO_DIRECTION} {INPUT}
-define_attribute {p:adc_ch2_otr} {PAP_IO_LOC} {Y12}
-define_attribute {p:adc_ch2_otr} {PAP_IO_VCCIO} {3.3}
-define_attribute {p:adc_ch2_otr} {PAP_IO_STANDARD} {LVCMOS33}
-define_attribute {p:adc_ch2_otr} {PAP_IO_NONE} {TRUE}

@@ -22,10 +22,12 @@
     // 通道1 (AD-IN1)
     input  wire [9:0]   adc_ch1_data,       // 通道1数据 (管脚23,25,26,27,28,29,30,31,32,33)
     output wire         adc_ch1_clk,        // 通道1时钟 (管脚34)
+    input  wire         adc_ch1_otr,        // 通道1溢出检测 (Over-Range)
     
     // 通道2 (AD-IN2)
     input  wire [9:0]   adc_ch2_data,       // 通道2数据 (管脚5,7,8,9,10,11,12,13,14,15)
     output wire         adc_ch2_clk,        // 通道2时钟 (管脚16)
+    input  wire         adc_ch2_otr,        // 通道2溢出检测 (Over-Range)
 
     // MS7210 HDMI输出（添加这些端口）
     output wire         hd_tx_pclk,         // MS7210像素时钟
@@ -87,6 +89,13 @@ wire [10:0] ch2_data_11b;                   // 通道2 11位数据
 assign ch1_data_11b = {ch1_data_sync[9], ch1_data_sync};  // 符号扩展
 assign ch2_data_11b = {ch2_data_sync[9], ch2_data_sync};  // 符号扩展
 
+// ADC溢出检测信号
+reg         adc_ch1_otr_sync;               // 同步后的通道1 OTR信号
+reg         adc_ch2_otr_sync;               // 同步后的通道2 OTR信号
+reg         adc_ch1_otr_flag;               // 通道1溢出标志（锁存）
+reg         adc_ch2_otr_flag;               // 通道2溢出标志（锁存）
+wire        adc_otr_clear;                  // 溢出标志清除信号（按键触发）
+
 wire        dual_data_valid;                // 两个通道的数据同步有效标志
 // ✅ 改为独立通道使能控制（类似专业示波器）
 reg         ch1_enable;                     // 通道1显示使能
@@ -138,15 +147,25 @@ wire [15:0] fft_tuser;
 //=============================================================================
 // 频谱数据处理信号 - 双通道
 //=============================================================================
-// 通道1频谱
-wire [15:0] ch1_spectrum_magnitude;         // 通道1频谱幅度
+// 通道1频谱（原始）
+wire [15:0] ch1_spectrum_magnitude;         // 通道1频谱幅度（FFT输出）
 wire [12:0] ch1_spectrum_wr_addr;           // 通道1频谱写地址（8192需要13位）
 wire        ch1_spectrum_valid;             // 通道1频谱数据有效
 
-// 通道2频谱
-wire [15:0] ch2_spectrum_magnitude;         // 通道2频谱幅度
+// 通道1频谱平滑（指数平滑滤波）
+reg  [15:0] ch1_spectrum_smoothed;          // 通道1平滑后的频谱幅度
+reg  [12:0] ch1_spectrum_smoothed_addr;     // 通道1平滑后的地址
+reg         ch1_spectrum_smoothed_valid;    // 通道1平滑后的有效信号
+
+// 通道2频谱（原始）
+wire [15:0] ch2_spectrum_magnitude;         // 通道2频谱幅度（FFT输出）
 wire [12:0] ch2_spectrum_wr_addr;           // 通道2频谱写地址（8192需要13位）
 wire        ch2_spectrum_valid;             // 通道2频谱数据有效
+
+// 通道2频谱平滑（指数平滑滤波）
+reg  [15:0] ch2_spectrum_smoothed;          // 通道2平滑后的频谱幅度
+reg  [12:0] ch2_spectrum_smoothed_addr;     // 通道2平滑后的地址
+reg         ch2_spectrum_smoothed_valid;    // 通道2平滑后的有效信号
 
 // 双通道FFT控制状态
 wire        ch1_fft_busy;                   // 通道1 FFT忙
@@ -169,6 +188,10 @@ wire        hdmi_vs;                        // HDMI场同步
 wire [15:0] spectrum_rd_data;               // 从RAM读出的频谱数据（经过通道选择）
 wire [12:0] spectrum_rd_addr;               // 频谱读地址（8192需要13位）
 reg [7:0]   user_led_reg;                   // 用户LED寄存器
+
+// ADC溢出标志同步到100MHz时钟域（用于LED显示）
+reg         adc_ch1_otr_sync_100m;
+reg         adc_ch2_otr_sync_100m;
 
 // 通道1频谱RAM
 wire [15:0] ch1_spectrum_rd_data;           // 通道1频谱读数据
@@ -206,12 +229,19 @@ reg [23:0]  auto_trigger_timer;             // 自动触发超时计数器（100
 localparam  AUTO_TRIG_TIMEOUT = 24'd10_000_000;  // 100ms超时
 
 //=============================================================================
-// 信号参数测量
+// 信号参数测量 - 双通道
 //=============================================================================
-wire [15:0] signal_freq;                    // 信号频率
-wire [15:0] signal_amplitude;               // 信号幅度
-wire [15:0] signal_duty;                    // 占空比
-wire [15:0] signal_thd;                     // 总谐波失真
+// 通道1参数
+wire [15:0] ch1_freq;                       // CH1信号频率
+wire [15:0] ch1_amplitude;                  // CH1信号幅度
+wire [15:0] ch1_duty;                       // CH1占空比
+wire [15:0] ch1_thd;                        // CH1总谐波失真
+
+// 通道2参数
+wire [15:0] ch2_freq;                       // CH2信号频率
+wire [15:0] ch2_amplitude;                  // CH2信号幅度
+wire [15:0] ch2_duty;                       // CH2占空比
+wire [15:0] ch2_thd;                        // CH2总谐波失真
 
 //=============================================================================
 // 相位差测量信号
@@ -550,7 +580,42 @@ adc_capture_dual u_adc_dual (
 );
 
 //=============================================================================
-// 3.5 触发检测逻辑（ADC时钟域）
+// 3.5 ADC溢出检测（OTR信号处理）
+//=============================================================================
+// OTR信号同步到ADC时钟域（双级同步器，避免亚稳态）
+always @(posedge clk_adc or negedge rst_n) begin
+    if (!rst_n) begin
+        adc_ch1_otr_sync <= 1'b0;
+        adc_ch2_otr_sync <= 1'b0;
+    end else begin
+        adc_ch1_otr_sync <= adc_ch1_otr;
+        adc_ch2_otr_sync <= adc_ch2_otr;
+    end
+end
+
+// 溢出标志锁存（一旦发生溢出，保持标志直到手动清除）
+assign adc_otr_clear = user_button[7];  // 按键7清除溢出标志
+
+always @(posedge clk_adc or negedge rst_n) begin
+    if (!rst_n) begin
+        adc_ch1_otr_flag <= 1'b0;
+        adc_ch2_otr_flag <= 1'b0;
+    end else begin
+        // 检测到溢出时锁存标志
+        if (adc_ch1_otr_sync && dual_data_valid)
+            adc_ch1_otr_flag <= 1'b1;
+        else if (adc_otr_clear)  // 按键清除
+            adc_ch1_otr_flag <= 1'b0;
+            
+        if (adc_ch2_otr_sync && dual_data_valid)
+            adc_ch2_otr_flag <= 1'b1;
+        else if (adc_otr_clear)  // 按键清除
+            adc_ch2_otr_flag <= 1'b0;
+    end
+end
+
+//=============================================================================
+// 3.6 触发检测逻辑（ADC时钟域）
 //=============================================================================
 // 触发电平和模式同步到ADC时钟域
 reg [9:0]   trigger_level_sync;
@@ -756,6 +821,101 @@ dual_channel_fft_controller #(
     .ch2_fft_busy           (ch2_fft_busy),
     .current_channel        (current_fft_channel)
 );
+
+//=============================================================================
+// 5.4 频谱平滑滤波器（峰值保持+轻度平滑）
+// 策略：对峰值使用峰值保持，对非峰值使用轻度平滑
+// 这样可以保持峰值锐利，同时抑制噪声抖动
+//=============================================================================
+// 通道1频谱平滑RAM（存储上一帧频谱）
+reg [15:0] ch1_spectrum_prev [0:8191];
+reg [15:0] ch1_prev_data;
+reg [17:0] ch1_smooth_temp;  // 18位临时变量，防溢出
+reg [15:0] ch1_output_data;  // 最终输出数据
+
+// 通道2频谱平滑RAM
+reg [15:0] ch2_spectrum_prev [0:8191];
+reg [15:0] ch2_prev_data;
+reg [17:0] ch2_smooth_temp;
+reg [15:0] ch2_output_data;
+
+// 通道1平滑处理（峰值保持策略）
+always @(posedge clk_fft or negedge rst_n) begin
+    if (!rst_n) begin
+        ch1_spectrum_smoothed <= 16'd0;
+        ch1_spectrum_smoothed_addr <= 13'd0;
+        ch1_spectrum_smoothed_valid <= 1'b0;
+        ch1_prev_data <= 16'd0;
+        ch1_smooth_temp <= 18'd0;
+        ch1_output_data <= 16'd0;
+    end else begin
+        if (ch1_spectrum_valid) begin
+            // 读取上一帧数据
+            ch1_prev_data <= ch1_spectrum_prev[ch1_spectrum_wr_addr];
+            
+            // 峰值保持策略：
+            // 如果当前值大于历史值，快速跟随（保持峰值锐利）
+            // 如果当前值小于历史值，缓慢下降（抑制噪声抖动）
+            if (ch1_spectrum_magnitude > ch1_prev_data) begin
+                // 上升：使用当前值（α=1.0，无延迟）
+                ch1_output_data <= ch1_spectrum_magnitude;
+            end else begin
+                // 下降：轻度平滑（α=0.5）
+                ch1_smooth_temp <= {2'b00, ch1_spectrum_magnitude} + {2'b00, ch1_prev_data};
+                ch1_output_data <= ch1_smooth_temp[17:1];  // 除以2
+            end
+            
+            ch1_spectrum_smoothed <= ch1_output_data;
+            
+            // 更新RAM
+            ch1_spectrum_prev[ch1_spectrum_wr_addr] <= ch1_output_data;
+            
+            // 传递地址和有效信号
+            ch1_spectrum_smoothed_addr <= ch1_spectrum_wr_addr;
+            ch1_spectrum_smoothed_valid <= 1'b1;
+        end else begin
+            ch1_spectrum_smoothed_valid <= 1'b0;
+        end
+    end
+end
+
+// 通道2平滑处理（峰值保持策略）
+always @(posedge clk_fft or negedge rst_n) begin
+    if (!rst_n) begin
+        ch2_spectrum_smoothed <= 16'd0;
+        ch2_spectrum_smoothed_addr <= 13'd0;
+        ch2_spectrum_smoothed_valid <= 1'b0;
+        ch2_prev_data <= 16'd0;
+        ch2_smooth_temp <= 18'd0;
+        ch2_output_data <= 16'd0;
+    end else begin
+        if (ch2_spectrum_valid) begin
+            // 读取上一帧数据
+            ch2_prev_data <= ch2_spectrum_prev[ch2_spectrum_wr_addr];
+            
+            // 峰值保持策略
+            if (ch2_spectrum_magnitude > ch2_prev_data) begin
+                // 上升：快速跟随
+                ch2_output_data <= ch2_spectrum_magnitude;
+            end else begin
+                // 下降：轻度平滑
+                ch2_smooth_temp <= {2'b00, ch2_spectrum_magnitude} + {2'b00, ch2_prev_data};
+                ch2_output_data <= ch2_smooth_temp[17:1];
+            end
+            
+            ch2_spectrum_smoothed <= ch2_output_data;
+            
+            // 更新RAM
+            ch2_spectrum_prev[ch2_spectrum_wr_addr] <= ch2_output_data;
+            
+            // 传递地址和有效信号
+            ch2_spectrum_smoothed_addr <= ch2_spectrum_wr_addr;
+            ch2_spectrum_smoothed_valid <= 1'b1;
+        end else begin
+            ch2_spectrum_smoothed_valid <= 1'b0;
+        end
+    end
+end
 
 //=============================================================================
 // 5.5 FFT配置信号生成（参考官方例程）
@@ -1105,9 +1265,9 @@ always @(posedge clk_fft or negedge rst_n) begin
         work_mode_fft_sync <= work_mode;
 end
 
-assign ch1_ram_wr_en   = (work_mode_fft_sync == 2'd0) ? time_wr_en_ch1_sync2 : ch1_spectrum_valid;
-assign ch1_ram_wr_addr = (work_mode_fft_sync == 2'd0) ? time_wr_addr_ch1_sync2 : ch1_spectrum_wr_addr;
-assign ch1_ram_wr_data = (work_mode_fft_sync == 2'd0) ? ch1_time_data_src : ch1_spectrum_magnitude;  // ✅使用测试信号或ADC数据
+assign ch1_ram_wr_en   = (work_mode_fft_sync == 2'd0) ? time_wr_en_ch1_sync2 : ch1_spectrum_smoothed_valid;
+assign ch1_ram_wr_addr = (work_mode_fft_sync == 2'd0) ? time_wr_addr_ch1_sync2 : ch1_spectrum_smoothed_addr;
+assign ch1_ram_wr_data = (work_mode_fft_sync == 2'd0) ? ch1_time_data_src : ch1_spectrum_smoothed;  // 使用平滑后的数据
 
 assign ch1_ram0_we      = ch1_ram_wr_en && (((work_mode_fft_sync == 2'd0) ? time_buffer_sel_sync2_ch1 : ch1_buffer_sel) == 1'b0);
 assign ch1_ram0_wr_addr = ch1_ram_wr_addr;
@@ -1122,9 +1282,9 @@ wire        ch2_ram_wr_en;
 wire [12:0] ch2_ram_wr_addr;
 wire [15:0] ch2_ram_wr_data;
 
-assign ch2_ram_wr_en   = (work_mode_fft_sync == 2'd0) ? time_wr_en_ch2_sync2 : ch2_spectrum_valid;
-assign ch2_ram_wr_addr = (work_mode_fft_sync == 2'd0) ? time_wr_addr_ch2_sync2 : ch2_spectrum_wr_addr;
-assign ch2_ram_wr_data = (work_mode_fft_sync == 2'd0) ? ch2_data_sync_fft2 : ch2_spectrum_magnitude;
+assign ch2_ram_wr_en   = (work_mode_fft_sync == 2'd0) ? time_wr_en_ch2_sync2 : ch2_spectrum_smoothed_valid;
+assign ch2_ram_wr_addr = (work_mode_fft_sync == 2'd0) ? time_wr_addr_ch2_sync2 : ch2_spectrum_smoothed_addr;
+assign ch2_ram_wr_data = (work_mode_fft_sync == 2'd0) ? ch2_data_sync_fft2 : ch2_spectrum_smoothed;  // 使用平滑后的数据
 
 assign ch2_ram0_we      = ch2_ram_wr_en && (((work_mode_fft_sync == 2'd0) ? time_buffer_sel_sync2_ch2 : ch2_buffer_sel) == 1'b0);
 assign ch2_ram0_wr_addr = ch2_ram_wr_addr;
@@ -1234,30 +1394,56 @@ dpram_8192x11 u_ch2_spectrum_ram1 (
 );
 
 //=============================================================================
-// 9. 信号参数测量模块（暂使用通道1数据）
+// 9. 信号参数测量模块 - 双通道
 //=============================================================================
-signal_parameter_measure u_param_measure (
+// 通道1参数测量
+signal_parameter_measure u_ch1_param_measure (
     .clk            (clk_100m),
     .rst_n          (rst_n),
     
-    // 时域数据输入（使用通道1同步数据，支持测试信号）
+    // 时域数据输入
     .sample_clk     (clk_adc),
-    .sample_data    (ch1_data_sync[9:2]),  // ✅ 修正：直接使用CH1数据
-    .sample_valid   (dual_data_valid || test_mode),  // ✅ 测试模式也标记为有效
+    .sample_data    (ch1_data_sync[9:2]),
+    .sample_valid   (dual_data_valid || test_mode),
     
-    // 频域数据输入（使用通道1）
+    // 频域数据输入
     .spectrum_data  (ch1_spectrum_magnitude),
     .spectrum_addr  (ch1_spectrum_wr_addr),
     .spectrum_valid (ch1_spectrum_valid),
     
     // 参数输出
-    .freq_out       (signal_freq),
-    .amplitude_out  (signal_amplitude),
-    .duty_out       (signal_duty),
-    .thd_out        (signal_thd),
+    .freq_out       (ch1_freq),
+    .amplitude_out  (ch1_amplitude),
+    .duty_out       (ch1_duty),
+    .thd_out        (ch1_thd),
     
-    // 控制 - ✅ 始终启用测量，只是在mode=2时才重点显示
-    .measure_en     (run_flag)  // 运行时就测量
+    // 控制
+    .measure_en     (run_flag)
+);
+
+// 通道2参数测量
+signal_parameter_measure u_ch2_param_measure (
+    .clk            (clk_100m),
+    .rst_n          (rst_n),
+    
+    // 时域数据输入
+    .sample_clk     (clk_adc),
+    .sample_data    (ch2_data_sync[9:2]),
+    .sample_valid   (dual_data_valid || test_mode),
+    
+    // 频域数据输入
+    .spectrum_data  (ch2_spectrum_magnitude),
+    .spectrum_addr  (ch2_spectrum_wr_addr),
+    .spectrum_valid (ch2_spectrum_valid),
+    
+    // 参数输出
+    .freq_out       (ch2_freq),
+    .amplitude_out  (ch2_amplitude),
+    .duty_out       (ch2_duty),
+    .thd_out        (ch2_thd),
+    
+    // 控制
+    .measure_en     (run_flag)
 );
 
 //=============================================================================
@@ -1477,11 +1663,15 @@ hdmi_display_ctrl u_hdmi_ctrl (
     .ch2_data           (ch2_spectrum_rd_data), // 通道2数据（时域/频域）
     .spectrum_addr      (spectrum_rd_addr),
     
-    // 参数显示
-    .freq               (signal_freq),
-    .amplitude          (signal_amplitude),
-    .duty               (signal_duty),
-    .thd                (signal_thd),
+    // 双通道参数显示
+    .ch1_freq           (ch1_freq),
+    .ch1_amplitude      (ch1_amplitude),
+    .ch1_duty           (ch1_duty),
+    .ch1_thd            (ch1_thd),
+    .ch2_freq           (ch2_freq),
+    .ch2_amplitude      (ch2_amplitude),
+    .ch2_duty           (ch2_duty),
+    .ch2_thd            (ch2_thd),
     .phase_diff         (phase_difference),     // 相位差
     
     // ✅ AI识别结果输入
@@ -1687,13 +1877,24 @@ end
 // LED输出选择：自动测试模式显示测试结果，否则显示系统状态
 assign user_led = auto_test_enable ? auto_test_result : user_led_reg;
 
+// OTR标志同步到100MHz时钟域（双级同步器）
+always @(posedge clk_100m or negedge rst_n) begin
+    if (!rst_n) begin
+        adc_ch1_otr_sync_100m <= 1'b0;
+        adc_ch2_otr_sync_100m <= 1'b0;
+    end else begin
+        adc_ch1_otr_sync_100m <= adc_ch1_otr_flag;
+        adc_ch2_otr_sync_100m <= adc_ch2_otr_flag;
+    end
+end
+
 always @(posedge clk_100m or negedge rst_n) begin
     if (!rst_n)
         user_led_reg <= 8'h00;
     else begin
         user_led_reg[0] <= run_flag;                // 运行状态
-        user_led_reg[1] <= ch1_fft_busy;            // 通道1 FFT忙
-        user_led_reg[2] <= ch2_fft_busy;            // 通道2 FFT忙
+        user_led_reg[1] <= adc_ch1_otr_sync_100m;   // 通道1 ADC溢出警告
+        user_led_reg[2] <= adc_ch2_otr_sync_100m;   // 通道2 ADC溢出警告
         user_led_reg[3] <= current_fft_channel;     // 当前处理的通道
         user_led_reg[4] <= display_channel;         // 当前显示的通道
         user_led_reg[5] <= test_mode;               // 测试模式
