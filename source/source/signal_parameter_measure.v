@@ -244,33 +244,18 @@ always @(posedge clk or negedge rst_n) begin
     end
 end
 
-// Stage 2: LUT查找（判断是否需要kHz显示）
+// Stage 2: 判断单位（Hz或kHz）
 always @(posedge clk or negedge rst_n) begin
     if (!rst_n) begin
-        freq_lut_index <= 8'd0;
-        freq_reciprocal <= 17'd0;
         freq_unit_flag_int <= 1'b0;
     end else if (freq_calc_trigger) begin
         // 100ms测量周期：freq_temp = 实际频率 / 10
-        // 【优化】如果实际频率 >= 100kHz (freq_temp >= 10000)，则显示kHz
-        // Hz模式: 0-99999 Hz (可以精确显示到100Hz精度)
-        // kHz模式: >= 100 kHz (显示为XXX.XX kHz，保持100Hz精度)
-        if (freq_temp >= 32'd10000) begin
-            // 高频模式：显示kHz (>= 100kHz)
-            // kHz = (freq_temp * 10) / 1000 = freq_temp / 100
-            // 使用固定倒数：65536/100 = 655.36
-            freq_reciprocal <= 17'd655;  // 65536/100 = 655.36
-            freq_unit_flag_int <= 1'b1;  // kHz单位
-        end else begin
-            // 低频模式：显示Hz (0-99999Hz，保持100Hz精度)
-            // Hz = freq_temp * 10
-            freq_reciprocal <= 17'd0;     // 不使用倒数，直接乘10
-            freq_unit_flag_int <= 1'b0;   // Hz单位
-        end
+        // 如果 freq_temp >= 10000，则实际频率 >= 100kHz，使用kHz显示
+        freq_unit_flag_int <= (freq_temp >= 32'd10000);
     end
 end
 
-// Stage 3: 乘法（流水线第一步）
+// Stage 3: 计算频率值
 reg freq_mult_done;
 reg [31:0] freq_temp_d1;  // 延迟一拍对齐流水线
 reg        freq_unit_d1;  // 单位标志延迟
@@ -287,17 +272,19 @@ always @(posedge clk or negedge rst_n) begin
         
         if (freq_calc_trigger) begin
             if (freq_unit_flag_int) begin
-                // kHz模式：freq_temp / 100 ≈ freq_temp * 655 / 65536
-                freq_product <= freq_temp * 17'd655;  // 乘以655
+                // kHz模式：显示值 = freq_temp（保留2位小数，单位0.01kHz）
+                // 例如：freq_temp=50000表示500.00kHz
+                freq_product <= {17'd0, freq_temp};
             end else begin
-                // Hz模式：freq_temp * 10 (扩展到49位以匹配kHz路径)
-                freq_product <= {17'd0, freq_temp} * 17'd10;
+                // Hz模式：显示值 = freq_temp * 10
+                // 例如：freq_temp=50表示500Hz
+                freq_product <= {17'd0, freq_temp * 32'd10};
             end
         end
     end
 end
 
-// Stage 4: 提取结果（流水线第二步）
+// Stage 4: 提取结果（直接取低16位）
 always @(posedge clk or negedge rst_n) begin
     if (!rst_n) begin
         freq_result <= 16'd0;
@@ -308,13 +295,8 @@ always @(posedge clk or negedge rst_n) begin
         freq_unit_d2 <= freq_unit_d1;
         
         if (freq_mult_done) begin
-            if (freq_unit_d1) begin
-                // kHz模式：除以65536 (右移16位)
-                freq_result <= freq_product[31:16];
-            end else begin
-                // Hz模式：直接取低16位
-                freq_result <= freq_product[15:0];
-            end
+            // 直接取低16位作为结果
+            freq_result <= freq_product[15:0];
         end
     end
 end
