@@ -15,41 +15,12 @@
     </header>
     <param_list>
         <param>
-            <name>CLKDIV_EN</name>
-            <value>false</value>
-        </param>
-        <param>
-            <name>USE_DRM_NUM</name>
-            <item>4</item>
-            <item>5</item>
-            <item>6</item>
-            <item>7</item>
-            <item>8</item>
-            <value>4</value>
-        </param>
-        <param>
-            <name>RST_EN</name>
-            <value>true</value>
-        </param>
-        <param>
             <name>FFT_ARCH</name>
             <value>Pipeline</value>
         </param>
         <param>
-            <name>INPUT_WIDTH</name>
-            <value>11</value>
-        </param>
-        <param>
-            <name>TWIDDLE_WIDTH</name>
-            <value>10</value>
-        </param>
-        <param>
-            <name>BURST_TWIDDLE_RAM_TYPE</name>
-            <value>DRM</value>
-        </param>
-        <param>
-            <name>OUTPUT_ORDER</name>
-            <value>Natural Order</value>
+            <name>FFT_LEN</name>
+            <value>8192</value>
         </param>
         <param>
             <name>OUTPUT_RAM_TYPE</name>
@@ -64,12 +35,41 @@
             <value>Block Floating Point</value>
         </param>
         <param>
-            <name>FFT_LEN</name>
-            <value>8192</value>
+            <name>RST_EN</name>
+            <value>true</value>
         </param>
         <param>
             <name>ROUND_MODE</name>
             <value>Convergent Rounding</value>
+        </param>
+        <param>
+            <name>BURST_TWIDDLE_RAM_TYPE</name>
+            <value>DRM</value>
+        </param>
+        <param>
+            <name>CLKDIV_EN</name>
+            <value>false</value>
+        </param>
+        <param>
+            <name>TWIDDLE_WIDTH</name>
+            <value>10</value>
+        </param>
+        <param>
+            <name>OUTPUT_ORDER</name>
+            <value>Natural Order</value>
+        </param>
+        <param>
+            <name>USE_DRM_NUM</name>
+            <item>4</item>
+            <item>5</item>
+            <item>6</item>
+            <item>7</item>
+            <item>8</item>
+            <value>4</value>
+        </param>
+        <param>
+            <name>INPUT_WIDTH</name>
+            <value>10</value>
         </param>
     </param_list>
     <pin_list>

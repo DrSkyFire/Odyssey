@@ -250,15 +250,17 @@ always @(posedge clk or negedge rst_n) begin
         freq_unit_flag_int <= 1'b0;
     end else if (freq_calc_trigger) begin
         // 100ms测量周期：freq_temp = 实际频率 / 10
-        // 如果实际频率 > 655.35kHz (freq_temp > 65535)，则显示kHz
-        if (freq_temp > 32'd65535) begin
-            // 高频模式：显示kHz
+        // 【优化】如果实际频率 >= 100kHz (freq_temp >= 10000)，则显示kHz
+        // Hz模式: 0-99999 Hz (可以精确显示到100Hz精度)
+        // kHz模式: >= 100 kHz (显示为XXX.XX kHz，保持100Hz精度)
+        if (freq_temp >= 32'd10000) begin
+            // 高频模式：显示kHz (>= 100kHz)
             // kHz = (freq_temp * 10) / 1000 = freq_temp / 100
             // 使用固定倒数：65536/100 = 655.36
-            freq_reciprocal <= 17'd655;  // 65536/100 ≈ 655
+            freq_reciprocal <= 17'd655;  // 65536/100 = 655.36
             freq_unit_flag_int <= 1'b1;  // kHz单位
         end else begin
-            // 低频模式：显示Hz
+            // 低频模式：显示Hz (0-99999Hz，保持100Hz精度)
             // Hz = freq_temp * 10
             freq_reciprocal <= 17'd0;     // 不使用倒数，直接乘10
             freq_unit_flag_int <= 1'b0;   // Hz单位

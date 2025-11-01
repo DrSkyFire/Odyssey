@@ -42,11 +42,11 @@ module FIFO_ASYNC_8192x11
 
 localparam WR_DEPTH_WIDTH = 13 ; // @IPC int 9,20
 
-localparam WR_DATA_WIDTH = 11 ; // @IPC int 1,1152
+localparam WR_DATA_WIDTH = 10 ; // @IPC int 1,1152
 
 localparam RD_DEPTH_WIDTH = 13 ; // @IPC int 9,20
 
-localparam RD_DATA_WIDTH = 11 ; // @IPC int 1,1152
+localparam RD_DATA_WIDTH = 10 ; // @IPC int 1,1152
 
 localparam OUTPUT_REG = 0 ; // @IPC bool
 

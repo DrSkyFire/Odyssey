@@ -22,11 +22,11 @@ module  DPRAM_8192x11_tb;
 
 localparam A_ADDR_WIDTH = 13 ; // @IPC int 9,20
 
-localparam A_DATA_WIDTH = 11 ; // @IPC int 1,1152
+localparam A_DATA_WIDTH = 10 ; // @IPC int 1,1152
 
 localparam B_ADDR_WIDTH = 13 ; // @IPC int 9,20
 
-localparam B_DATA_WIDTH = 11 ; // @IPC int 1,1152
+localparam B_DATA_WIDTH = 10 ; // @IPC int 1,1152
 
 localparam A_OUTPUT_REG = 0 ; // @IPC bool
 

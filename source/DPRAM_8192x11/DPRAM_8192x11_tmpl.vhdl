@@ -9,14 +9,14 @@
 COMPONENT DPRAM_8192x11
   PORT (
     a_addr : IN STD_LOGIC_VECTOR(12 DOWNTO 0);
-    a_wr_data : IN STD_LOGIC_VECTOR(10 DOWNTO 0);
-    a_rd_data : OUT STD_LOGIC_VECTOR(10 DOWNTO 0);
+    a_wr_data : IN STD_LOGIC_VECTOR(9 DOWNTO 0);
+    a_rd_data : OUT STD_LOGIC_VECTOR(9 DOWNTO 0);
     a_wr_en : IN STD_LOGIC;
     a_clk : IN STD_LOGIC;
     a_rst : IN STD_LOGIC;
     b_addr : IN STD_LOGIC_VECTOR(12 DOWNTO 0);
-    b_wr_data : IN STD_LOGIC_VECTOR(10 DOWNTO 0);
-    b_rd_data : OUT STD_LOGIC_VECTOR(10 DOWNTO 0);
+    b_wr_data : IN STD_LOGIC_VECTOR(9 DOWNTO 0);
+    b_rd_data : OUT STD_LOGIC_VECTOR(9 DOWNTO 0);
     b_wr_en : IN STD_LOGIC;
     b_clk : IN STD_LOGIC;
     b_rst : IN STD_LOGIC

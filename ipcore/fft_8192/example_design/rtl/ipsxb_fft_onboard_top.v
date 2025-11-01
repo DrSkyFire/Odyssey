@@ -57,7 +57,7 @@ localparam  OUTPUT_ORDER      = ("Natural Order" == "Natural Order") ? 1 : 0;
 
 localparam  SCALE_MODE        = ("Block Floating Point" == "Block Floating Point") ? 1 : 0; 
 
-localparam  INPUT_WIDTH       = 11;
+localparam  INPUT_WIDTH       = 10;
 
  
 localparam  DATAIN_BYTE_NUM   = ((INPUT_WIDTH%8)==0) ? INPUT_WIDTH/8 : INPUT_WIDTH/8 + 1;

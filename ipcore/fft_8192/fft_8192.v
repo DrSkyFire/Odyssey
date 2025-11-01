@@ -63,7 +63,7 @@ localparam  SCALE_MODE        = ("Block Floating Point" == "Block Floating Point
  
 localparam  ROUND_MODE        = ("Convergent Rounding" == "Convergent Rounding") ? 1 : 0; 
 
-localparam  INPUT_WIDTH       = 11;
+localparam  INPUT_WIDTH       = 10;
 localparam  TWIDDLE_WIDTH     = 10;
 localparam  USE_DRM_NUM       = 4; 
 

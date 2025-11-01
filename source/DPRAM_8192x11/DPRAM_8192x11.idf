@@ -15,12 +15,40 @@
     </header>
     <param_list>
         <param>
-            <name>A_BE_WIDTH</name>
-            <value>1</value>
+            <name>B_ADDR_WIDTH</name>
+            <value>13</value>
         </param>
         <param>
-            <name>INIT_FILE</name>
-            <value>NONE</value>
+            <name>A_CLK_OR_POL_INV</name>
+            <value>false</value>
+        </param>
+        <param>
+            <name>POWER_OPT</name>
+            <value>false</value>
+        </param>
+        <param>
+            <name>INIT_EN</name>
+            <value>false</value>
+        </param>
+        <param>
+            <name>MODE_18K</name>
+            <value>true</value>
+        </param>
+        <param>
+            <name>B_OUTPUT_REG</name>
+            <value>false</value>
+        </param>
+        <param>
+            <name>B_CLK_EN</name>
+            <value>false</value>
+        </param>
+        <param>
+            <name>SAMEWIDTH_EN</name>
+            <value>true</value>
+        </param>
+        <param>
+            <name>INIT_FORMAT</name>
+            <value>BIN</value>
         </param>
         <param>
             <name>A_WRITE_MODE</name>
@@ -30,31 +58,39 @@
             <value>TRANSPARENT_WRITE</value>
         </param>
         <param>
-            <name>BYTE_SIZE</name>
-            <value>8</value>
-        </param>
-        <param>
             <name>A_CLK_EN</name>
             <value>false</value>
-        </param>
-        <param>
-            <name>DRM_MODE_SEL</name>
-            <value>AUTO</value>
-        </param>
-        <param>
-            <name>MODE_9K</name>
-            <value>false</value>
-        </param>
-        <param>
-            <name>A_DATA_WIDTH</name>
-            <value>11</value>
         </param>
         <param>
             <name>B_BE_WIDTH</name>
             <value>1</value>
         </param>
         <param>
-            <name>INIT_EN</name>
+            <name>INIT_FILE</name>
+            <value>NONE</value>
+        </param>
+        <param>
+            <name>A_BE_WIDTH</name>
+            <value>1</value>
+        </param>
+        <param>
+            <name>A_ADDR_STROBE_EN</name>
+            <value>false</value>
+        </param>
+        <param>
+            <name>A_OUTPUT_REG</name>
+            <value>false</value>
+        </param>
+        <param>
+            <name>A_DATA_WIDTH</name>
+            <value>10</value>
+        </param>
+        <param>
+            <name>BYTE_SIZE</name>
+            <value>8</value>
+        </param>
+        <param>
+            <name>MODE_9K</name>
             <value>false</value>
         </param>
         <param>
@@ -62,7 +98,7 @@
             <value>false</value>
         </param>
         <param>
-            <name>B_CLK_OR_POL_INV</name>
+            <name>B_RD_OCE_EN</name>
             <value>false</value>
         </param>
         <param>
@@ -70,7 +106,7 @@
             <value>false</value>
         </param>
         <param>
-            <name>B_CLK_EN</name>
+            <name>B_CLK_OR_POL_INV</name>
             <value>false</value>
         </param>
         <param>
@@ -81,12 +117,16 @@
             <value>NORMAL_WRITE</value>
         </param>
         <param>
-            <name>MODE_18K</name>
-            <value>true</value>
+            <name>RESET_TYPE</name>
+            <value>ASYNC</value>
         </param>
         <param>
-            <name>A_OUTPUT_REG</name>
-            <value>false</value>
+            <name>DRM_MODE_SEL</name>
+            <value>AUTO</value>
+        </param>
+        <param>
+            <name>B_DATA_WIDTH</name>
+            <value>10</value>
         </param>
         <param>
             <name>WR_BYTE_EN</name>
@@ -94,46 +134,6 @@
         </param>
         <param>
             <name>A_ADDR_WIDTH</name>
-            <value>13</value>
-        </param>
-        <param>
-            <name>B_OUTPUT_REG</name>
-            <value>false</value>
-        </param>
-        <param>
-            <name>B_DATA_WIDTH</name>
-            <value>11</value>
-        </param>
-        <param>
-            <name>A_CLK_OR_POL_INV</name>
-            <value>false</value>
-        </param>
-        <param>
-            <name>RESET_TYPE</name>
-            <value>ASYNC</value>
-        </param>
-        <param>
-            <name>POWER_OPT</name>
-            <value>false</value>
-        </param>
-        <param>
-            <name>SAMEWIDTH_EN</name>
-            <value>true</value>
-        </param>
-        <param>
-            <name>B_RD_OCE_EN</name>
-            <value>false</value>
-        </param>
-        <param>
-            <name>INIT_FORMAT</name>
-            <value>BIN</value>
-        </param>
-        <param>
-            <name>A_ADDR_STROBE_EN</name>
-            <value>false</value>
-        </param>
-        <param>
-            <name>B_ADDR_WIDTH</name>
             <value>13</value>
         </param>
     </param_list>
@@ -151,7 +151,7 @@
             <text>a_wr_data</text>
             <dir>input</dir>
             <pos>left</pos>
-            <msb>10</msb>
+            <msb>9</msb>
             <lsb>0</lsb>
         </pin>
         <pin>
@@ -159,7 +159,7 @@
             <text>a_rd_data</text>
             <dir>output</dir>
             <pos>right</pos>
-            <msb>10</msb>
+            <msb>9</msb>
             <lsb>0</lsb>
         </pin>
         <pin>
@@ -193,7 +193,7 @@
             <text>b_wr_data</text>
             <dir>input</dir>
             <pos>right</pos>
-            <msb>10</msb>
+            <msb>9</msb>
             <lsb>0</lsb>
         </pin>
         <pin>
@@ -201,7 +201,7 @@
             <text>b_rd_data</text>
             <dir>output</dir>
             <pos>right</pos>
-            <msb>10</msb>
+            <msb>9</msb>
             <lsb>0</lsb>
         </pin>
         <pin>
