@@ -1561,10 +1561,6 @@ always @(posedge clk_pixel or negedge rst_n) begin
                     end
                 endcase
             end
-            
-            else begin
-                in_char_area <= 1'b0;
-            end
         end
         
         //=====================================================================
@@ -1895,10 +1891,6 @@ always @(posedge clk_pixel or negedge rst_n) begin
                     end
                 endcase
             end
-            
-            else begin
-                in_char_area <= 1'b0;
-            end
         end
         
         //=====================================================================
@@ -2008,10 +2000,6 @@ always @(posedge clk_pixel or negedge rst_n) begin
             else begin
                 in_char_area <= 1'b0;
             end
-        end
-        
-        else begin
-            in_char_area <= 1'b0;
         end
     end  // 结束 if (pixel_y_d1 >= PARAM_Y_START && pixel_y_d1 < PARAM_Y_END)
     end  // ✅ 结束 else begin (char_code时序逻辑块)
