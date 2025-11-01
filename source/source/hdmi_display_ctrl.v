@@ -1226,7 +1226,11 @@ always @(posedge clk_pixel or negedge rst_n) begin
         // CH1数据行 (Y: 600-640, 40px高)
         //=====================================================================
         else if (pixel_y_d1 >= TABLE_Y_CH1 && pixel_y_d1 < TABLE_Y_CH1 + ROW_HEIGHT) begin
-            char_row <= (pixel_y_d1 - TABLE_Y_CH1) << 1;
+            // 只使用行内前32px显示字符（40px行高，字符32px，居中显示）
+            if (pixel_y_d1 < TABLE_Y_CH1 + 32)
+                char_row <= (pixel_y_d1 - TABLE_Y_CH1) << 1;
+            else
+                char_row <= 5'd0;  // 超出字符高度的部分不显示
             
             // 列1: 通道号 "1"
             if (pixel_x_d1 >= COL_CH_X + 12 && pixel_x_d1 < COL_CH_X + 28) begin
@@ -1567,7 +1571,11 @@ always @(posedge clk_pixel or negedge rst_n) begin
         // CH2数据行 (Y: 640-680, 40px高)
         //=====================================================================
         else if (pixel_y_d1 >= TABLE_Y_CH2 && pixel_y_d1 < TABLE_Y_CH2 + ROW_HEIGHT) begin
-            char_row <= (pixel_y_d1 - TABLE_Y_CH2) << 1;
+            // 只使用行内前32px显示字符（40px行高，字符32px，居中显示）
+            if (pixel_y_d1 < TABLE_Y_CH2 + 32)
+                char_row <= (pixel_y_d1 - TABLE_Y_CH2) << 1;
+            else
+                char_row <= 5'd0;  // 超出字符高度的部分不显示
             
             // 列1: 通道号 "2"
             if (pixel_x_d1 >= COL_CH_X + 12 && pixel_x_d1 < COL_CH_X + 28) begin
@@ -1897,7 +1905,11 @@ always @(posedge clk_pixel or negedge rst_n) begin
         // 相位差行 (Y: 680-720, 40px高) - 居中显示 "Phase Diff: XXX.X°"
         //=====================================================================
         else if (pixel_y_d1 >= TABLE_Y_PHASE && pixel_y_d1 < PARAM_Y_END) begin
-            char_row <= (pixel_y_d1 - TABLE_Y_PHASE) << 1;
+            // 只使用行内前32px显示字符（40px行高，字符32px，居中显示）
+            if (pixel_y_d1 < TABLE_Y_PHASE + 32)
+                char_row <= (pixel_y_d1 - TABLE_Y_PHASE) << 1;
+            else
+                char_row <= 5'd0;  // 超出字符高度的部分不显示
             
             // 居中显示：屏幕宽度1280，文本约13个字符(208px)，起始X=(1280-208)/2=536
             // "Phase Diff: XXX.X°"
@@ -2206,19 +2218,14 @@ always @(*) begin
             // �?时序优化：使用延�?拍的in_char_area_d1和char_col_d1
             if (in_char_area_d1 && char_pixel_row[15 - char_col_d1[3:0]]) begin
                 // 根据参数行位置设置不同颜色（紧凑布局�?px间距�?
-                if (pixel_y_d4 < PARAM_Y_START + 20)           // Y < 905: �?�?(频率)
-                    char_color = 24'h00FFFF;  // 青色 - 频率
-                else if (pixel_y_d4 < PARAM_Y_START + 40)      // Y < 940: �?�?(幅度)
-                    char_color = 24'hFFFF00;  // 黄色 - 幅度
-                else if (pixel_y_d4 < PARAM_Y_START + 60)     // Y < 975: �?�?(占空�?
-                    char_color = 24'h00FF00;  // 绿色 - 占空�?
-                else if (pixel_y_d4 < PARAM_Y_START + 80)     // Y < 1010: �?�?(THD)
-                    char_color = 24'hFF8800;  // 橙色 - THD
-                else if (pixel_y_d4 < PARAM_Y_START + 100)     // Y < 1045: �?�?(AI识别)
-                    char_color = 24'hFFFFFF;  // 白色 - AI识别结果
-                else                                           // Y >= 1045: �?�?(相位�?
-                    char_color = 24'hFF00FF;  // 洋红�?- 相位�?
-                
+                if (pixel_y_d4 < TABLE_Y_CH1)
+                    char_color = 24'hFFFFFF;
+                else if (pixel_y_d4 < TABLE_Y_CH2)
+                    char_color = 24'h00FF00;
+                else if (pixel_y_d4 < TABLE_Y_PHASE)
+                    char_color = 24'hFF0000;
+                else
+                    char_color = 24'hFF00FF;
                 rgb_data = char_color;
             end
         end
