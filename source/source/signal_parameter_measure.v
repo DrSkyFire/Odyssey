@@ -60,6 +60,8 @@ reg [16:0]  freq_reciprocal;                // 倒数值 (17位)
 reg [48:0]  freq_product;                   // 乘法结果 (32×17=49位)
 reg [15:0]  freq_result;                    // 最终频率值
 reg         freq_unit_flag_int;             // 内部单位标志（流水线使用）
+reg         freq_result_done;               // Stage 4完成标志
+reg         freq_unit_d2;                   // 单位标志延迟2拍
 
 // 【优化】频率滑动平均滤波 (4次平均)
 reg [15:0]  freq_history[0:3];              // 历史值缓存
@@ -268,14 +270,13 @@ always @(posedge clk or negedge rst_n) begin
     end
 end
 
-// Stage 3: 乘法和缩放
+// Stage 3: 乘法（流水线第一步）
 reg freq_mult_done;
 reg [31:0] freq_temp_d1;  // 延迟一拍对齐流水线
 reg        freq_unit_d1;  // 单位标志延迟
 always @(posedge clk or negedge rst_n) begin
     if (!rst_n) begin
         freq_product <= 49'd0;
-        freq_result <= 16'd0;
         freq_mult_done <= 1'b0;
         freq_temp_d1 <= 32'd0;
         freq_unit_d1 <= 1'b0;
@@ -284,20 +285,41 @@ always @(posedge clk or negedge rst_n) begin
         freq_temp_d1 <= freq_temp;            // 对齐流水线
         freq_unit_d1 <= freq_unit_flag_int;   // 对齐单位标志
         
-        if (freq_mult_done) begin
-            if (freq_unit_d1) begin
+        if (freq_calc_trigger) begin
+            if (freq_unit_flag_int) begin
                 // kHz模式：freq_temp / 100 ≈ freq_temp * 655 / 65536
-                freq_product <= freq_temp_d1 * 17'd655;  // 乘以655
-                freq_result <= freq_product[48:16];      // 除以65536
+                freq_product <= freq_temp * 17'd655;  // 乘以655
             end else begin
-                // Hz模式：freq_temp * 10
-                freq_result <= freq_temp_d1[15:0] * 16'd10;
+                // Hz模式：freq_temp * 10 (扩展到49位以匹配kHz路径)
+                freq_product <= {17'd0, freq_temp} * 17'd10;
             end
         end
     end
 end
 
-// Stage 4: 滑动平均滤波器（4次平均，减少抖动）
+// Stage 4: 提取结果（流水线第二步）
+always @(posedge clk or negedge rst_n) begin
+    if (!rst_n) begin
+        freq_result <= 16'd0;
+        freq_result_done <= 1'b0;
+        freq_unit_d2 <= 1'b0;
+    end else begin
+        freq_result_done <= freq_mult_done;
+        freq_unit_d2 <= freq_unit_d1;
+        
+        if (freq_mult_done) begin
+            if (freq_unit_d1) begin
+                // kHz模式：除以65536 (右移16位)
+                freq_result <= freq_product[31:16];
+            end else begin
+                // Hz模式：直接取低16位
+                freq_result <= freq_product[15:0];
+            end
+        end
+    end
+end
+
+// Stage 5: 滑动平均滤波器（4次平均，减少抖动）
 integer j;
 always @(posedge clk or negedge rst_n) begin
     if (!rst_n) begin
@@ -307,7 +329,7 @@ always @(posedge clk or negedge rst_n) begin
         for (j = 0; j < 4; j = j + 1) begin
             freq_history[j] <= 16'd0;
         end
-    end else if (freq_mult_done && freq_result != freq_history[freq_hist_ptr]) begin
+    end else if (freq_result_done && freq_result != freq_history[freq_hist_ptr]) begin
         // 更新滑动平均（当新值与历史不同时）
         freq_sum <= freq_sum - freq_history[freq_hist_ptr] + freq_result;
         freq_history[freq_hist_ptr] <= freq_result;
@@ -316,7 +338,7 @@ always @(posedge clk or negedge rst_n) begin
     end
 end
 
-// Stage 5: 输出频率计算结果（freq_is_khz在输出寄存器处统一赋值）
+// Stage 6: 输出频率计算结果（freq_is_khz在输出寄存器处统一赋值）
 always @(posedge clk or negedge rst_n) begin
     if (!rst_n) begin
         freq_calc <= 16'd0;
