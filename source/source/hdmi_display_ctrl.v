@@ -1341,7 +1341,7 @@ always @(posedge clk_pixel or negedge rst_n) begin
                 end
             end
             
-            // 列3: 幅度显示 "0255" → "255" (前导零抑制)
+            // 列3: 幅度显示 "255mV" (前导零抑制)
             else if (pixel_x_d1 >= COL_AMPL_X && pixel_x_d1 < COL_AMPL_X + 120) begin
                 if (pixel_x_d1 >= COL_AMPL_X + 8 && pixel_x_d1 < COL_AMPL_X + 24) begin
                     // 千位：前导零抑制
@@ -1363,6 +1363,16 @@ always @(posedge clk_pixel or negedge rst_n) begin
                 else if (pixel_x_d1 >= COL_AMPL_X + 56 && pixel_x_d1 < COL_AMPL_X + 72) begin
                     char_code <= digit_to_ascii(ch1_amp_d0);  // 个位
                     char_col <= pixel_x_d1 - COL_AMPL_X - 12'd56;
+                    in_char_area <= ch1_enable;
+                end
+                else if (pixel_x_d1 >= COL_AMPL_X + 72 && pixel_x_d1 < COL_AMPL_X + 88) begin
+                    char_code <= 8'd109;  // 'm'
+                    char_col <= pixel_x_d1 - COL_AMPL_X - 12'd72;
+                    in_char_area <= ch1_enable;
+                end
+                else if (pixel_x_d1 >= COL_AMPL_X + 88 && pixel_x_d1 < COL_AMPL_X + 104) begin
+                    char_code <= 8'd86;  // 'V'
+                    char_col <= pixel_x_d1 - COL_AMPL_X - 12'd88;
                     in_char_area <= ch1_enable;
                 end
                 else begin
@@ -1666,7 +1676,7 @@ always @(posedge clk_pixel or negedge rst_n) begin
                 end
             end
             
-            // 列3: 幅度显示 "0255" → "255" (前导零抑制)
+            // 列3: 幅度显示 "255mV" (前导零抑制)
             else if (pixel_x_d1 >= COL_AMPL_X && pixel_x_d1 < COL_AMPL_X + 120) begin
                 if (pixel_x_d1 >= COL_AMPL_X + 8 && pixel_x_d1 < COL_AMPL_X + 24) begin
                     // 千位：前导零抑制
@@ -1688,6 +1698,16 @@ always @(posedge clk_pixel or negedge rst_n) begin
                 else if (pixel_x_d1 >= COL_AMPL_X + 56 && pixel_x_d1 < COL_AMPL_X + 72) begin
                     char_code <= digit_to_ascii(ch2_amp_d0);  // 个位：始终显示
                     char_col <= pixel_x_d1 - COL_AMPL_X - 12'd56;
+                    in_char_area <= ch2_enable;
+                end
+                else if (pixel_x_d1 >= COL_AMPL_X + 72 && pixel_x_d1 < COL_AMPL_X + 88) begin
+                    char_code <= 8'd109;  // 'm'
+                    char_col <= pixel_x_d1 - COL_AMPL_X - 12'd72;
+                    in_char_area <= ch2_enable;
+                end
+                else if (pixel_x_d1 >= COL_AMPL_X + 88 && pixel_x_d1 < COL_AMPL_X + 104) begin
+                    char_code <= 8'd86;  // 'V'
+                    char_col <= pixel_x_d1 - COL_AMPL_X - 12'd88;
                     in_char_area <= ch2_enable;
                 end
                 else begin
