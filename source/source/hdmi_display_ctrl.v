@@ -1224,17 +1224,125 @@ always @(posedge clk_pixel or negedge rst_n) begin
         end
         
         //=====================================================================
-        // CH1数据行 (Y: 600-640, 40px高) - 临时简化版
+        // CH1数据行 (Y: 600-640, 40px高)
         //=====================================================================
         else if (pixel_y_d1 >= TABLE_Y_CH1 && pixel_y_d1 < TABLE_Y_CH1 + ROW_HEIGHT) begin
             char_row <= (pixel_y_d1 - TABLE_Y_CH1) << 1;
             
-            // 临时显示 "1" 作为占位符
+            // 列1: 通道号 "1"
             if (pixel_x_d1 >= COL_CH_X + 12 && pixel_x_d1 < COL_CH_X + 28) begin
                 char_code <= 8'd49;  // '1'
                 char_col <= pixel_x_d1 - COL_CH_X - 12'd12;
                 in_char_area <= ch1_enable;
             end
+            
+            // 列2: 频率显示 (自适应Hz/kHz/MHz)
+            // Hz模式: "12345Hz " (5位整数)
+            // kHz模式: "123.45kHz" (3位整数+小数点+2位小数)
+            else if (pixel_x_d1 >= COL_FREQ_X && pixel_x_d1 < COL_FREQ_X + 200) begin
+                if (ch1_freq_unit == 2'd0) begin
+                    // Hz模式：显示5位整数 + "Hz"
+                    if (pixel_x_d1 >= COL_FREQ_X + 8 && pixel_x_d1 < COL_FREQ_X + 24) begin
+                        // 第1位：万位 (前导零抑制)
+                        char_code <= (ch1_freq_d4 == 4'd0) ? 8'd32 : digit_to_ascii(ch1_freq_d4);
+                        char_col <= pixel_x_d1 - COL_FREQ_X - 12'd8;
+                        in_char_area <= ch1_enable;
+                    end
+                    else if (pixel_x_d1 >= COL_FREQ_X + 24 && pixel_x_d1 < COL_FREQ_X + 40) begin
+                        // 第2位：千位 (前导零抑制)
+                        char_code <= ((ch1_freq_d4 == 4'd0) && (ch1_freq_d3 == 4'd0)) ? 8'd32 : digit_to_ascii(ch1_freq_d3);
+                        char_col <= pixel_x_d1 - COL_FREQ_X - 12'd24;
+                        in_char_area <= ch1_enable;
+                    end
+                    else if (pixel_x_d1 >= COL_FREQ_X + 40 && pixel_x_d1 < COL_FREQ_X + 56) begin
+                        // 第3位：百位
+                        char_code <= digit_to_ascii(ch1_freq_d2);
+                        char_col <= pixel_x_d1 - COL_FREQ_X - 12'd40;
+                        in_char_area <= ch1_enable;
+                    end
+                    else if (pixel_x_d1 >= COL_FREQ_X + 56 && pixel_x_d1 < COL_FREQ_X + 72) begin
+                        // 第4位：十位
+                        char_code <= digit_to_ascii(ch1_freq_d1);
+                        char_col <= pixel_x_d1 - COL_FREQ_X - 12'd56;
+                        in_char_area <= ch1_enable;
+                    end
+                    else if (pixel_x_d1 >= COL_FREQ_X + 72 && pixel_x_d1 < COL_FREQ_X + 88) begin
+                        // 第5位：个位
+                        char_code <= digit_to_ascii(ch1_freq_d0);
+                        char_col <= pixel_x_d1 - COL_FREQ_X - 12'd72;
+                        in_char_area <= ch1_enable;
+                    end
+                    else if (pixel_x_d1 >= COL_FREQ_X + 88 && pixel_x_d1 < COL_FREQ_X + 104) begin
+                        char_code <= 8'd72;  // 'H'
+                        char_col <= pixel_x_d1 - COL_FREQ_X - 12'd88;
+                        in_char_area <= ch1_enable;
+                    end
+                    else if (pixel_x_d1 >= COL_FREQ_X + 104 && pixel_x_d1 < COL_FREQ_X + 120) begin
+                        char_code <= 8'd122; // 'z'
+                        char_col <= pixel_x_d1 - COL_FREQ_X - 12'd104;
+                        in_char_area <= ch1_enable;
+                    end
+                    else begin
+                        in_char_area <= 1'b0;
+                    end
+                end else begin
+                    // kHz/MHz模式：显示 "XXX.XX kHz" 或 "XXX.XX MHz"
+                    if (pixel_x_d1 >= COL_FREQ_X + 8 && pixel_x_d1 < COL_FREQ_X + 24) begin
+                        // 第1位：百位
+                        char_code <= digit_to_ascii(ch1_freq_d2);
+                        char_col <= pixel_x_d1 - COL_FREQ_X - 12'd8;
+                        in_char_area <= ch1_enable;
+                    end
+                    else if (pixel_x_d1 >= COL_FREQ_X + 24 && pixel_x_d1 < COL_FREQ_X + 40) begin
+                        // 第2位：十位
+                        char_code <= digit_to_ascii(ch1_freq_d1);
+                        char_col <= pixel_x_d1 - COL_FREQ_X - 12'd24;
+                        in_char_area <= ch1_enable;
+                    end
+                    else if (pixel_x_d1 >= COL_FREQ_X + 40 && pixel_x_d1 < COL_FREQ_X + 56) begin
+                        // 第3位：个位
+                        char_code <= digit_to_ascii(ch1_freq_d0);
+                        char_col <= pixel_x_d1 - COL_FREQ_X - 12'd40;
+                        in_char_area <= ch1_enable;
+                    end
+                    else if (pixel_x_d1 >= COL_FREQ_X + 56 && pixel_x_d1 < COL_FREQ_X + 72) begin
+                        char_code <= 8'd46;  // '.'
+                        char_col <= pixel_x_d1 - COL_FREQ_X - 12'd56;
+                        in_char_area <= ch1_enable;
+                    end
+                    else if (pixel_x_d1 >= COL_FREQ_X + 72 && pixel_x_d1 < COL_FREQ_X + 88) begin
+                        // 小数第1位
+                        char_code <= digit_to_ascii(ch1_freq_d4);
+                        char_col <= pixel_x_d1 - COL_FREQ_X - 12'd72;
+                        in_char_area <= ch1_enable;
+                    end
+                    else if (pixel_x_d1 >= COL_FREQ_X + 88 && pixel_x_d1 < COL_FREQ_X + 104) begin
+                        // 小数第2位
+                        char_code <= digit_to_ascii(ch1_freq_d3);
+                        char_col <= pixel_x_d1 - COL_FREQ_X - 12'd88;
+                        in_char_area <= ch1_enable;
+                    end
+                    else if (pixel_x_d1 >= COL_FREQ_X + 104 && pixel_x_d1 < COL_FREQ_X + 120) begin
+                        char_code <= 8'd107; // 'k'
+                        char_col <= pixel_x_d1 - COL_FREQ_X - 12'd104;
+                        in_char_area <= ch1_enable;
+                    end
+                    else if (pixel_x_d1 >= COL_FREQ_X + 120 && pixel_x_d1 < COL_FREQ_X + 136) begin
+                        char_code <= 8'd72;  // 'H'
+                        char_col <= pixel_x_d1 - COL_FREQ_X - 12'd120;
+                        in_char_area <= ch1_enable;
+                    end
+                    else if (pixel_x_d1 >= COL_FREQ_X + 136 && pixel_x_d1 < COL_FREQ_X + 152) begin
+                        char_code <= 8'd122; // 'z'
+                        char_col <= pixel_x_d1 - COL_FREQ_X - 12'd136;
+                        in_char_area <= ch1_enable;
+                    end
+                    else begin
+                        in_char_area <= 1'b0;
+                    end
+                end
+            end
+            
             else begin
                 in_char_area <= 1'b0;
             end
