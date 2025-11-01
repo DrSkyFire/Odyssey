@@ -4,7 +4,7 @@
 //=============================================================================
 
 module adc_capture_dual (
-    input  wire         clk,                // ADC采样时钟 (1MHz)
+    input  wire         clk,                // ADC采样时钟 (35MHz)
     input  wire         rst_n,
     
     // 通道1接口

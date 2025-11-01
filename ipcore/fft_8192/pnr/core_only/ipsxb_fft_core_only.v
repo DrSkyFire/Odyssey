@@ -52,7 +52,7 @@ localparam  LOGS_FFT_LEN      = ("8192" == "8"    ) ? 3  :
 localparam  SCALE_MODE        = ("Block Floating Point" == "Block Floating Point") ? 1 : 0; 
 
 
-localparam  INPUT_WIDTH       = 11;
+localparam  INPUT_WIDTH       = 10;
 
 localparam  DATAIN_BYTE_NUM   = ((INPUT_WIDTH%8)==0) ? INPUT_WIDTH/8 : INPUT_WIDTH/8 + 1;
 localparam  DATAIN_WIDTH      = DATAIN_BYTE_NUM*8;

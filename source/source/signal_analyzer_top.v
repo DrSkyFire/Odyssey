@@ -53,7 +53,7 @@
 //=============================================================================
 localparam FFT_POINTS = 8192;               // FFT点数
 localparam ADC_WIDTH  = 10;                 // ADC位宽
-localparam FFT_WIDTH  = 11;                 // FFT数据位宽（10位ADC符号扩展到11位）
+localparam FFT_WIDTH  = 10;                 // FFT数据位宽（修改为10位，与ADC一致）
 
 //=============================================================================
 // 时钟和复位信号
@@ -65,7 +65,7 @@ wire        clk_fft;                        // 100MHz FFT处理时钟
 wire        pll1_lock;                      // PLL1锁定信号
 // HDMI相关时钟
 wire        pll2_lock;                      // PLL2锁定信号
-wire        clk_hdmi_pixel;                 // 148.5MHz HDMI像素时钟 (1080p)
+wire        clk_hdmi_pixel;                 // 74.25MHz HDMI像素时钟 (720p@60Hz - 时序优化)
 wire        ms7210_init_over;                  // MS7210配置完成标志
 //全局PLL锁定信号
 wire        pll_lock;
@@ -83,11 +83,11 @@ wire        rst_n;                          // 其他模块使用的复位
 wire [15:0] selected_adc_data;               // 选择的ADC数据（16位扩展）
 wire [9:0]  ch1_data_sync;                  // 同步后的通道1数据（10位）
 wire [9:0]  ch2_data_sync;                  // 同步后的通道2数据（10位）
-// 10位ADC数据符号扩展到11位（用于FFT）
-wire [10:0] ch1_data_11b;                   // 通道1 11位数据
-wire [10:0] ch2_data_11b;                   // 通道2 11位数据
-assign ch1_data_11b = {ch1_data_sync[9], ch1_data_sync};  // 符号扩展
-assign ch2_data_11b = {ch2_data_sync[9], ch2_data_sync};  // 符号扩展
+// 直接使用10位ADC数据（与FFT位宽匹配）
+wire [9:0]  ch1_data_fft;                   // 通道1 FFT输入数据
+wire [9:0]  ch2_data_fft;                   // 通道2 FFT输入数据
+assign ch1_data_fft = ch1_data_sync;        // 直接使用10位
+assign ch2_data_fft = ch2_data_sync;        // 直接使用10位
 
 // ADC溢出检测信号
 reg         adc_ch1_otr_sync;               // 同步后的通道1 OTR信号
@@ -232,13 +232,15 @@ localparam  AUTO_TRIG_TIMEOUT = 24'd10_000_000;  // 100ms超时
 // 信号参数测量 - 双通道
 //=============================================================================
 // 通道1参数
-wire [15:0] ch1_freq;                       // CH1信号频率
+wire [15:0] ch1_freq;                       // CH1信号频率数值
+wire        ch1_freq_is_khz;                // CH1频率单位 (0=Hz, 1=kHz)
 wire [15:0] ch1_amplitude;                  // CH1信号幅度
 wire [15:0] ch1_duty;                       // CH1占空比
 wire [15:0] ch1_thd;                        // CH1总谐波失真
 
 // 通道2参数
-wire [15:0] ch2_freq;                       // CH2信号频率
+wire [15:0] ch2_freq;                       // CH2信号频率数值
+wire        ch2_freq_is_khz;                // CH2频率单位 (0=Hz, 1=kHz)
 wire [15:0] ch2_amplitude;                  // CH2信号幅度
 wire [15:0] ch2_duty;                       // CH2占空比
 wire [15:0] ch2_thd;                        // CH2总谐波失真
@@ -486,14 +488,8 @@ pll_sys u_pll_sys (
     .pll_lock       (pll1_lock),            // PLL1锁定
     .clkout0        (clk_100m),             // 100MHz系统时钟
     .clkout1        (clk_10m),              // 10MHz中间时钟
-    .clkout2        (clk_adc)               // 1MHz ADC时钟（级联）
+    .clkout2        (clk_adc)               // 35MHz ADC时钟
 );
-
-// PLL1配置说明：
-// VCO = 1000MHz (50MHz × 20 / 1)
-// CLKOUT0 = 100MHz (1000MHz / 10)
-// CLKOUT1 = 10MHz (1000MHz / 100)
-// CLKOUT2 = 1MHz (级联CLKOUT1 / 10)
 
 //=============================================================================
 // 2. PLL2 - HDMI时钟管理（27MHz输入）
@@ -501,12 +497,13 @@ pll_sys u_pll_sys (
 pll_hdmi u_pll_hdmi (
     .clkin1         (sys_clk_27m),          // 27MHz输入
     .pll_lock       (pll2_lock),            // PLL2锁定
-    .clkout0        (clk_hdmi_pixel)        // 148.5MHz HDMI像素时钟 (1080p)
+    .clkout0        (clk_hdmi_pixel)        // 74.25MHz HDMI像素时钟 (720p@60Hz - 时序优化)
 );
 
-// PLL2配置说明：
-// VCO = 1188MHz (27MHz × 44 / 1)
-// CLKOUT0 = 148.5MHz (1188MHz / 8) - 1080p@60Hz像素时钟
+// PLL2配置说明（需要通过GUI修改）：
+// 目标：74.25MHz (720p@60Hz)
+// 方案1: VCO = 1485MHz (27MHz × 55 / 1), CLKOUT0 = 1485MHz / 20 = 74.25MHz
+// 方案2: VCO = 1188MHz (27MHz × 44 / 1), CLKOUT0 = 1188MHz / 16 = 74.25MHz ✓
 
 assign clk_fft = clk_100m;                  // FFT使用100MHz时钟
 
@@ -554,9 +551,9 @@ assign adc_data_sync = ch1_enable ? ch1_data_sync[9:2] :
                        ch2_enable ? ch2_data_sync[9:2] : 8'h00;
 assign adc_data_valid = dual_data_valid;
 // ADC数据扩展到16位 - 用于FFT等需要单通道输入的模块
-// 使用11位扩展数据以提高精度
-assign selected_adc_data = ch1_enable ? {5'h00, ch1_data_11b} : 
-                           ch2_enable ? {5'h00, ch2_data_11b} : 16'h0000;
+// 使用10位数据（与FFT位宽匹配）
+assign selected_adc_data = ch1_enable ? {6'h00, ch1_data_fft} : 
+                           ch2_enable ? {6'h00, ch2_data_fft} : 16'h0000;
 assign adc_data_ext = selected_adc_data;
 
 adc_capture_dual u_adc_dual (
@@ -711,7 +708,7 @@ end
 
 // 通道1数据源选择（支持测试信号）
 wire [15:0] ch1_fifo_data_source;
-assign ch1_fifo_data_source = test_mode ? test_signal_gen : {5'h00, ch1_data_11b};  // 11位数据扩展到16位
+assign ch1_fifo_data_source = test_mode ? test_signal_gen : {6'h00, ch1_data_fft};  // 10位数据扩展到16位
 // FIFO写使能：触发后才写入（时域模式），或者其他模式正常写入
 assign ch1_fifo_wr_en = test_mode ? 1'b1 : 
                         (work_mode_sync == 2'd0) ? (dual_data_valid && run_flag && triggered) :
@@ -721,7 +718,7 @@ assign ch1_fifo_din = ch1_fifo_data_source;
 // 通道2数据源（正常ADC数据，应用触发控制）
 assign ch2_fifo_wr_en = (work_mode_sync == 2'd0) ? (dual_data_valid && run_flag && triggered) :
                         (dual_data_valid && run_flag);
-assign ch2_fifo_din = {5'h00, ch2_data_11b};  // 11位数据扩展到16位
+assign ch2_fifo_din = {6'h00, ch2_data_fft};  // 10位数据扩展到16位
 
 // 通道1 FIFO
 fifo_async #(
@@ -1240,9 +1237,9 @@ always @(posedge clk_fft or negedge rst_n) begin
         test_mode_fft_sync2 <= test_mode_fft_sync1;
         test_signal_fft_sync1 <= test_signal_gen;
         test_signal_fft_sync2 <= test_signal_fft_sync1;
-        ch1_data_sync_fft1 <= {5'h00, ch1_data_11b};  // 11位数据扩展到16位
+        ch1_data_sync_fft1 <= {6'h00, ch1_data_fft};  // 10位数据扩展到16位
         ch1_data_sync_fft2 <= ch1_data_sync_fft1;
-        ch2_data_sync_fft1 <= {5'h00, ch2_data_11b};  // 11位数据扩展到16位
+        ch2_data_sync_fft1 <= {6'h00, ch2_data_fft};  // 10位数据扩展到16位
         ch2_data_sync_fft2 <= ch2_data_sync_fft1;
     end
 end
@@ -1413,6 +1410,7 @@ signal_parameter_measure u_ch1_param_measure (
     
     // 参数输出
     .freq_out       (ch1_freq),
+    .freq_is_khz    (ch1_freq_is_khz),
     .amplitude_out  (ch1_amplitude),
     .duty_out       (ch1_duty),
     .thd_out        (ch1_thd),
@@ -1438,6 +1436,7 @@ signal_parameter_measure u_ch2_param_measure (
     
     // 参数输出
     .freq_out       (ch2_freq),
+    .freq_is_khz    (ch2_freq_is_khz),
     .amplitude_out  (ch2_amplitude),
     .duty_out       (ch2_duty),
     .thd_out        (ch2_thd),
@@ -1534,9 +1533,9 @@ weak_signal_detector #(
     .clk                (clk_fft),
     .rst_n              (rst_n && weak_sig_enable),  // 检测器独立使能
     
-    // 双通道输入（使用11位扩展数据）
-    .ch1_data           ({5'd0, ch1_data_11b}),
-    .ch2_data           ({5'd0, ch2_data_11b}),
+    // 双通道输入（使用10位数据）
+    .ch1_data           ({6'd0, ch1_data_fft}),
+    .ch2_data           ({6'd0, ch2_data_fft}),
     .data_valid         (dual_data_valid),
     
     // 参考信号配置
@@ -1591,7 +1590,7 @@ end
 
 // CH1 AI识别器
 ai_signal_recognizer #(
-    .DATA_WIDTH   (11),
+    .DATA_WIDTH   (10),
     .WINDOW_SIZE  (1024),
     .FFT_BINS     (512)
 ) u_ch1_ai_recognizer (
@@ -1599,7 +1598,7 @@ ai_signal_recognizer #(
     .rst_n            (rst_n),
     
     // 时域信号输入
-    .signal_in        (ch1_data_11b),
+    .signal_in        (ch1_data_fft),
     .signal_valid     (dual_data_valid && ai_enable),
     
     // FFT频谱输入（需要根据实际FFT模块连接）
@@ -1622,7 +1621,7 @@ ai_signal_recognizer #(
 
 // CH2 AI识别器
 ai_signal_recognizer #(
-    .DATA_WIDTH   (11),
+    .DATA_WIDTH   (10),
     .WINDOW_SIZE  (1024),
     .FFT_BINS     (512)
 ) u_ch2_ai_recognizer (
@@ -1630,7 +1629,7 @@ ai_signal_recognizer #(
     .rst_n            (rst_n),
     
     // 时域信号输入
-    .signal_in        (ch2_data_11b),
+    .signal_in        (ch2_data_fft),
     .signal_valid     (dual_data_valid && ai_enable),
     
     // FFT频谱输入
@@ -1652,10 +1651,10 @@ ai_signal_recognizer #(
 );
 
 //=============================================================================
-// 10. HDMI显示控制模块
+// 10. HDMI显示控制模块 (720p@60Hz)
 //=============================================================================
 hdmi_display_ctrl u_hdmi_ctrl (
-    .clk_pixel          (clk_hdmi_pixel),       // 148.5MHz
+    .clk_pixel          (clk_hdmi_pixel),       // 74.25MHz (720p@60Hz)
     .rst_n              (rst_n),
     
     // ✅ 双通道数据输入
@@ -1665,10 +1664,12 @@ hdmi_display_ctrl u_hdmi_ctrl (
     
     // 双通道参数显示
     .ch1_freq           (ch1_freq),
+    .ch1_freq_is_khz    (ch1_freq_is_khz),
     .ch1_amplitude      (ch1_amplitude),
     .ch1_duty           (ch1_duty),
     .ch1_thd            (ch1_thd),
     .ch2_freq           (ch2_freq),
+    .ch2_freq_is_khz    (ch2_freq_is_khz),
     .ch2_amplitude      (ch2_amplitude),
     .ch2_duty           (ch2_duty),
     .ch2_thd            (ch2_thd),
@@ -1703,7 +1704,7 @@ hdmi_display_ctrl u_hdmi_ctrl (
 // hdmi_tx模块在这里实际上不执行任何操作，仅作为占位
 // 实际的HDMI数据直接通过hd_tx_*端口输出
 hdmi_tx u_hdmi_tx (
-    .clk_pixel      (clk_hdmi_pixel),       // 148.5MHz
+    .clk_pixel      (clk_hdmi_pixel),       // 74.25MHz (720p@60Hz)
     .rst_n          (rst_n),
     
     // 视频输入
@@ -1984,8 +1985,8 @@ always @(posedge clk_adc or negedge rst_n) begin
         debug_update_counter <= 8'd0;
     end else begin
         if (dual_data_valid) begin
-            debug_adc_ch1_sample <= {5'h00, ch1_data_11b};  // 使用11位扩展数据
-            debug_adc_ch2_sample <= {5'h00, ch2_data_11b};  // 使用11位扩展数据
+            debug_adc_ch1_sample <= {6'h00, ch1_data_fft};  // 使用10位数据
+            debug_adc_ch2_sample <= {6'h00, ch2_data_fft};  // 使用10位数据
             debug_data_valid <= 1'b1;
             debug_fifo_wr_count <= debug_fifo_wr_count + 1'b1;
             

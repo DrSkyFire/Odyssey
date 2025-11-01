@@ -59,7 +59,7 @@ always @(posedge clk or negedge rst_n) begin
         re_abs   <= 16'd0;
         im_abs   <= 16'd0;
         valid_d1 <= 1'b0;
-        addr_d1  <= 10'd0;
+        addr_d1  <= 13'd0;  // 修复：13位地址
     end else begin
         re_abs   <= (re[15]) ? (~re + 1'b1) : re;
         im_abs   <= (im[15]) ? (~im + 1'b1) : im;
@@ -76,7 +76,7 @@ always @(posedge clk or negedge rst_n) begin
         max_val  <= 16'd0;
         min_val  <= 16'd0;
         valid_d2 <= 1'b0;
-        addr_d2  <= 10'd0;
+        addr_d2  <= 13'd0;  // 修复：13位地址
     end else begin
         if (re_abs >= im_abs) begin
             max_val <= re_abs;
@@ -98,7 +98,7 @@ always @(posedge clk or negedge rst_n) begin
         min_half   <= 16'd0;
         max_val_d3 <= 16'd0;
         valid_d3   <= 1'b0;
-        addr_d3    <= 10'd0;
+        addr_d3    <= 13'd0;  // 修复：13位地址
     end else begin
         min_half   <= min_val >> 1;      // ✓ 只计算min_half
         max_val_d3 <= max_val;           // ✓ 延迟max_val
@@ -134,7 +134,7 @@ end
 always @(posedge clk or negedge rst_n) begin
     if (!rst_n) begin
         magnitude       <= 16'd0;
-        magnitude_addr  <= 10'd0;
+        magnitude_addr  <= 13'd0;  // 修复：13位地址
         magnitude_valid <= 1'b0;
     end else begin
         magnitude       <= mag_calc;
