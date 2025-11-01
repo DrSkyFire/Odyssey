@@ -1343,6 +1343,214 @@ always @(posedge clk_pixel or negedge rst_n) begin
                 end
             end
             
+            // 列3: 幅度显示 "0255"
+            else if (pixel_x_d1 >= COL_AMPL_X && pixel_x_d1 < COL_AMPL_X + 120) begin
+                if (pixel_x_d1 >= COL_AMPL_X + 8 && pixel_x_d1 < COL_AMPL_X + 24) begin
+                    char_code <= digit_to_ascii(ch1_amp_d3);  // 千位
+                    char_col <= pixel_x_d1 - COL_AMPL_X - 12'd8;
+                    in_char_area <= ch1_enable;
+                end
+                else if (pixel_x_d1 >= COL_AMPL_X + 24 && pixel_x_d1 < COL_AMPL_X + 40) begin
+                    char_code <= digit_to_ascii(ch1_amp_d2);  // 百位
+                    char_col <= pixel_x_d1 - COL_AMPL_X - 12'd24;
+                    in_char_area <= ch1_enable;
+                end
+                else if (pixel_x_d1 >= COL_AMPL_X + 40 && pixel_x_d1 < COL_AMPL_X + 56) begin
+                    char_code <= digit_to_ascii(ch1_amp_d1);  // 十位
+                    char_col <= pixel_x_d1 - COL_AMPL_X - 12'd40;
+                    in_char_area <= ch1_enable;
+                end
+                else if (pixel_x_d1 >= COL_AMPL_X + 56 && pixel_x_d1 < COL_AMPL_X + 72) begin
+                    char_code <= digit_to_ascii(ch1_amp_d0);  // 个位
+                    char_col <= pixel_x_d1 - COL_AMPL_X - 12'd56;
+                    in_char_area <= ch1_enable;
+                end
+                else begin
+                    in_char_area <= 1'b0;
+                end
+            end
+            
+            // 列4: 占空比显示 "50.0%"
+            else if (pixel_x_d1 >= COL_DUTY_X && pixel_x_d1 < COL_DUTY_X + 120) begin
+                if (pixel_x_d1 >= COL_DUTY_X + 8 && pixel_x_d1 < COL_DUTY_X + 24) begin
+                    char_code <= digit_to_ascii(ch1_duty_d2);  // 百位（十位整数）
+                    char_col <= pixel_x_d1 - COL_DUTY_X - 12'd8;
+                    in_char_area <= ch1_enable;
+                end
+                else if (pixel_x_d1 >= COL_DUTY_X + 24 && pixel_x_d1 < COL_DUTY_X + 40) begin
+                    char_code <= digit_to_ascii(ch1_duty_d1);  // 十位（个位整数）
+                    char_col <= pixel_x_d1 - COL_DUTY_X - 12'd24;
+                    in_char_area <= ch1_enable;
+                end
+                else if (pixel_x_d1 >= COL_DUTY_X + 40 && pixel_x_d1 < COL_DUTY_X + 56) begin
+                    char_code <= 8'd46;  // '.'
+                    char_col <= pixel_x_d1 - COL_DUTY_X - 12'd40;
+                    in_char_area <= ch1_enable;
+                end
+                else if (pixel_x_d1 >= COL_DUTY_X + 56 && pixel_x_d1 < COL_DUTY_X + 72) begin
+                    char_code <= digit_to_ascii(ch1_duty_d0);  // 小数位
+                    char_col <= pixel_x_d1 - COL_DUTY_X - 12'd56;
+                    in_char_area <= ch1_enable;
+                end
+                else if (pixel_x_d1 >= COL_DUTY_X + 72 && pixel_x_d1 < COL_DUTY_X + 88) begin
+                    char_code <= 8'd37;  // '%'
+                    char_col <= pixel_x_d1 - COL_DUTY_X - 12'd72;
+                    in_char_area <= ch1_enable;
+                end
+                else begin
+                    in_char_area <= 1'b0;
+                end
+            end
+            
+            // 列5: THD显示 "2.5%"
+            else if (pixel_x_d1 >= COL_THD_X && pixel_x_d1 < COL_THD_X + 120) begin
+                if (pixel_x_d1 >= COL_THD_X + 8 && pixel_x_d1 < COL_THD_X + 24) begin
+                    char_code <= digit_to_ascii(ch1_thd_d2);  // 百位（十位整数）
+                    char_col <= pixel_x_d1 - COL_THD_X - 12'd8;
+                    in_char_area <= ch1_enable;
+                end
+                else if (pixel_x_d1 >= COL_THD_X + 24 && pixel_x_d1 < COL_THD_X + 40) begin
+                    char_code <= digit_to_ascii(ch1_thd_d1);  // 十位（个位整数）
+                    char_col <= pixel_x_d1 - COL_THD_X - 12'd24;
+                    in_char_area <= ch1_enable;
+                end
+                else if (pixel_x_d1 >= COL_THD_X + 40 && pixel_x_d1 < COL_THD_X + 56) begin
+                    char_code <= 8'd46;  // '.'
+                    char_col <= pixel_x_d1 - COL_THD_X - 12'd40;
+                    in_char_area <= ch1_enable;
+                end
+                else if (pixel_x_d1 >= COL_THD_X + 56 && pixel_x_d1 < COL_THD_X + 72) begin
+                    char_code <= digit_to_ascii(ch1_thd_d0);  // 小数位
+                    char_col <= pixel_x_d1 - COL_THD_X - 12'd56;
+                    in_char_area <= ch1_enable;
+                end
+                else if (pixel_x_d1 >= COL_THD_X + 72 && pixel_x_d1 < COL_THD_X + 88) begin
+                    char_code <= 8'd37;  // '%'
+                    char_col <= pixel_x_d1 - COL_THD_X - 12'd72;
+                    in_char_area <= ch1_enable;
+                end
+                else begin
+                    in_char_area <= 1'b0;
+                end
+            end
+            
+            // 列6: 波形类型显示
+            else if (pixel_x_d1 >= COL_WAVE_X && pixel_x_d1 < COL_WAVE_X + 600) begin
+                // 根据ch1_waveform_type显示波形名称
+                case (ch1_waveform_type)
+                    3'd1: begin  // Sine
+                        if (pixel_x_d1 >= COL_WAVE_X + 8 && pixel_x_d1 < COL_WAVE_X + 24) begin
+                            char_code <= 8'd83;  // 'S'
+                            char_col <= pixel_x_d1 - COL_WAVE_X - 12'd8;
+                            in_char_area <= ch1_enable;
+                        end
+                        else if (pixel_x_d1 >= COL_WAVE_X + 24 && pixel_x_d1 < COL_WAVE_X + 40) begin
+                            char_code <= 8'd105; // 'i'
+                            char_col <= pixel_x_d1 - COL_WAVE_X - 12'd24;
+                            in_char_area <= ch1_enable;
+                        end
+                        else if (pixel_x_d1 >= COL_WAVE_X + 40 && pixel_x_d1 < COL_WAVE_X + 56) begin
+                            char_code <= 8'd110; // 'n'
+                            char_col <= pixel_x_d1 - COL_WAVE_X - 12'd40;
+                            in_char_area <= ch1_enable;
+                        end
+                        else if (pixel_x_d1 >= COL_WAVE_X + 56 && pixel_x_d1 < COL_WAVE_X + 72) begin
+                            char_code <= 8'd101; // 'e'
+                            char_col <= pixel_x_d1 - COL_WAVE_X - 12'd56;
+                            in_char_area <= ch1_enable;
+                        end
+                        else begin
+                            in_char_area <= 1'b0;
+                        end
+                    end
+                    3'd2: begin  // Square
+                        if (pixel_x_d1 >= COL_WAVE_X + 8 && pixel_x_d1 < COL_WAVE_X + 24) begin
+                            char_code <= 8'd83;  // 'S'
+                            char_col <= pixel_x_d1 - COL_WAVE_X - 12'd8;
+                            in_char_area <= ch1_enable;
+                        end
+                        else if (pixel_x_d1 >= COL_WAVE_X + 24 && pixel_x_d1 < COL_WAVE_X + 40) begin
+                            char_code <= 8'd113; // 'q'
+                            char_col <= pixel_x_d1 - COL_WAVE_X - 12'd24;
+                            in_char_area <= ch1_enable;
+                        end
+                        else if (pixel_x_d1 >= COL_WAVE_X + 40 && pixel_x_d1 < COL_WAVE_X + 56) begin
+                            char_code <= 8'd117; // 'u'
+                            char_col <= pixel_x_d1 - COL_WAVE_X - 12'd40;
+                            in_char_area <= ch1_enable;
+                        end
+                        else if (pixel_x_d1 >= COL_WAVE_X + 56 && pixel_x_d1 < COL_WAVE_X + 72) begin
+                            char_code <= 8'd97;  // 'a'
+                            char_col <= pixel_x_d1 - COL_WAVE_X - 12'd56;
+                            in_char_area <= ch1_enable;
+                        end
+                        else if (pixel_x_d1 >= COL_WAVE_X + 72 && pixel_x_d1 < COL_WAVE_X + 88) begin
+                            char_code <= 8'd114; // 'r'
+                            char_col <= pixel_x_d1 - COL_WAVE_X - 12'd72;
+                            in_char_area <= ch1_enable;
+                        end
+                        else if (pixel_x_d1 >= COL_WAVE_X + 88 && pixel_x_d1 < COL_WAVE_X + 104) begin
+                            char_code <= 8'd101; // 'e'
+                            char_col <= pixel_x_d1 - COL_WAVE_X - 12'd88;
+                            in_char_area <= ch1_enable;
+                        end
+                        else begin
+                            in_char_area <= 1'b0;
+                        end
+                    end
+                    3'd3: begin  // Triangle
+                        if (pixel_x_d1 >= COL_WAVE_X + 8 && pixel_x_d1 < COL_WAVE_X + 24) begin
+                            char_code <= 8'd84;  // 'T'
+                            char_col <= pixel_x_d1 - COL_WAVE_X - 12'd8;
+                            in_char_area <= ch1_enable;
+                        end
+                        else if (pixel_x_d1 >= COL_WAVE_X + 24 && pixel_x_d1 < COL_WAVE_X + 40) begin
+                            char_code <= 8'd114; // 'r'
+                            char_col <= pixel_x_d1 - COL_WAVE_X - 12'd24;
+                            in_char_area <= ch1_enable;
+                        end
+                        else if (pixel_x_d1 >= COL_WAVE_X + 40 && pixel_x_d1 < COL_WAVE_X + 56) begin
+                            char_code <= 8'd105; // 'i'
+                            char_col <= pixel_x_d1 - COL_WAVE_X - 12'd40;
+                            in_char_area <= ch1_enable;
+                        end
+                        else begin
+                            in_char_area <= 1'b0;
+                        end
+                    end
+                    3'd4: begin  // Sawtooth
+                        if (pixel_x_d1 >= COL_WAVE_X + 8 && pixel_x_d1 < COL_WAVE_X + 24) begin
+                            char_code <= 8'd83;  // 'S'
+                            char_col <= pixel_x_d1 - COL_WAVE_X - 12'd8;
+                            in_char_area <= ch1_enable;
+                        end
+                        else if (pixel_x_d1 >= COL_WAVE_X + 24 && pixel_x_d1 < COL_WAVE_X + 40) begin
+                            char_code <= 8'd97;  // 'a'
+                            char_col <= pixel_x_d1 - COL_WAVE_X - 12'd24;
+                            in_char_area <= ch1_enable;
+                        end
+                        else if (pixel_x_d1 >= COL_WAVE_X + 40 && pixel_x_d1 < COL_WAVE_X + 56) begin
+                            char_code <= 8'd119; // 'w'
+                            char_col <= pixel_x_d1 - COL_WAVE_X - 12'd40;
+                            in_char_area <= ch1_enable;
+                        end
+                        else begin
+                            in_char_area <= 1'b0;
+                        end
+                    end
+                    default: begin  // Unknown或Noise
+                        if (pixel_x_d1 >= COL_WAVE_X + 8 && pixel_x_d1 < COL_WAVE_X + 24) begin
+                            char_code <= 8'd45;  // '-'
+                            char_col <= pixel_x_d1 - COL_WAVE_X - 12'd8;
+                            in_char_area <= ch1_enable;
+                        end
+                        else begin
+                            in_char_area <= 1'b0;
+                        end
+                    end
+                endcase
+            end
+            
             else begin
                 in_char_area <= 1'b0;
             end
