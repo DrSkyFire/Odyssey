@@ -1286,16 +1286,15 @@ always @(posedge clk_pixel or negedge rst_n) begin
                         in_char_area <= 1'b0;
                     end
                 end else begin
-                    // kHz/MHz模式：显示 "XXX.XX kHz" 或 "XXX.XX MHz"
+                    // kHz/MHz模式：显示 "65.43kHz" (前导零抑制)
                     if (pixel_x_d1 >= COL_FREQ_X + 8 && pixel_x_d1 < COL_FREQ_X + 24) begin
-                        // 第1位：百位
-                        char_code <= digit_to_ascii(ch1_freq_d2);
+                        // 百位：前导零抑制
+                        char_code <= (ch1_freq_d2 == 4'd0) ? 8'd32 : digit_to_ascii(ch1_freq_d2);
                         char_col <= pixel_x_d1 - COL_FREQ_X - 12'd8;
                         in_char_area <= ch1_enable;
                     end
                     else if (pixel_x_d1 >= COL_FREQ_X + 24 && pixel_x_d1 < COL_FREQ_X + 40) begin
-                        // 第2位：十位
-                        char_code <= digit_to_ascii(ch1_freq_d1);
+                        char_code <= digit_to_ascii(ch1_freq_d1);  // 十位：始终显示
                         char_col <= pixel_x_d1 - COL_FREQ_X - 12'd24;
                         in_char_area <= ch1_enable;
                     end
@@ -1343,20 +1342,22 @@ always @(posedge clk_pixel or negedge rst_n) begin
                 end
             end
             
-            // 列3: 幅度显示 "0255"
+            // 列3: 幅度显示 "0255" → "255" (前导零抑制)
             else if (pixel_x_d1 >= COL_AMPL_X && pixel_x_d1 < COL_AMPL_X + 120) begin
                 if (pixel_x_d1 >= COL_AMPL_X + 8 && pixel_x_d1 < COL_AMPL_X + 24) begin
-                    char_code <= digit_to_ascii(ch1_amp_d3);  // 千位
+                    // 千位：前导零抑制
+                    char_code <= (ch1_amp_d3 == 4'd0) ? 8'd32 : digit_to_ascii(ch1_amp_d3);
                     char_col <= pixel_x_d1 - COL_AMPL_X - 12'd8;
                     in_char_area <= ch1_enable;
                 end
                 else if (pixel_x_d1 >= COL_AMPL_X + 24 && pixel_x_d1 < COL_AMPL_X + 40) begin
-                    char_code <= digit_to_ascii(ch1_amp_d2);  // 百位
+                    // 百位：千位和百位都为0时抑制
+                    char_code <= ((ch1_amp_d3 == 4'd0) && (ch1_amp_d2 == 4'd0)) ? 8'd32 : digit_to_ascii(ch1_amp_d2);
                     char_col <= pixel_x_d1 - COL_AMPL_X - 12'd24;
                     in_char_area <= ch1_enable;
                 end
                 else if (pixel_x_d1 >= COL_AMPL_X + 40 && pixel_x_d1 < COL_AMPL_X + 56) begin
-                    char_code <= digit_to_ascii(ch1_amp_d1);  // 十位
+                    char_code <= digit_to_ascii(ch1_amp_d1);  // 十位：始终显示
                     char_col <= pixel_x_d1 - COL_AMPL_X - 12'd40;
                     in_char_area <= ch1_enable;
                 end
@@ -1402,15 +1403,16 @@ always @(posedge clk_pixel or negedge rst_n) begin
                 end
             end
             
-            // 列5: THD显示 "2.5%"
+            // 列5: THD显示 "02.5%" → "2.5%" (前导零抑制)
             else if (pixel_x_d1 >= COL_THD_X && pixel_x_d1 < COL_THD_X + 120) begin
                 if (pixel_x_d1 >= COL_THD_X + 8 && pixel_x_d1 < COL_THD_X + 24) begin
-                    char_code <= digit_to_ascii(ch1_thd_d2);  // 百位（十位整数）
+                    // 十位：前导零抑制（0-99.9%范围）
+                    char_code <= (ch1_thd_d2 == 4'd0) ? 8'd32 : digit_to_ascii(ch1_thd_d2);
                     char_col <= pixel_x_d1 - COL_THD_X - 12'd8;
                     in_char_area <= ch1_enable;
                 end
                 else if (pixel_x_d1 >= COL_THD_X + 24 && pixel_x_d1 < COL_THD_X + 40) begin
-                    char_code <= digit_to_ascii(ch1_thd_d1);  // 十位（个位整数）
+                    char_code <= digit_to_ascii(ch1_thd_d1);  // 个位：始终显示
                     char_col <= pixel_x_d1 - COL_THD_X - 12'd24;
                     in_char_area <= ch1_enable;
                 end
@@ -1612,14 +1614,15 @@ always @(posedge clk_pixel or negedge rst_n) begin
                         in_char_area <= 1'b0;
                     end
                 end else begin
-                    // kHz/MHz模式：显示 "XXX.XX kHz" 或 "XXX.XX MHz"
+                    // kHz/MHz模式：显示 "65.43kHz" (前导零抑制)
                     if (pixel_x_d1 >= COL_FREQ_X + 8 && pixel_x_d1 < COL_FREQ_X + 24) begin
-                        char_code <= digit_to_ascii(ch2_freq_d2);
+                        // 百位：前导零抑制
+                        char_code <= (ch2_freq_d2 == 4'd0) ? 8'd32 : digit_to_ascii(ch2_freq_d2);
                         char_col <= pixel_x_d1 - COL_FREQ_X - 12'd8;
                         in_char_area <= ch2_enable;
                     end
                     else if (pixel_x_d1 >= COL_FREQ_X + 24 && pixel_x_d1 < COL_FREQ_X + 40) begin
-                        char_code <= digit_to_ascii(ch2_freq_d1);
+                        char_code <= digit_to_ascii(ch2_freq_d1);  // 十位：始终显示
                         char_col <= pixel_x_d1 - COL_FREQ_X - 12'd24;
                         in_char_area <= ch2_enable;
                     end
@@ -1664,25 +1667,27 @@ always @(posedge clk_pixel or negedge rst_n) begin
                 end
             end
             
-            // 列3: 幅度显示 "0255"
+            // 列3: 幅度显示 "0255" → "255" (前导零抑制)
             else if (pixel_x_d1 >= COL_AMPL_X && pixel_x_d1 < COL_AMPL_X + 120) begin
                 if (pixel_x_d1 >= COL_AMPL_X + 8 && pixel_x_d1 < COL_AMPL_X + 24) begin
-                    char_code <= digit_to_ascii(ch2_amp_d3);
+                    // 千位：前导零抑制
+                    char_code <= (ch2_amp_d3 == 4'd0) ? 8'd32 : digit_to_ascii(ch2_amp_d3);
                     char_col <= pixel_x_d1 - COL_AMPL_X - 12'd8;
                     in_char_area <= ch2_enable;
                 end
                 else if (pixel_x_d1 >= COL_AMPL_X + 24 && pixel_x_d1 < COL_AMPL_X + 40) begin
-                    char_code <= digit_to_ascii(ch2_amp_d2);
+                    // 百位：千位和百位都为0时抑制
+                    char_code <= ((ch2_amp_d3 == 4'd0) && (ch2_amp_d2 == 4'd0)) ? 8'd32 : digit_to_ascii(ch2_amp_d2);
                     char_col <= pixel_x_d1 - COL_AMPL_X - 12'd24;
                     in_char_area <= ch2_enable;
                 end
                 else if (pixel_x_d1 >= COL_AMPL_X + 40 && pixel_x_d1 < COL_AMPL_X + 56) begin
-                    char_code <= digit_to_ascii(ch2_amp_d1);
+                    char_code <= digit_to_ascii(ch2_amp_d1);  // 十位：始终显示
                     char_col <= pixel_x_d1 - COL_AMPL_X - 12'd40;
                     in_char_area <= ch2_enable;
                 end
                 else if (pixel_x_d1 >= COL_AMPL_X + 56 && pixel_x_d1 < COL_AMPL_X + 72) begin
-                    char_code <= digit_to_ascii(ch2_amp_d0);
+                    char_code <= digit_to_ascii(ch2_amp_d0);  // 个位：始终显示
                     char_col <= pixel_x_d1 - COL_AMPL_X - 12'd56;
                     in_char_area <= ch2_enable;
                 end
@@ -1723,15 +1728,16 @@ always @(posedge clk_pixel or negedge rst_n) begin
                 end
             end
             
-            // 列5: THD显示 "2.5%"
+            // 列5: THD显示 "02.5%" → "2.5%" (前导零抑制)
             else if (pixel_x_d1 >= COL_THD_X && pixel_x_d1 < COL_THD_X + 120) begin
                 if (pixel_x_d1 >= COL_THD_X + 8 && pixel_x_d1 < COL_THD_X + 24) begin
-                    char_code <= digit_to_ascii(ch2_thd_d2);
+                    // 十位：前导零抑制
+                    char_code <= (ch2_thd_d2 == 4'd0) ? 8'd32 : digit_to_ascii(ch2_thd_d2);
                     char_col <= pixel_x_d1 - COL_THD_X - 12'd8;
                     in_char_area <= ch2_enable;
                 end
                 else if (pixel_x_d1 >= COL_THD_X + 24 && pixel_x_d1 < COL_THD_X + 40) begin
-                    char_code <= digit_to_ascii(ch2_thd_d1);
+                    char_code <= digit_to_ascii(ch2_thd_d1);  // 个位：始终显示
                     char_col <= pixel_x_d1 - COL_THD_X - 12'd24;
                     in_char_area <= ch2_enable;
                 end
