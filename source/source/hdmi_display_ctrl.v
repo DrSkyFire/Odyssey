@@ -1226,14 +1226,12 @@ always @(posedge clk_pixel or negedge rst_n) begin
         // CH1数据行 (Y: 600-640, 40px高)
         //=====================================================================
         else if (pixel_y_d1 >= TABLE_Y_CH1 && pixel_y_d1 < TABLE_Y_CH1 + ROW_HEIGHT) begin
-            // 只使用行内前32px显示字符（40px行高，字符32px，居中显示）
-            if (pixel_y_d1 < TABLE_Y_CH1 + 32)
+            // 只在行内前32px显示字符（40px行高，字符32px，底部8px留空）
+            if (pixel_y_d1 < TABLE_Y_CH1 + 32) begin
                 char_row <= (pixel_y_d1 - TABLE_Y_CH1) << 1;
-            else
-                char_row <= 5'd0;  // 超出字符高度的部分不显示
             
-            // 列1: 通道号 "1"
-            if (pixel_x_d1 >= COL_CH_X + 12 && pixel_x_d1 < COL_CH_X + 28) begin
+                // 列1: 通道号 "1"
+                if (pixel_x_d1 >= COL_CH_X + 12 && pixel_x_d1 < COL_CH_X + 28) begin
                 char_code <= 8'd49;  // '1'
                 char_col <= pixel_x_d1 - COL_CH_X - 12'd12;
                 in_char_area <= ch1_enable;
@@ -1565,20 +1563,19 @@ always @(posedge clk_pixel or negedge rst_n) begin
                     end
                 endcase
             end
+            end  // 结束 if (pixel_y_d1 < TABLE_Y_CH1 + 32)
         end
         
         //=====================================================================
         // CH2数据行 (Y: 640-680, 40px高)
         //=====================================================================
         else if (pixel_y_d1 >= TABLE_Y_CH2 && pixel_y_d1 < TABLE_Y_CH2 + ROW_HEIGHT) begin
-            // 只使用行内前32px显示字符（40px行高，字符32px，居中显示）
-            if (pixel_y_d1 < TABLE_Y_CH2 + 32)
+            // 只在行内前32px显示字符（40px行高，字符32px，底部8px留空）
+            if (pixel_y_d1 < TABLE_Y_CH2 + 32) begin
                 char_row <= (pixel_y_d1 - TABLE_Y_CH2) << 1;
-            else
-                char_row <= 5'd0;  // 超出字符高度的部分不显示
             
-            // 列1: 通道号 "2"
-            if (pixel_x_d1 >= COL_CH_X + 12 && pixel_x_d1 < COL_CH_X + 28) begin
+                // 列1: 通道号 "2"
+                if (pixel_x_d1 >= COL_CH_X + 12 && pixel_x_d1 < COL_CH_X + 28) begin
                 char_code <= 8'd50;  // '2'
                 char_col <= pixel_x_d1 - COL_CH_X - 12'd12;
                 in_char_area <= ch2_enable;
@@ -1899,23 +1896,22 @@ always @(posedge clk_pixel or negedge rst_n) begin
                     end
                 endcase
             end
+            end  // 结束 if (pixel_y_d1 < TABLE_Y_CH2 + 32)
         end
         
         //=====================================================================
         // 相位差行 (Y: 680-720, 40px高) - 居中显示 "Phase Diff: XXX.X°"
         //=====================================================================
         else if (pixel_y_d1 >= TABLE_Y_PHASE && pixel_y_d1 < PARAM_Y_END) begin
-            // 只使用行内前32px显示字符（40px行高，字符32px，居中显示）
-            if (pixel_y_d1 < TABLE_Y_PHASE + 32)
+            // 只在行内前32px显示字符（40px行高，字符32px，底部8px留空）
+            if (pixel_y_d1 < TABLE_Y_PHASE + 32) begin
                 char_row <= (pixel_y_d1 - TABLE_Y_PHASE) << 1;
-            else
-                char_row <= 5'd0;  // 超出字符高度的部分不显示
             
-            // 居中显示：屏幕宽度1280，文本约13个字符(208px)，起始X=(1280-208)/2=536
-            // "Phase Diff: XXX.X°"
+                // 居中显示：屏幕宽度1280，文本约13个字符(208px)，起始X=(1280-208)/2=536
+                // "Phase Diff: XXX.X°"
             
-            // "Phase "
-            if (pixel_x_d1 >= 480 && pixel_x_d1 < 496) begin
+                // "Phase "
+                if (pixel_x_d1 >= 480 && pixel_x_d1 < 496) begin
                 char_code <= 8'd80;  // 'P'
                 char_col <= pixel_x_d1 - 12'd480;
                 in_char_area <= 1'b1;
@@ -2012,6 +2008,7 @@ always @(posedge clk_pixel or negedge rst_n) begin
             else begin
                 in_char_area <= 1'b0;
             end
+            end  // 结束 if (pixel_y_d1 < TABLE_Y_PHASE + 32)
         end
     end  // 结束 if (pixel_y_d1 >= PARAM_Y_START && pixel_y_d1 < PARAM_Y_END)
     end  // ✅ 结束 else begin (char_code时序逻辑块)
