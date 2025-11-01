@@ -1,10 +1,11 @@
 //=============================================================================
-// 文件�? hdmi_display_ctrl.v (美化增强�?- 带参数显�?+ 双通道独立控制)
-// 描述: 1080p HDMI显示控制�?
+// 文件名: hdmi_display_ctrl.v (美化增强版 - 带参数显示 + 双通道独立控制)
+// 描述: 720p@60Hz HDMI显示控制器 (时序优化版)
+//       - 分辨率: 1280×720 @ 74.25MHz (降低带宽满足时序要求)
 //       - 上部：双通道频谱/波形显示（带网格线）
 //       - 下部：参数信息显示（大字体）
 //       - 支持独立通道开关：CH1(绿色) CH2(红色)
-//       - 配色：渐变频�?+ 深色背景 + 白色文字
+//       - 配色：渐变频谱 + 深色背景 + 白色文字
 //=============================================================================
 
 module hdmi_display_ctrl (
@@ -17,11 +18,13 @@ module hdmi_display_ctrl (
     output reg  [12:0]  spectrum_addr,  // �?改为13位以支持8192点FFT
     
     // 双通道参数输入
-    input  wire [15:0]  ch1_freq,           // CH1频率 (Hz)
+    input  wire [15:0]  ch1_freq,           // CH1频率数值
+    input  wire         ch1_freq_is_khz,    // CH1频率单位 (0=Hz, 1=kHz)
     input  wire [15:0]  ch1_amplitude,      // CH1幅度
     input  wire [15:0]  ch1_duty,           // CH1占空�?(0-1000 = 0-100%)
     input  wire [15:0]  ch1_thd,            // CH1 THD (0-1000 = 0-100%)
-    input  wire [15:0]  ch2_freq,           // CH2频率 (Hz)
+    input  wire [15:0]  ch2_freq,           // CH2频率数值
+    input  wire         ch2_freq_is_khz,    // CH2频率单位 (0=Hz, 1=kHz)
     input  wire [15:0]  ch2_amplitude,      // CH2幅度
     input  wire [15:0]  ch2_duty,           // CH2占空�?(0-1000 = 0-100%)
     input  wire [15:0]  ch2_thd,            // CH2 THD (0-1000 = 0-100%)
@@ -49,32 +52,34 @@ module hdmi_display_ctrl (
 );
 
 //=============================================================================
-// 时序参数 - 1080p@60Hz
+// 时序参数 - 720p@60Hz (降低像素时钟以满足时序要求)
 //=============================================================================
-localparam H_ACTIVE     = 1920;
-localparam H_FP         = 88;
-localparam H_SYNC       = 44;
-localparam H_BP         = 148;
-localparam H_TOTAL      = 2200;
+localparam H_ACTIVE     = 1280;         // 水平有效像素
+localparam H_FP         = 110;          // 水平前肩
+localparam H_SYNC       = 40;           // 水平同步
+localparam H_BP         = 220;          // 水平后肩
+localparam H_TOTAL      = 1650;         // 总计 (1280+110+40+220)
 
-localparam V_ACTIVE     = 1080;
-localparam V_FP         = 4;
-localparam V_SYNC       = 5;
-localparam V_BP         = 36;
-localparam V_TOTAL      = 1125;
+localparam V_ACTIVE     = 720;          // 垂直有效行
+localparam V_FP         = 5;            // 垂直前肩
+localparam V_SYNC       = 5;            // 垂直同步
+localparam V_BP         = 20;           // 垂直后肩
+localparam V_TOTAL      = 750;          // 总计 (720+5+5+20)
+
+// 像素时钟：1650 × 750 × 60Hz = 74.25MHz
 
 //=============================================================================
-// 显示区域参数 (1080p)
+// 显示区域参数 (720p - 按比例缩放)
 //=============================================================================
-localparam SPECTRUM_Y_START = 75;       // 频谱区域起始Y
-localparam SPECTRUM_Y_END   = 825;      // 频谱区域结束Y
-localparam PARAM_Y_START    = 870;      // 参数区域起始Y
-localparam PARAM_Y_END      = 1080;     // 参数区域结束Y（使用全部屏幕空间）
+localparam SPECTRUM_Y_START = 50;       // 频谱区域起始Y (75 * 0.67)
+localparam SPECTRUM_Y_END   = 550;      // 频谱区域结束Y (825 * 0.67)
+localparam PARAM_Y_START    = 580;      // 参数区域起始Y (870 * 0.67)
+localparam PARAM_Y_END      = 720;      // 参数区域结束Y
 
-// �?坐标轴标度参�?
-localparam AXIS_LEFT_MARGIN = 80;       // 左侧Y轴标度区域宽�?
-localparam AXIS_BOTTOM_HEIGHT = 40;     // 底部X轴标度区域高�?
-localparam TICK_LENGTH = 8;             // 刻度线长�?
+// 坐标轴标度参数
+localparam AXIS_LEFT_MARGIN = 53;       // 左侧Y轴标度区域宽度 (80 * 0.67)
+localparam AXIS_BOTTOM_HEIGHT = 27;     // 底部X轴标度区域高度 (40 * 0.67)
+localparam TICK_LENGTH = 5;             // 刻度线长度 (8 * 0.67)
 
 //=============================================================================
 // 信号定义
@@ -101,7 +106,10 @@ reg [1:0]  work_mode_d1, work_mode_d2, work_mode_d3, work_mode_d4;  // �?增�
 reg        grid_x_flag, grid_y_flag;
 
 // �?双通道波形相关信号
-reg [15:0] ch1_data_q, ch2_data_q;  // 双通道数据寄存�?
+reg [15:0] ch1_data_q, ch2_data_q;  // 双通道数据寄存器（d1）
+reg [15:0] ch1_data_d2, ch2_data_d2;  // 数据延迟d2（匹配RAM+流水线）
+reg [15:0] ch1_data_d3, ch2_data_d3;  // 数据延迟d3
+reg [15:0] ch1_data_d4, ch2_data_d4;  // 数据延迟d4（与pixel_d4对齐）
 reg [11:0] ch1_waveform_height;     // CH1波形高度
 reg [11:0] ch2_waveform_height;     // CH2波形高度
 
@@ -188,6 +196,12 @@ reg [3:0]   ch2_thd_d0, ch2_thd_d1, ch2_thd_d2;
 
 // 相位差预计算
 reg [3:0]   phase_d0, phase_d1, phase_d2, phase_d3;
+
+// �?NEW: 频率自适应单位和数值
+reg [1:0]   ch1_freq_unit;      // 0=Hz, 1=kHz, 2=MHz
+reg [15:0]  ch1_freq_display;   // 显示数值（已转换单位）
+reg [1:0]   ch2_freq_unit;
+reg [15:0]  ch2_freq_display;
 
 //=============================================================================
 // 行计数器
@@ -320,34 +334,77 @@ always @(posedge clk_pixel or negedge rst_n) begin
 end
 
 //=============================================================================
-// 频谱地址生成（提前生成）
-// �?修正：只显示有效频谱�?到Fs/2，前4096个bin�?
-// �?采样�?5MHz，奈奎斯特频�?7.5MHz
-// 有效显示区域1840像素�?0-1919）映射到4096个频谱点
-// 映射公式：spectrum_addr = ((h_cnt - 80) * 4096) / 1840 �?(h_cnt - 80) * 2.227
+// 频谱地址生成（提前生成）- 适配720p分辨率，根据work_mode动态映射
+// 采样率35MHz，奈奎斯特频率17.5MHz
+// 720p有效显示区域：1227像素（53-1279）
+// 
+// 频谱模式: 映射到4096个频谱点 (0-Fs/2)
+//   spectrum_addr = (h_offset * 4096) / 1227 ≈ h_offset * 3.34
+//   近似: (h_offset << 2) - (h_offset >> 3) = h_offset * 3.875
+//   精确: (h_offset * 10) / 3 = h_offset * 3.33
+//
+// 时域模式: 映射到8192个采样点
+//   spectrum_addr = (h_offset * 8192) / 1227 ≈ h_offset * 6.68
+//   近似: (h_offset << 3) - (h_offset >> 2) = h_offset * 7.75
+//   精确: (h_offset * 20) / 3 = h_offset * 6.67
 //=============================================================================
-reg [11:0] h_offset;  // 水平偏移量（h_cnt - AXIS_LEFT_MARGIN�?
+reg [11:0] h_offset;  // 水平偏移量（h_cnt - AXIS_LEFT_MARGIN）
+reg [14:0] h_mult_10; // h_offset * 10，中间变量
+reg [14:0] h_mult_20; // h_offset * 20，中间变量
 
 always @(posedge clk_pixel or negedge rst_n) begin
     if (!rst_n) begin
         spectrum_addr <= 13'd0;
         h_offset <= 12'd0;
+        h_mult_10 <= 15'd0;
+        h_mult_20 <= 15'd0;
     end
     else begin
-        if (h_cnt < AXIS_LEFT_MARGIN) begin
-            // 左侧Y轴区域，保持在起�?
+        // 使用pixel_x而不是h_cnt来计算地址，确保坐标对齐
+        if (pixel_x < AXIS_LEFT_MARGIN) begin
+            // 左侧Y轴区域，保持在起点
             spectrum_addr <= 13'd0;
             h_offset <= 12'd0;
+            h_mult_10 <= 15'd0;
+            h_mult_20 <= 15'd0;
         end
-        else if (h_cnt < H_ACTIVE) begin
-            // 有效显示区域：X = 80-1919
-            h_offset <= h_cnt - AXIS_LEFT_MARGIN;
-            // spectrum_addr = h_offset * 2 + h_offset / 4 �?h_offset * 2.25
-            spectrum_addr <= (h_offset << 1) + {2'b00, h_offset[11:2]};
+        else if (pixel_x < H_ACTIVE) begin
+            // 有效显示区域：pixel_x = 53-1279
+            h_offset <= pixel_x - AXIS_LEFT_MARGIN;
+            
+            // 根据工作模式选择映射公式（移位近似，误差2.6%）
+            if (work_mode == 2'b00) begin
+                // **时域模式**: spectrum_addr = h_offset * 6.5
+                //          = (h_offset<<2) + (h_offset<<1) + (h_offset>>1)
+                //          目标6.68，误差-2.7%（损失217个采样点，范围0-7975）
+                h_mult_20 <= (pixel_x - AXIS_LEFT_MARGIN);  // 暂存h_offset
+                spectrum_addr <= (h_offset << 2) + (h_offset << 1) + {1'b0, h_offset[11:1]};
+            end
+            else begin
+                // **频谱模式**: 改进映射精度
+                // 目标：spectrum_addr = h_offset * 3.34 (4096 bins / 1227 pixels)
+                // 
+                // 【修复左侧拉伸】使用更精确的乘法：h_offset * 3.34 ≈ h_offset * 107/32
+                // 107/32 = 3.34375 (误差0.1%)
+                // 实现：(h_offset * 107) >> 5
+                //      = ((h_offset<<6) + (h_offset<<5) + (h_offset<<3) + (h_offset<<1) + h_offset) >> 5
+                //      = 64h + 32h + 8h + 2h + h = 107h
+                // 
+                // 为避免乘法器，简化为：(h_offset<<1) + h_offset + (h_offset>>2) + (h_offset>>4)
+                // = 2h + h + 0.25h + 0.0625h = 3.3125h (误差0.8%)
+                h_mult_10 <= (pixel_x - AXIS_LEFT_MARGIN);
+                spectrum_addr <= (h_offset << 1) + h_offset + {2'b00, h_offset[11:2]} + {4'b0000, h_offset[11:4]};
+            end
         end
         else begin
-            spectrum_addr <= 13'd4095;  // 超出范围时指向最后有效频谱点
+            // 超出范围，指向最后有效点
+            if (work_mode == 2'b00)
+                spectrum_addr <= 13'd8191;  // 时域最大采样点
+            else
+                spectrum_addr <= 13'd4095;  // 频谱最大bin
             h_offset <= 12'd0;
+            h_mult_10 <= 15'd0;
+            h_mult_20 <= 15'd0;
         end
     end
 end
@@ -366,59 +423,164 @@ always @(posedge clk_pixel or negedge rst_n) begin
         ch2_duty_d0 <= 4'd0; ch2_duty_d1 <= 4'd0; ch2_duty_d2 <= 4'd0;
         ch2_thd_d0 <= 4'd0; ch2_thd_d1 <= 4'd0; ch2_thd_d2 <= 4'd0;
         phase_d0 <= 4'd0; phase_d1 <= 4'd0; phase_d2 <= 4'd0; phase_d3 <= 4'd0;
+        ch1_freq_unit <= 2'd0; ch1_freq_display <= 16'd0;
+        ch2_freq_unit <= 2'd0; ch2_freq_display <= 16'd0;
     end else begin
-        // 在场消隐期间更新（v_cnt == 0, h_cnt == 0），有充足时间计�?
+        // 在场消隐期间更新（v_cnt == 0），分散到多个时钟周期避免时序违例
         if (v_cnt == 12'd0 && h_cnt == 12'd0) begin
-            // CH1频率�?位数字）
-            ch1_freq_d0 <= ch1_freq % 10;
-            ch1_freq_d1 <= (ch1_freq / 10) % 10;
-            ch1_freq_d2 <= (ch1_freq / 100) % 10;
-            ch1_freq_d3 <= (ch1_freq / 1000) % 10;
-            ch1_freq_d4 <= (ch1_freq / 10000) % 10;
+            // 【修复】CH1频率显示逻辑 - 使用单位标志位准确判断
+            // ch1_freq_is_khz明确指示单位：0=Hz, 1=kHz
             
-            // CH1幅度�?位数字）
+            if (ch1_freq_is_khz) begin
+                // kHz单位
+                if (ch1_freq >= 16'd10000) begin
+                    // >=10000kHz = 10MHz，转为MHz显示
+                    ch1_freq_unit <= 2'd2;              // MHz
+                    ch1_freq_display <= ch1_freq / 16'd1000;
+                end else begin
+                    // <10000kHz，显示为kHz
+                    ch1_freq_unit <= 2'd1;              // kHz
+                    ch1_freq_display <= ch1_freq;
+                end
+            end else begin
+                // Hz单位，直接显示
+                ch1_freq_unit <= 2'd0;                  // Hz
+                ch1_freq_display <= ch1_freq;
+            end
+        end
+        
+        // BCD转换：分散到多个时钟周期（每5个像素周期处理一位）
+        if (v_cnt == 12'd0 && h_cnt == 12'd10) begin
+            ch1_freq_d0 <= ch1_freq_display % 4'd10;  // 个位
+        end
+        if (v_cnt == 12'd0 && h_cnt == 12'd15) begin
+            ch1_freq_d1 <= (ch1_freq_display / 5'd10) % 4'd10;  // 十位
+        end
+        if (v_cnt == 12'd0 && h_cnt == 12'd20) begin
+            ch1_freq_d2 <= (ch1_freq_display / 7'd100) % 4'd10;  // 百位
+        end
+        if (v_cnt == 12'd0 && h_cnt == 12'd25) begin
+            ch1_freq_d3 <= (ch1_freq_display / 10'd1000) % 4'd10;  // 千位
+        end
+        if (v_cnt == 12'd0 && h_cnt == 12'd30) begin
+            ch1_freq_d4 <= (ch1_freq_display / 14'd10000) % 4'd10;  // 万位
+        end
+            
+        // CH1幅度（4位数字）- 分散处理
+        if (v_cnt == 12'd0 && h_cnt == 12'd35) begin
             ch1_amp_d0 <= ch1_amplitude % 10;
+        end
+        if (v_cnt == 12'd0 && h_cnt == 12'd40) begin
             ch1_amp_d1 <= (ch1_amplitude / 10) % 10;
+        end
+        if (v_cnt == 12'd0 && h_cnt == 12'd45) begin
             ch1_amp_d2 <= (ch1_amplitude / 100) % 10;
+        end
+        if (v_cnt == 12'd0 && h_cnt == 12'd50) begin
             ch1_amp_d3 <= (ch1_amplitude / 1000) % 10;
-            
-            // CH1占空比（3位数字，0-100.0�?
+        end
+        
+        // CH1占空比（3位数字，0-100.0）
+        if (v_cnt == 12'd0 && h_cnt == 12'd55) begin
             ch1_duty_d0 <= ch1_duty % 10;
+        end
+        if (v_cnt == 12'd0 && h_cnt == 12'd60) begin
             ch1_duty_d1 <= (ch1_duty / 10) % 10;
+        end
+        if (v_cnt == 12'd0 && h_cnt == 12'd65) begin
             ch1_duty_d2 <= (ch1_duty / 100) % 10;
-            
-            // CH1 THD�?位数字，0-100.0�?
+        end
+        
+        // CH1 THD（3位数字，0-100.0）
+        if (v_cnt == 12'd0 && h_cnt == 12'd48) begin
             ch1_thd_d0 <= ch1_thd % 10;
+        end
+        if (v_cnt == 12'd0 && h_cnt == 12'd75) begin
             ch1_thd_d1 <= (ch1_thd / 10) % 10;
+        end
+        if (v_cnt == 12'd0 && h_cnt == 12'd80) begin
             ch1_thd_d2 <= (ch1_thd / 100) % 10;
-            
-            // CH2频率�?位数字）
-            ch2_freq_d0 <= ch2_freq % 10;
-            ch2_freq_d1 <= (ch2_freq / 10) % 10;
-            ch2_freq_d2 <= (ch2_freq / 100) % 10;
-            ch2_freq_d3 <= (ch2_freq / 1000) % 10;
-            ch2_freq_d4 <= (ch2_freq / 10000) % 10;
-            
-            // CH2幅度�?位数字）
+        end
+        
+        // CH2处理（从h_cnt=100开始）
+        if (v_cnt == 12'd0 && h_cnt == 12'd100) begin
+            // CH2频率自适应单位转换
+            if (ch2_freq >= 16'd10000) begin
+                ch2_freq_unit <= 2'd1;
+                ch2_freq_display <= ch2_freq / 16'd10;
+            end else if (ch2_freq >= 16'd1000) begin
+                ch2_freq_unit <= 2'd1;
+                ch2_freq_display <= ch2_freq / 16'd10;
+            end else begin
+                ch2_freq_unit <= 2'd0;
+                ch2_freq_display <= ch2_freq;
+            end
+        end
+        
+        // CH2频率BCD转换 - 分散处理
+        if (v_cnt == 12'd0 && h_cnt == 12'd110) begin
+            ch2_freq_d0 <= ch2_freq_display % 10;
+        end
+        if (v_cnt == 12'd0 && h_cnt == 12'd115) begin
+            ch2_freq_d1 <= (ch2_freq_display / 10) % 10;
+        end
+        if (v_cnt == 12'd0 && h_cnt == 12'd120) begin
+            ch2_freq_d2 <= (ch2_freq_display / 100) % 10;
+        end
+        if (v_cnt == 12'd0 && h_cnt == 12'd125) begin
+            ch2_freq_d3 <= (ch2_freq_display / 1000) % 10;
+        end
+        if (v_cnt == 12'd0 && h_cnt == 12'd130) begin
+            ch2_freq_d4 <= (ch2_freq_display / 10000) % 10;
+        end
+        
+        // CH2幅度（4位数字）
+        if (v_cnt == 12'd0 && h_cnt == 12'd135) begin
             ch2_amp_d0 <= ch2_amplitude % 10;
+        end
+        if (v_cnt == 12'd0 && h_cnt == 12'd96) begin
             ch2_amp_d1 <= (ch2_amplitude / 10) % 10;
+        end
+        if (v_cnt == 12'd0 && h_cnt == 12'd145) begin
             ch2_amp_d2 <= (ch2_amplitude / 100) % 10;
+        end
+        if (v_cnt == 12'd0 && h_cnt == 12'd150) begin
             ch2_amp_d3 <= (ch2_amplitude / 1000) % 10;
-            
-            // CH2占空比（3位数字，0-100.0�?
+        end
+        
+        // CH2占空比（3位数字）
+        if (v_cnt == 12'd0 && h_cnt == 12'd155) begin
             ch2_duty_d0 <= ch2_duty % 10;
+        end
+        if (v_cnt == 12'd0 && h_cnt == 12'd160) begin
             ch2_duty_d1 <= (ch2_duty / 10) % 10;
+        end
+        if (v_cnt == 12'd0 && h_cnt == 12'd165) begin
             ch2_duty_d2 <= (ch2_duty / 100) % 10;
-            
-            // CH2 THD�?位数字，0-100.0�?
+        end
+        
+        // CH2 THD（3位数字）
+        if (v_cnt == 12'd0 && h_cnt == 12'd170) begin
             ch2_thd_d0 <= ch2_thd % 10;
+        end
+        if (v_cnt == 12'd0 && h_cnt == 12'd120) begin
             ch2_thd_d1 <= (ch2_thd / 10) % 10;
+        end
+        if (v_cnt == 12'd0 && h_cnt == 12'd180) begin
             ch2_thd_d2 <= (ch2_thd / 100) % 10;
-            
-            // 相位差（4位数字，0-359.9�?
+        end
+        
+        // 相位差（4位数字）
+        if (v_cnt == 12'd0 && h_cnt == 12'd185) begin
             phase_d0 <= phase_diff % 10;
+        end
+        if (v_cnt == 12'd0 && h_cnt == 12'd190) begin
             phase_d1 <= (phase_diff / 10) % 10;
+        end
+        if (v_cnt == 12'd0 && h_cnt == 12'd195) begin
             phase_d2 <= (phase_diff / 100) % 10;
+        end
+        if (v_cnt == 12'd0 && h_cnt == 12'd200) begin
             phase_d3 <= (phase_diff / 1000) % 10;
         end
     end
@@ -498,11 +660,34 @@ always @(posedge clk_pixel or negedge rst_n) begin
         ch1_enable_d4 <= ch1_enable;
         ch2_enable_d4 <= ch2_enable;
         
-        // �?双通道数据采样�?级流水线匹配显示延迟�?
-        ch1_data_q <= ch1_data;
+        // �?双通道数据采样：多级延迟匹配RAM读取+显示流水线
+        ch1_data_q <= ch1_data;      // d1: RAM输出采样
         ch2_data_q <= ch2_data;
+        ch1_data_d2 <= ch1_data_q;   // d2: 第2级延迟
+        ch2_data_d2 <= ch2_data_q;
+        ch1_data_d3 <= ch1_data_d2;  // d3: 第3级延迟
+        ch2_data_d3 <= ch2_data_d2;
+        ch1_data_d4 <= ch1_data_d3;  // d4: 与pixel_d4对齐
+        ch2_data_d4 <= ch2_data_d3;
         
-        // �?流水线优化：Stage 3 - 仅计算波�?频谱高度
+        // 频谱高度计算（时序逻辑，使用d3数据提前1拍计算）
+        // CH1频谱高度 (×1增益，无放大) - 直接使用原始FFT幅度
+        if (ch1_data_d3 > 16'd500)
+            ch1_spectrum_height <= 12'd500;
+        else if (ch1_data_d3 < 16'd2)
+            ch1_spectrum_height <= 12'd0;
+        else
+            ch1_spectrum_height <= ch1_data_d3[11:0];
+        
+        // CH2频谱高度 (×1增益，无放大)
+        if (ch2_data_d3 > 16'd500)
+            ch2_spectrum_height <= 12'd500;
+        else if (ch2_data_d3 < 16'd2)
+            ch2_spectrum_height <= 12'd0;
+        else
+            ch2_spectrum_height <= ch2_data_d3[11:0];
+        
+        // �?流水线优化：Stage 3 - 采样计算好的波形/频谱高度
         ch1_waveform_calc_d1 <= ch1_waveform_height;
         ch2_waveform_calc_d1 <= ch2_waveform_height;
         ch1_spectrum_calc_d1 <= ch1_spectrum_height;
@@ -533,8 +718,8 @@ always @(posedge clk_pixel or negedge rst_n) begin
         // 只在Y轴标度区域预计算字符
         if (pixel_x >= 8 && pixel_x < AXIS_LEFT_MARGIN - TICK_LENGTH - 4) begin
             // 100% (Y: 75-107)
-            if (pixel_y >= 75 && pixel_y < 107) begin
-                y_axis_char_row <= pixel_y - 12'd75;
+            if (pixel_y >= 50 && pixel_y < 66) begin
+                y_axis_char_row <= (pixel_y - 12'd50) << 1;
                 y_axis_char_valid <= 1'b1;
                 if (pixel_x >= 8 && pixel_x < 24) begin
                     y_axis_char_code <= 8'd49;  // '1'
@@ -557,8 +742,8 @@ always @(posedge clk_pixel or negedge rst_n) begin
                 end
             end
             // 75% (Y: 262-294)
-            else if (pixel_y >= 262 && pixel_y < 294) begin
-                y_axis_char_row <= pixel_y - 12'd262;
+            else if (pixel_y >= 175 && pixel_y < 191) begin
+                y_axis_char_row <= (pixel_y - 12'd175) << 1;
                 y_axis_char_valid <= 1'b1;
                 if (pixel_x >= 24 && pixel_x < 40) begin
                     y_axis_char_code <= 8'd55;  // '7'
@@ -577,8 +762,8 @@ always @(posedge clk_pixel or negedge rst_n) begin
                 end
             end
             // 50% (Y: 450-482)
-            else if (pixel_y >= 450 && pixel_y < 482) begin
-                y_axis_char_row <= pixel_y - 12'd450;
+            else if (pixel_y >= 300 && pixel_y < 316) begin
+                y_axis_char_row <= (pixel_y - 12'd300) << 1;
                 y_axis_char_valid <= 1'b1;
                 if (pixel_x >= 24 && pixel_x < 40) begin
                     y_axis_char_code <= 8'd53;  // '5'
@@ -597,8 +782,8 @@ always @(posedge clk_pixel or negedge rst_n) begin
                 end
             end
             // 25% (Y: 637-669)
-            else if (pixel_y >= 637 && pixel_y < 669) begin
-                y_axis_char_row <= pixel_y - 12'd637;
+            else if (pixel_y >= 425 && pixel_y < 441) begin
+                y_axis_char_row <= (pixel_y - 12'd425) << 1;
                 y_axis_char_valid <= 1'b1;
                 if (pixel_x >= 24 && pixel_x < 40) begin
                     y_axis_char_code <= 8'd50;  // '2'
@@ -617,8 +802,8 @@ always @(posedge clk_pixel or negedge rst_n) begin
                 end
             end
             // 0% (Y: 793-825)
-            else if (pixel_y >= 793 && pixel_y < 825) begin
-                y_axis_char_row <= pixel_y - 12'd793;
+            else if (pixel_y >= 532 && pixel_y < 548) begin
+                y_axis_char_row <= (pixel_y - 12'd532) << 1;
                 y_axis_char_valid <= 1'b1;
                 if (pixel_x >= 40 && pixel_x < 56) begin
                     y_axis_char_code <= 8'd48;  // '0'
@@ -639,11 +824,11 @@ end
 //=============================================================================
 // 时域波形参数计算
 //=============================================================================
-// 时域采样点X坐标映射�?920像素 -> 8192采样�?
-// spectrum_addr范围0-8191，映射到0-1919
-// 计算公式：x = (spectrum_addr * 1920) / 8192 �?spectrum_addr / 4.27
-// 简化：x �?spectrum_addr >> 2（取�?个点�?
-assign time_sample_x = {1'b0, spectrum_addr[12:2]};  // 除以4，得�?-2047范围
+// 【已修复】spectrum_addr已经根据work_mode正确映射：
+// - 频谱模式: 0-4095 (映射到4096个频谱bin)
+// - 时域模式: 0-8191 (映射到8192个采样点)
+// 不再需要额外的除法操作
+assign time_sample_x = spectrum_addr[12:0];  // 直接使用spectrum_addr
 
 //=============================================================================
 // �?双通道波形高度计算（Stage 3组合逻辑�?
@@ -765,8 +950,8 @@ always @(posedge clk_pixel or negedge rst_n) begin
     // �?有效频谱�? �?Fs/2 = 17.5MHz（前4096个bin�?
     // 频域模式�?, 3.5, 7.0, 10.5, 14.0, 17.5 MHz
     // 时域模式�?, 47, 93, 140, 186, 234 us (8192�?@ 35MHz = 234us)
-    else if (pixel_y_d1 >= SPECTRUM_Y_END && pixel_y_d1 < SPECTRUM_Y_END + 32) begin
-        char_row <= pixel_y_d1 - SPECTRUM_Y_END;
+    else if (pixel_y_d1 >= SPECTRUM_Y_END && pixel_y_d1 < SPECTRUM_Y_END + 16) begin
+        char_row <= (pixel_y_d1 - SPECTRUM_Y_END) << 1;
         
         // X = 80: "0"
         if (pixel_x_d1 >= 80 && pixel_x_d1 < 96) begin
@@ -871,198 +1056,12 @@ always @(posedge clk_pixel or negedge rst_n) begin
         end
     end
     
-    // ========== AI识别结果显示 (在频谱下方，参数上方) ==========
-    // "CH1: Sine 95%    CH2: Squr 88%" - Y: 830-862 (高度32px)
-    // �?始终显示AI识别结果（不依赖valid信号�?
-    if (pixel_y_d1 >= 830 && pixel_y_d1 < 862) begin
-        char_row <= pixel_y_d1 - 12'd830;
-        
-        // ========== CH1部分 (左侧) ==========
-        // "CH1:"
-        if (pixel_x_d1 >= 40 && pixel_x_d1 < 56) begin
-            char_code <= 8'd67;  // 'C'
-            char_col <= pixel_x_d1 - 12'd40;
-            in_char_area <= 1'b1;  // �?始终显示
-        end
-        else if (pixel_x_d1 >= 56 && pixel_x_d1 < 72) begin
-            char_code <= 8'd72;  // 'H'
-            char_col <= pixel_x_d1 - 12'd56;
-            in_char_area <= 1'b1;
-        end
-        else if (pixel_x_d1 >= 72 && pixel_x_d1 < 88) begin
-            char_code <= 8'd49;  // '1'
-            char_col <= pixel_x_d1 - 12'd72;
-            in_char_area <= 1'b1;
-        end
-        else if (pixel_x_d1 >= 88 && pixel_x_d1 < 104) begin
-            char_code <= 8'd58;  // ':'
-            char_col <= pixel_x_d1 - 12'd88;
-            in_char_area <= 1'b1;
-        end
-        // CH1波形类型名称 (4个字�?
-        else if (pixel_x_d1 >= 104 && pixel_x_d1 < 120) begin
-            case (ch1_waveform_type)
-                3'd1: char_code <= 8'd83;  // 'S' (Sine)
-                3'd2: char_code <= 8'd83;  // 'S' (Square)
-                3'd3: char_code <= 8'd84;  // 'T' (Triangle)
-                3'd4: char_code <= 8'd83;  // 'S' (Sawtooth)
-                3'd5: char_code <= 8'd78;  // 'N' (Noise)
-                default: char_code <= 8'd85; // 'U' (Unknown)
-            endcase
-            char_col <= pixel_x_d1 - 12'd104;
-            in_char_area <= 1'b1;
-        end
-        else if (pixel_x_d1 >= 120 && pixel_x_d1 < 136) begin
-            case (ch1_waveform_type)
-                3'd1: char_code <= 8'd105; // 'i'
-                3'd2: char_code <= 8'd113; // 'q'
-                3'd3: char_code <= 8'd114; // 'r'
-                3'd4: char_code <= 8'd97;  // 'a'
-                3'd5: char_code <= 8'd111; // 'o'
-                default: char_code <= 8'd110; // 'n'
-            endcase
-            char_col <= pixel_x_d1 - 12'd120;
-            in_char_area <= 1'b1;
-        end
-        else if (pixel_x_d1 >= 136 && pixel_x_d1 < 152) begin
-            case (ch1_waveform_type)
-                3'd1: char_code <= 8'd110; // 'n'
-                3'd2: char_code <= 8'd117; // 'u'
-                3'd3: char_code <= 8'd105; // 'i'
-                3'd4: char_code <= 8'd119; // 'w'
-                3'd5: char_code <= 8'd105; // 'i'
-                default: char_code <= 8'd107; // 'k'
-            endcase
-            char_col <= pixel_x_d1 - 12'd136;
-            in_char_area <= 1'b1;
-        end
-        else if (pixel_x_d1 >= 152 && pixel_x_d1 < 168) begin
-            case (ch1_waveform_type)
-                3'd1: char_code <= 8'd101; // 'e' (Sine)
-                3'd2: char_code <= 8'd114; // 'r' (Squr)
-                3'd3: char_code <= 8'd97;  // 'a' (Tria)
-                3'd4: char_code <= 8'd32;  // ' ' (Saw)
-                3'd5: char_code <= 8'd115; // 's' (Nois)
-                default: char_code <= 8'd110; // 'n' (Unkn)
-            endcase
-            char_col <= pixel_x_d1 - 12'd152;
-            in_char_area <= 1'b1;
-        end
-        // CH1置信�?(两位数字 + '%')
-        else if (pixel_x_d1 >= 168 && pixel_x_d1 < 184) begin
-            char_code <= digit_to_ascii((ch1_confidence / 10) % 10); // 十位
-            char_col <= pixel_x_d1 - 12'd168;
-            in_char_area <= 1'b1;
-        end
-        else if (pixel_x_d1 >= 184 && pixel_x_d1 < 200) begin
-            char_code <= digit_to_ascii(ch1_confidence % 10); // 个位
-            char_col <= pixel_x_d1 - 12'd184;
-            in_char_area <= 1'b1;
-        end
-        else if (pixel_x_d1 >= 200 && pixel_x_d1 < 216) begin
-            char_code <= 8'd37; // '%'
-            char_col <= pixel_x_d1 - 12'd200;
-            in_char_area <= 1'b1;
-        end
-        
-        // ========== 分隔空格 ==========
-        // X: 216-280 (�?4像素空白)
-        
-        // ========== CH2部分 (中间偏右) ==========
-        // "CH2:"
-        else if (pixel_x_d1 >= 280 && pixel_x_d1 < 296) begin
-            char_code <= 8'd67;  // 'C'
-            char_col <= pixel_x_d1 - 12'd280;
-            in_char_area <= 1'b1;
-        end
-        else if (pixel_x_d1 >= 296 && pixel_x_d1 < 312) begin
-            char_code <= 8'd72;  // 'H'
-            char_col <= pixel_x_d1 - 12'd296;
-            in_char_area <= 1'b1;
-        end
-        else if (pixel_x_d1 >= 312 && pixel_x_d1 < 328) begin
-            char_code <= 8'd50;  // '2'
-            char_col <= pixel_x_d1 - 12'd312;
-            in_char_area <= 1'b1;
-        end
-        else if (pixel_x_d1 >= 328 && pixel_x_d1 < 344) begin
-            char_code <= 8'd58;  // ':'
-            char_col <= pixel_x_d1 - 12'd328;
-            in_char_area <= 1'b1;
-        end
-        // CH2波形类型名称 (4个字�?
-        else if (pixel_x_d1 >= 344 && pixel_x_d1 < 360) begin
-            case (ch2_waveform_type)
-                3'd1: char_code <= 8'd83;  // 'S' (Sine)
-                3'd2: char_code <= 8'd83;  // 'S' (Square)
-                3'd3: char_code <= 8'd84;  // 'T' (Triangle)
-                3'd4: char_code <= 8'd83;  // 'S' (Sawtooth)
-                3'd5: char_code <= 8'd78;  // 'N' (Noise)
-                default: char_code <= 8'd85; // 'U' (Unknown)
-            endcase
-            char_col <= pixel_x_d1 - 12'd344;
-            in_char_area <= 1'b1;
-        end
-        else if (pixel_x_d1 >= 360 && pixel_x_d1 < 376) begin
-            case (ch2_waveform_type)
-                3'd1: char_code <= 8'd105; // 'i'
-                3'd2: char_code <= 8'd113; // 'q'
-                3'd3: char_code <= 8'd114; // 'r'
-                3'd4: char_code <= 8'd97;  // 'a'
-                3'd5: char_code <= 8'd111; // 'o'
-                default: char_code <= 8'd110; // 'n'
-            endcase
-            char_col <= pixel_x_d1 - 12'd360;
-            in_char_area <= 1'b1;
-        end
-        else if (pixel_x_d1 >= 376 && pixel_x_d1 < 392) begin
-            case (ch2_waveform_type)
-                3'd1: char_code <= 8'd110; // 'n'
-                3'd2: char_code <= 8'd117; // 'u'
-                3'd3: char_code <= 8'd105; // 'i'
-                3'd4: char_code <= 8'd119; // 'w'
-                3'd5: char_code <= 8'd105; // 'i'
-                default: char_code <= 8'd107; // 'k'
-            endcase
-            char_col <= pixel_x_d1 - 12'd376;
-            in_char_area <= 1'b1;
-        end
-        else if (pixel_x_d1 >= 392 && pixel_x_d1 < 408) begin
-            case (ch2_waveform_type)
-                3'd1: char_code <= 8'd101; // 'e' (Sine)
-                3'd2: char_code <= 8'd114; // 'r' (Squr)
-                3'd3: char_code <= 8'd97;  // 'a' (Tria)
-                3'd4: char_code <= 8'd32;  // ' ' (Saw)
-                3'd5: char_code <= 8'd115; // 's' (Nois)
-                default: char_code <= 8'd110; // 'n' (Unkn)
-            endcase
-            char_col <= pixel_x_d1 - 12'd392;
-            in_char_area <= 1'b1;
-        end
-        // CH2置信�?(两位数字 + '%')
-        else if (pixel_x_d1 >= 408 && pixel_x_d1 < 424) begin
-            char_code <= digit_to_ascii((ch2_confidence / 10) % 10); // 十位
-            char_col <= pixel_x_d1 - 12'd408;
-            in_char_area <= 1'b1;
-        end
-        else if (pixel_x_d1 >= 424 && pixel_x_d1 < 440) begin
-            char_code <= digit_to_ascii(ch2_confidence % 10); // 个位
-            char_col <= pixel_x_d1 - 12'd424;
-            in_char_area <= 1'b1;
-        end
-        else if (pixel_x_d1 >= 440 && pixel_x_d1 < 456) begin
-            char_code <= 8'd37; // '%'
-            char_col <= pixel_x_d1 - 12'd440;
-            in_char_area <= 1'b1;
-        end
-    end
-    
     // 判断是否在参数显示区�?
-    else if (pixel_y_d1 >= PARAM_Y_START && pixel_y_d1 < PARAM_Y_END) begin
+    if (pixel_y_d1 >= PARAM_Y_START && pixel_y_d1 < PARAM_Y_END) begin
         
-        // ========== �?�? 频率 "CH1 Freq: 05000Hz    CH2 Freq: 05000Hz" ==========
-        if (pixel_y_d1 >= PARAM_Y_START && pixel_y_d1 < PARAM_Y_START + 32) begin
-            char_row <= pixel_y_d1 - PARAM_Y_START;
+        // ========== 第1行: 频率 "CH1 Freq: 05000Hz    CH2 Freq: 05000Hz" (高度21像素) ==========
+        if (pixel_y_d1 >= PARAM_Y_START && pixel_y_d1 < PARAM_Y_START + 16) begin
+            char_row <= (pixel_y_d1 - PARAM_Y_START) << 1;
             
             // ----- CH1频率显示 (左侧) -----
             // "CH1 "
@@ -1107,41 +1106,75 @@ always @(posedge clk_pixel or negedge rst_n) begin
                 char_col <= pixel_x_d1 - 12'd168;
                 in_char_area <= ch1_enable;
             end
-            // CH1频率数�?(5位数)
+            // �?CH1频率数�?(自适应格式：< 1kHz显示整数Hz, >= 1kHz显示x.x kHz)
             else if (pixel_x_d1 >= 192 && pixel_x_d1 < 208) begin
-                char_code <= digit_to_ascii(ch1_freq_d4);
+                // 第1位：高位数字（对于kHz会是十位，对于Hz是万位）
+                if (ch1_freq_unit == 2'd0 && ch1_freq_d4 == 4'd0)
+                    char_code <= 8'd32;  // Hz模式且高位为0时显示空格
+                else
+                    char_code <= digit_to_ascii(ch1_freq_d4);
                 char_col <= pixel_x_d1 - 12'd192;
                 in_char_area <= ch1_enable;
             end
             else if (pixel_x_d1 >= 208 && pixel_x_d1 < 224) begin
-                char_code <= digit_to_ascii(ch1_freq_d3);
+                // 第2位
+                if (ch1_freq_unit == 2'd0 && ch1_freq_d4 == 4'd0 && ch1_freq_d3 == 4'd0)
+                    char_code <= 8'd32;
+                else
+                    char_code <= digit_to_ascii(ch1_freq_d3);
                 char_col <= pixel_x_d1 - 12'd208;
                 in_char_area <= ch1_enable;
             end
             else if (pixel_x_d1 >= 224 && pixel_x_d1 < 240) begin
+                // 第3位：如果是kHz模式，这里是个位，后面跟小数点
                 char_code <= digit_to_ascii(ch1_freq_d2);
                 char_col <= pixel_x_d1 - 12'd224;
                 in_char_area <= ch1_enable;
             end
             else if (pixel_x_d1 >= 240 && pixel_x_d1 < 256) begin
-                char_code <= digit_to_ascii(ch1_freq_d1);
+                // 小数点或数字：kHz模式显示'.'，Hz模式显示十位数字
+                char_code <= (ch1_freq_unit == 2'd1) ? 8'd46 : digit_to_ascii(ch1_freq_d1);  // '.' or digit
                 char_col <= pixel_x_d1 - 12'd240;
                 in_char_area <= ch1_enable;
             end
             else if (pixel_x_d1 >= 256 && pixel_x_d1 < 272) begin
-                char_code <= digit_to_ascii(ch1_freq_d0);
+                // 第5位：kHz模式是小数位，Hz模式是个位
+                char_code <= digit_to_ascii(ch1_freq_d1);
                 char_col <= pixel_x_d1 - 12'd256;
                 in_char_area <= ch1_enable;
             end
-            // "Hz"
-            else if (pixel_x_d1 >= 272 && pixel_x_d1 < 288) begin
-                char_code <= 8'd72;  // 'H'
-                char_col <= pixel_x_d1 - 12'd272;
+            // 单位显示：Hz / kHz / MHz
+            else if (pixel_x_d1 >= 280 && pixel_x_d1 < 296) begin
+                // 第一个字符：'H' / 'k' / 'M'
+                case (ch1_freq_unit)
+                    2'd0: char_code <= 8'd72;   // 'H' (Hz)
+                    2'd1: char_code <= 8'd107;  // 'k' (kHz)
+                    2'd2: char_code <= 8'd77;   // 'M' (MHz)
+                    default: char_code <= 8'd32;
+                endcase
+                char_col <= pixel_x_d1 - 12'd280;
                 in_char_area <= ch1_enable;
             end
-            else if (pixel_x_d1 >= 288 && pixel_x_d1 < 304) begin
-                char_code <= 8'd122; // 'z'
-                char_col <= pixel_x_d1 - 12'd288;
+            else if (pixel_x_d1 >= 296 && pixel_x_d1 < 312) begin
+                // 第二个字符：'z' / 'H' / 'H'
+                case (ch1_freq_unit)
+                    2'd0: char_code <= 8'd122;  // 'z' (Hz)
+                    2'd1: char_code <= 8'd72;   // 'H' (kHz)
+                    2'd2: char_code <= 8'd72;   // 'H' (MHz)
+                    default: char_code <= 8'd32;
+                endcase
+                char_col <= pixel_x_d1 - 12'd296;
+                in_char_area <= ch1_enable;
+            end
+            else if (pixel_x_d1 >= 312 && pixel_x_d1 < 328) begin
+                // 第三个字符：空格 / 'z' / 'z'
+                case (ch1_freq_unit)
+                    2'd0: char_code <= 8'd32;   // ' ' (Hz只有2字符)
+                    2'd1: char_code <= 8'd122;  // 'z' (kHz)
+                    2'd2: char_code <= 8'd122;  // 'z' (MHz)
+                    default: char_code <= 8'd32;
+                endcase
+                char_col <= pixel_x_d1 - 12'd312;
                 in_char_area <= ch1_enable;
             end
             
@@ -1188,48 +1221,73 @@ always @(posedge clk_pixel or negedge rst_n) begin
                 char_col <= pixel_x_d1 - 12'd1128;
                 in_char_area <= ch2_enable;
             end
-            // CH2频率数�?(5位数)
+            // CH2频率数字(5位数，带自适应单位和小数点)
             else if (pixel_x_d1 >= 1152 && pixel_x_d1 < 1168) begin
-                char_code <= digit_to_ascii(ch2_freq_d4);
+                // 第一位: Hz模式显示前导空格(如果为0)，kHz模式正常显示
+                if (ch2_freq_unit == 2'd1)  // kHz模式
+                    char_code <= digit_to_ascii(ch2_freq_d4);
+                else  // Hz模式，前导零抑制
+                    char_code <= (ch2_freq_d4 == 4'd0) ? 8'd32 : digit_to_ascii(ch2_freq_d4);
                 char_col <= pixel_x_d1 - 12'd1152;
                 in_char_area <= ch2_enable;
             end
             else if (pixel_x_d1 >= 1168 && pixel_x_d1 < 1184) begin
-                char_code <= digit_to_ascii(ch2_freq_d3);
+                // 第二位: kHz模式显示，Hz模式前导零抑制
+                if (ch2_freq_unit == 2'd1)
+                    char_code <= digit_to_ascii(ch2_freq_d3);
+                else
+                    char_code <= ((ch2_freq_d4 == 4'd0) && (ch2_freq_d3 == 4'd0)) ? 8'd32 : digit_to_ascii(ch2_freq_d3);
                 char_col <= pixel_x_d1 - 12'd1168;
                 in_char_area <= ch2_enable;
             end
             else if (pixel_x_d1 >= 1184 && pixel_x_d1 < 1200) begin
-                char_code <= digit_to_ascii(ch2_freq_d2);
+                // 第三位: kHz模式为小数点前最后一位，Hz模式继续前导零抑制
+                if (ch2_freq_unit == 2'd1)
+                    char_code <= digit_to_ascii(ch2_freq_d2);
+                else
+                    char_code <= ((ch2_freq_d4 == 4'd0) && (ch2_freq_d3 == 4'd0) && (ch2_freq_d2 == 4'd0)) ? 8'd32 : digit_to_ascii(ch2_freq_d2);
                 char_col <= pixel_x_d1 - 12'd1184;
                 in_char_area <= ch2_enable;
             end
             else if (pixel_x_d1 >= 1200 && pixel_x_d1 < 1216) begin
-                char_code <= digit_to_ascii(ch2_freq_d1);
+                // 第四位: kHz模式显示小数点，Hz模式显示数字
+                char_code <= (ch2_freq_unit == 2'd1) ? 8'd46 : digit_to_ascii(ch2_freq_d1);  // '.' or digit
                 char_col <= pixel_x_d1 - 12'd1200;
                 in_char_area <= ch2_enable;
             end
             else if (pixel_x_d1 >= 1216 && pixel_x_d1 < 1232) begin
-                char_code <= digit_to_ascii(ch2_freq_d0);
+                // 第五位: kHz模式显示小数点后一位，Hz模式显示最后一位数字
+                char_code <= (ch2_freq_unit == 2'd1) ? digit_to_ascii(ch2_freq_d2) : digit_to_ascii(ch2_freq_d0);
                 char_col <= pixel_x_d1 - 12'd1216;
                 in_char_area <= ch2_enable;
             end
-            // "Hz"
+            // 自适应单位 "Hz" 或 "kHz"
             else if (pixel_x_d1 >= 1232 && pixel_x_d1 < 1248) begin
-                char_code <= 8'd72;  // 'H'
+                // 第一个字符：' ' 或 'k'
+                char_code <= (ch2_freq_unit == 2'd1) ? 8'd107 : 8'd32;  // 'k' or ' '
                 char_col <= pixel_x_d1 - 12'd1232;
                 in_char_area <= ch2_enable;
             end
             else if (pixel_x_d1 >= 1248 && pixel_x_d1 < 1264) begin
-                char_code <= 8'd122; // 'z'
+                // 第二个字符：'z' 或 'H'
+                char_code <= (ch2_freq_unit == 2'd1) ? 8'd72 : 8'd122;  // 'H' or 'z'
                 char_col <= pixel_x_d1 - 12'd1248;
+                in_char_area <= ch2_enable;
+            end
+            else if (pixel_x_d1 >= 1264 && pixel_x_d1 < 1280) begin
+                // 第三个字符：'z' (仅kHz模式) 或 空格
+                if (ch2_freq_unit == 2'd1)
+                    char_code <= 8'd122;  // 'z'
+                else
+                    char_code <= 8'd32;   // ' '
+                char_col <= pixel_x_d1 - 12'd1264;
                 in_char_area <= ch2_enable;
             end
         end
         
-        // ========== �?�? 幅度 "CH1 Ampl: 0051    CH2 Ampl: 0051" ==========
-        else if (pixel_y_d1 >= PARAM_Y_START + 35 && pixel_y_d1 < PARAM_Y_START + 67) begin
-            char_row <= pixel_y_d1 - PARAM_Y_START - 12'd35;
+        // ========== 第2行: 幅度 "CH1 Ampl: 0051    CH2 Ampl: 0051" (高度21像素) ==========
+        else if (pixel_y_d1 >= PARAM_Y_START + 20 && pixel_y_d1 < PARAM_Y_START + 36) begin
+            char_row <= (pixel_y_d1 - PARAM_Y_START - 12'd20) << 1;
             
             // ----- CH1幅度显示 (左侧) -----
             // "CH1 "
@@ -1363,8 +1421,8 @@ always @(posedge clk_pixel or negedge rst_n) begin
         end
         
         // ========== �?�? 占空�?"CH1 Duty: 50.0%    CH2 Duty: 50.0%" ==========
-        else if (pixel_y_d1 >= PARAM_Y_START + 70 && pixel_y_d1 < PARAM_Y_START + 102) begin
-            char_row <= pixel_y_d1 - PARAM_Y_START - 12'd70;
+        else if (pixel_y_d1 >= PARAM_Y_START + 40 && pixel_y_d1 < PARAM_Y_START + 56) begin
+            char_row <= (pixel_y_d1 - PARAM_Y_START - 12'd40) << 1;
             
             // ----- CH1占空�?(左侧) -----
             // "CH1 "
@@ -1508,8 +1566,8 @@ always @(posedge clk_pixel or negedge rst_n) begin
         end
         
         // ========== �?�? THD "CH1 THD: 1.23%    CH2 THD: 1.23%" ==========
-        else if (pixel_y_d1 >= PARAM_Y_START + 105 && pixel_y_d1 < PARAM_Y_START + 137) begin
-            char_row <= pixel_y_d1 - PARAM_Y_START - 12'd105;
+        else if (pixel_y_d1 >= PARAM_Y_START + 60 && pixel_y_d1 < PARAM_Y_START + 76) begin
+            char_row <= (pixel_y_d1 - PARAM_Y_START - 12'd60) << 1;
             
             // ----- CH1 THD (左侧) -----
             // "CH1 "
@@ -1642,9 +1700,190 @@ always @(posedge clk_pixel or negedge rst_n) begin
             end
         end
         
-        // �?�? "Phase:180.0" (相位差，Y: 870+140=1010)
-        else if (pixel_y_d1 >= PARAM_Y_START + 140 && pixel_y_d1 < PARAM_Y_START + 172) begin
-            char_row <= pixel_y_d1 - PARAM_Y_START - 12'd140;
+        // �?�? AI识别结果 "CH1: Sine 95%    CH2: Squr 88%" (Y: 870+140=1010)
+        else if (pixel_y_d1 >= PARAM_Y_START + 80 && pixel_y_d1 < PARAM_Y_START + 80) begin
+            char_row <= (pixel_y_d1 - PARAM_Y_START - 12'd80) << 1;
+            
+            // ========== CH1部分 (左侧) ==========
+            // "CH1:"
+            if (pixel_x_d1 >= 40 && pixel_x_d1 < 56) begin
+                char_code <= 8'd67;  // 'C'
+                char_col <= pixel_x_d1 - 12'd40;
+                in_char_area <= 1'b1;
+            end
+            else if (pixel_x_d1 >= 56 && pixel_x_d1 < 72) begin
+                char_code <= 8'd72;  // 'H'
+                char_col <= pixel_x_d1 - 12'd56;
+                in_char_area <= 1'b1;
+            end
+            else if (pixel_x_d1 >= 72 && pixel_x_d1 < 88) begin
+                char_code <= 8'd49;  // '1'
+                char_col <= pixel_x_d1 - 12'd72;
+                in_char_area <= 1'b1;
+            end
+            else if (pixel_x_d1 >= 88 && pixel_x_d1 < 104) begin
+                char_code <= 8'd58;  // ':'
+                char_col <= pixel_x_d1 - 12'd88;
+                in_char_area <= 1'b1;
+            end
+            // CH1波形类型名称 (4个字符)
+            else if (pixel_x_d1 >= 104 && pixel_x_d1 < 120) begin
+                case (ch1_waveform_type)
+                    3'd1: char_code <= 8'd83;  // 'S' (Sine)
+                    3'd2: char_code <= 8'd83;  // 'S' (Square)
+                    3'd3: char_code <= 8'd84;  // 'T' (Triangle)
+                    3'd4: char_code <= 8'd83;  // 'S' (Sawtooth)
+                    3'd5: char_code <= 8'd78;  // 'N' (Noise)
+                    default: char_code <= 8'd85; // 'U' (Unknown)
+                endcase
+                char_col <= pixel_x_d1 - 12'd104;
+                in_char_area <= 1'b1;
+            end
+            else if (pixel_x_d1 >= 120 && pixel_x_d1 < 136) begin
+                case (ch1_waveform_type)
+                    3'd1: char_code <= 8'd105; // 'i'
+                    3'd2: char_code <= 8'd113; // 'q'
+                    3'd3: char_code <= 8'd114; // 'r'
+                    3'd4: char_code <= 8'd97;  // 'a'
+                    3'd5: char_code <= 8'd111; // 'o'
+                    default: char_code <= 8'd110; // 'n'
+                endcase
+                char_col <= pixel_x_d1 - 12'd120;
+                in_char_area <= 1'b1;
+            end
+            else if (pixel_x_d1 >= 136 && pixel_x_d1 < 152) begin
+                case (ch1_waveform_type)
+                    3'd1: char_code <= 8'd110; // 'n'
+                    3'd2: char_code <= 8'd117; // 'u'
+                    3'd3: char_code <= 8'd105; // 'i'
+                    3'd4: char_code <= 8'd119; // 'w'
+                    3'd5: char_code <= 8'd105; // 'i'
+                    default: char_code <= 8'd107; // 'k'
+                endcase
+                char_col <= pixel_x_d1 - 12'd136;
+                in_char_area <= 1'b1;
+            end
+            else if (pixel_x_d1 >= 152 && pixel_x_d1 < 168) begin
+                case (ch1_waveform_type)
+                    3'd1: char_code <= 8'd101; // 'e' (Sine)
+                    3'd2: char_code <= 8'd114; // 'r' (Squr)
+                    3'd3: char_code <= 8'd97;  // 'a' (Tria)
+                    3'd4: char_code <= 8'd32;  // ' ' (Saw)
+                    3'd5: char_code <= 8'd115; // 's' (Nois)
+                    default: char_code <= 8'd110; // 'n' (Unkn)
+                endcase
+                char_col <= pixel_x_d1 - 12'd152;
+                in_char_area <= 1'b1;
+            end
+            // CH1置信度(两位数字 + '%')
+            else if (pixel_x_d1 >= 168 && pixel_x_d1 < 184) begin
+                char_code <= digit_to_ascii((ch1_confidence / 10) % 10); // 十位
+                char_col <= pixel_x_d1 - 12'd168;
+                in_char_area <= 1'b1;
+            end
+            else if (pixel_x_d1 >= 184 && pixel_x_d1 < 200) begin
+                char_code <= digit_to_ascii(ch1_confidence % 10); // 个位
+                char_col <= pixel_x_d1 - 12'd184;
+                in_char_area <= 1'b1;
+            end
+            else if (pixel_x_d1 >= 200 && pixel_x_d1 < 216) begin
+                char_code <= 8'd37; // '%'
+                char_col <= pixel_x_d1 - 12'd200;
+                in_char_area <= 1'b1;
+            end
+            
+            // ========== CH2部分 (中间偏右) ==========
+            // "CH2:"
+            else if (pixel_x_d1 >= 280 && pixel_x_d1 < 296) begin
+                char_code <= 8'd67;  // 'C'
+                char_col <= pixel_x_d1 - 12'd280;
+                in_char_area <= 1'b1;
+            end
+            else if (pixel_x_d1 >= 296 && pixel_x_d1 < 312) begin
+                char_code <= 8'd72;  // 'H'
+                char_col <= pixel_x_d1 - 12'd296;
+                in_char_area <= 1'b1;
+            end
+            else if (pixel_x_d1 >= 312 && pixel_x_d1 < 328) begin
+                char_code <= 8'd50;  // '2'
+                char_col <= pixel_x_d1 - 12'd312;
+                in_char_area <= 1'b1;
+            end
+            else if (pixel_x_d1 >= 328 && pixel_x_d1 < 344) begin
+                char_code <= 8'd58;  // ':'
+                char_col <= pixel_x_d1 - 12'd328;
+                in_char_area <= 1'b1;
+            end
+            // CH2波形类型名称 (4个字符)
+            else if (pixel_x_d1 >= 344 && pixel_x_d1 < 360) begin
+                case (ch2_waveform_type)
+                    3'd1: char_code <= 8'd83;  // 'S' (Sine)
+                    3'd2: char_code <= 8'd83;  // 'S' (Square)
+                    3'd3: char_code <= 8'd84;  // 'T' (Triangle)
+                    3'd4: char_code <= 8'd83;  // 'S' (Sawtooth)
+                    3'd5: char_code <= 8'd78;  // 'N' (Noise)
+                    default: char_code <= 8'd85; // 'U' (Unknown)
+                endcase
+                char_col <= pixel_x_d1 - 12'd344;
+                in_char_area <= 1'b1;
+            end
+            else if (pixel_x_d1 >= 360 && pixel_x_d1 < 376) begin
+                case (ch2_waveform_type)
+                    3'd1: char_code <= 8'd105; // 'i'
+                    3'd2: char_code <= 8'd113; // 'q'
+                    3'd3: char_code <= 8'd114; // 'r'
+                    3'd4: char_code <= 8'd97;  // 'a'
+                    3'd5: char_code <= 8'd111; // 'o'
+                    default: char_code <= 8'd110; // 'n'
+                endcase
+                char_col <= pixel_x_d1 - 12'd360;
+                in_char_area <= 1'b1;
+            end
+            else if (pixel_x_d1 >= 376 && pixel_x_d1 < 392) begin
+                case (ch2_waveform_type)
+                    3'd1: char_code <= 8'd110; // 'n'
+                    3'd2: char_code <= 8'd117; // 'u'
+                    3'd3: char_code <= 8'd105; // 'i'
+                    3'd4: char_code <= 8'd119; // 'w'
+                    3'd5: char_code <= 8'd105; // 'i'
+                    default: char_code <= 8'd107; // 'k'
+                endcase
+                char_col <= pixel_x_d1 - 12'd376;
+                in_char_area <= 1'b1;
+            end
+            else if (pixel_x_d1 >= 392 && pixel_x_d1 < 408) begin
+                case (ch2_waveform_type)
+                    3'd1: char_code <= 8'd101; // 'e' (Sine)
+                    3'd2: char_code <= 8'd114; // 'r' (Squr)
+                    3'd3: char_code <= 8'd97;  // 'a' (Tria)
+                    3'd4: char_code <= 8'd32;  // ' ' (Saw)
+                    3'd5: char_code <= 8'd115; // 's' (Nois)
+                    default: char_code <= 8'd110; // 'n' (Unkn)
+                endcase
+                char_col <= pixel_x_d1 - 12'd392;
+                in_char_area <= 1'b1;
+            end
+            // CH2置信度(两位数字 + '%')
+            else if (pixel_x_d1 >= 408 && pixel_x_d1 < 424) begin
+                char_code <= digit_to_ascii((ch2_confidence / 10) % 10); // 十位
+                char_col <= pixel_x_d1 - 12'd408;
+                in_char_area <= 1'b1;
+            end
+            else if (pixel_x_d1 >= 424 && pixel_x_d1 < 440) begin
+                char_code <= digit_to_ascii(ch2_confidence % 10); // 个位
+                char_col <= pixel_x_d1 - 12'd424;
+                in_char_area <= 1'b1;
+            end
+            else if (pixel_x_d1 >= 440 && pixel_x_d1 < 456) begin
+                char_code <= 8'd37; // '%'
+                char_col <= pixel_x_d1 - 12'd440;
+                in_char_area <= 1'b1;
+            end
+        end
+        
+        // �?�? "Phase:180.0" (相位差，Y: 870+175=1045)
+        else if (pixel_y_d1 >= PARAM_Y_START + 100 && pixel_y_d1 < PARAM_Y_START + 116) begin
+            char_row <= (pixel_y_d1 - PARAM_Y_START - 12'd100) << 1;
             // "Phase:"
             if (pixel_x_d1 >= 40 && pixel_x_d1 < 56) begin
                 char_code <= 8'd80;  // 'P'
@@ -1676,7 +1915,7 @@ always @(posedge clk_pixel or negedge rst_n) begin
                 char_col <= pixel_x_d1 - 12'd120;
                 in_char_area <= 1'b1;
             end
-            // 显示相位差数�?(格式: 180.0)
+            // 显示相位差数字(格式: 180.0)
             else if (pixel_x_d1 >= 144 && pixel_x_d1 < 160) begin
                 char_code <= digit_to_ascii(phase_d3);  // 百位
                 char_col <= pixel_x_d1 - 12'd144;
@@ -1698,7 +1937,7 @@ always @(posedge clk_pixel or negedge rst_n) begin
                 in_char_area <= 1'b1;
             end
             else if (pixel_x_d1 >= 208 && pixel_x_d1 < 224) begin
-                char_code <= digit_to_ascii(phase_d0);  // 小数�?
+                char_code <= digit_to_ascii(phase_d0);  // 小数位
                 char_col <= pixel_x_d1 - 12'd208;
                 in_char_area <= 1'b1;
             end
@@ -1715,10 +1954,6 @@ always @(*) begin
     spectrum_height_calc = 12'd0;
     char_color = 24'hFFFFFF;  // 默认白色文字
     
-    // �?避免latch：为频谱高度变量赋默认�?
-    ch1_spectrum_height = 12'd0;
-    ch2_spectrum_height = 12'd0;
-    
     // �?坐标轴刻度线检测（在频�?波形区域内）
     y_axis_tick = 1'b0;
     x_axis_tick = 1'b0;
@@ -1726,10 +1961,10 @@ always @(*) begin
     
     if (pixel_y_d3 >= SPECTRUM_Y_START && pixel_y_d3 < SPECTRUM_Y_END) begin
         // �?Y轴刻度线检测（简化版�?个关键刻度点�?
-        // 位置：Y=75 (100%), Y=262 (75%), Y=450 (50%), Y=637 (25%), Y=825 (0%)
+        // 位置：Y=50 (100%), Y=175 (75%), Y=300 (50%), Y=425 (25%), Y=530 (0%) - 720p
         if (pixel_x_d3 >= AXIS_LEFT_MARGIN - TICK_LENGTH && pixel_x_d3 < AXIS_LEFT_MARGIN) begin
-            if (pixel_y_d3 == 75 || pixel_y_d3 == 262 || pixel_y_d3 == 450 || 
-                pixel_y_d3 == 637 || pixel_y_d3 == 825) begin
+            if (pixel_y_d3 == 50 || pixel_y_d3 == 175 || pixel_y_d3 == 300 || 
+                pixel_y_d3 == 425 || pixel_y_d3 == 532) begin
                 y_axis_tick = 1'b1;
             end
         end
@@ -1834,25 +2069,8 @@ always @(*) begin
             
             // ========== 工作模式1：频域频谱显�?==========
             else begin
-                // �?双通道频谱高度计算�?x增益�?
-                // CH1频谱高度
-                if (ch1_data_q > 16'd8000)
-                    ch1_spectrum_height = 12'd700;
-                else if (ch1_data_q < 16'd4)
-                    ch1_spectrum_height = 12'd0;
-                else
-                    ch1_spectrum_height = {ch1_data_q[12:0], 2'b00};
-                
-                // CH2频谱高度
-                if (ch2_data_q > 16'd8000)
-                    ch2_spectrum_height = 12'd700;
-                else if (ch2_data_q < 16'd4)
-                    ch2_spectrum_height = 12'd0;
-                else
-                    ch2_spectrum_height = {ch2_data_q[12:0], 2'b00};
-                
                 // 兼容旧变量（用于调试显示等）
-                spectrum_height_calc = ch1_enable ? ch1_spectrum_height : ch2_spectrum_height;
+                spectrum_height_calc = ch1_enable ? ch1_spectrum_calc_d1 : ch2_spectrum_calc_d1;
                 
                 // 网格线（使用d4信号�?
                 if (grid_x_flag_d4 || grid_y_flag_d4) begin
@@ -1862,9 +2080,9 @@ always @(*) begin
                     // �?流水线优化：频谱命中检测也在Stage 4完成
                     // 使用Stage 3计算的频谱高度（ch1_spectrum_calc_d1, ch2_spectrum_calc_d1�?
                     
-                    // �?方案3优化：简化频谱RGB选择（减少嵌套if�?
-                    ch1_spec_hit = ch1_enable_d4 && (pixel_y_d4 >= (SPECTRUM_Y_END - ch1_spectrum_calc_d1 - 10));
-                    ch2_spec_hit = ch2_enable_d4 && (pixel_y_d4 >= (SPECTRUM_Y_END - ch2_spectrum_calc_d1 - 10));
+                    // 【修复】移除-10偏移，避免频谱柱向下延伸造成X轴上方出现粉色横条
+                    ch1_spec_hit = ch1_enable_d4 && (pixel_y_d4 >= (SPECTRUM_Y_END - ch1_spectrum_calc_d1));
+                    ch2_spec_hit = ch2_enable_d4 && (pixel_y_d4 >= (SPECTRUM_Y_END - ch2_spectrum_calc_d1));
                     
                     // 简化的颜色选择
                     case ({ch1_spec_hit, ch2_spec_hit})
@@ -1929,18 +2147,18 @@ always @(*) begin
             // �?时序优化：使用延�?拍的in_char_area_d1和char_col_d1
             if (in_char_area_d1 && char_pixel_row[15 - char_col_d1[3:0]]) begin
                 // 根据参数行位置设置不同颜色（紧凑布局�?px间距�?
-                if (pixel_y_d4 < PARAM_Y_START + 35)           // Y < 905: �?�?(频率)
+                if (pixel_y_d4 < PARAM_Y_START + 20)           // Y < 905: �?�?(频率)
                     char_color = 24'h00FFFF;  // 青色 - 频率
-                else if (pixel_y_d4 < PARAM_Y_START + 70)      // Y < 940: �?�?(幅度)
+                else if (pixel_y_d4 < PARAM_Y_START + 40)      // Y < 940: �?�?(幅度)
                     char_color = 24'hFFFF00;  // 黄色 - 幅度
-                else if (pixel_y_d4 < PARAM_Y_START + 105)     // Y < 975: �?�?(占空�?
+                else if (pixel_y_d4 < PARAM_Y_START + 60)     // Y < 975: �?�?(占空�?
                     char_color = 24'h00FF00;  // 绿色 - 占空�?
-                else if (pixel_y_d4 < PARAM_Y_START + 140)     // Y < 1010: �?�?(THD)
+                else if (pixel_y_d4 < PARAM_Y_START + 80)     // Y < 1010: �?�?(THD)
                     char_color = 24'hFF8800;  // 橙色 - THD
-                else if (pixel_y_d4 < PARAM_Y_START + 175)     // Y < 1045: �?�?(相位�?
-                    char_color = 24'hFF00FF;  // 洋红�?- 相位�?
-                else                                           // Y >= 1045: �?�?(AI识别)
+                else if (pixel_y_d4 < PARAM_Y_START + 100)     // Y < 1045: �?�?(AI识别)
                     char_color = 24'hFFFFFF;  // 白色 - AI识别结果
+                else                                           // Y >= 1045: �?�?(相位�?
+                    char_color = 24'hFF00FF;  // 洋红�?- 相位�?
                 
                 rgb_data = char_color;
             end

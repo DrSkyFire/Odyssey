@@ -27,16 +27,16 @@ module fifo_async #(
 );
 
 //=============================================================================
-// 异步FIFO IP核实例化 - 使用8192深度11位数据宽度
+// 异步FIFO IP核实例化 - 使用8192深度10位数据宽度
 //=============================================================================
-wire [10:0] fifo_rd_data_11b;  // 11位FIFO输出
+wire [9:0] fifo_rd_data_10b;  // 10位FIFO输出
 
 FIFO_ASYNC_8192x11 u_fifo_ip (
     // 写端口
     .wr_clk         (wr_clk),
     .wr_rst         (~wr_rst_n),            // 注意：IP核是高有效复位
     .wr_en          (wr_en),
-    .wr_data        (wr_data[10:0]),        // 截取低11位
+    .wr_data        (wr_data[9:0]),         // 截取低10位
     .wr_full        (full),
     .almost_full    (almost_full),
     .wr_water_level (wr_water_level),       // 写水位
@@ -45,13 +45,13 @@ FIFO_ASYNC_8192x11 u_fifo_ip (
     .rd_clk         (rd_clk),
     .rd_rst         (~rd_rst_n),            // 注意：IP核是高有效复位
     .rd_en          (rd_en),
-    .rd_data        (fifo_rd_data_11b),     // 输出11位
+    .rd_data        (fifo_rd_data_10b),     // 输出10位
     .rd_empty       (empty),
     .almost_empty   (almost_empty),
     .rd_water_level (rd_water_level)        // 读水位
 );
 
 // 扩展到DATA_WIDTH位，高位补0
-assign rd_data = {{(DATA_WIDTH-11){1'b0}}, fifo_rd_data_11b};
+assign rd_data = {{(DATA_WIDTH-10){1'b0}}, fifo_rd_data_10b};
 
 endmodule

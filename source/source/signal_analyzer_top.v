@@ -53,7 +53,7 @@
 //=============================================================================
 localparam FFT_POINTS = 8192;               // FFT点数
 localparam ADC_WIDTH  = 10;                 // ADC位宽
-localparam FFT_WIDTH  = 11;                 // FFT数据位宽（10位ADC符号扩展到11位）
+localparam FFT_WIDTH  = 10;                 // FFT数据位宽（10位ADC直接使用）
 
 //=============================================================================
 // 时钟和复位信号
@@ -83,11 +83,11 @@ wire        rst_n;                          // 其他模块使用的复位
 wire [15:0] selected_adc_data;               // 选择的ADC数据（16位扩展）
 wire [9:0]  ch1_data_sync;                  // 同步后的通道1数据（10位）
 wire [9:0]  ch2_data_sync;                  // 同步后的通道2数据（10位）
-// 10位ADC数据符号扩展到11位（用于FFT）
-wire [10:0] ch1_data_11b;                   // 通道1 11位数据
-wire [10:0] ch2_data_11b;                   // 通道2 11位数据
-assign ch1_data_11b = {ch1_data_sync[9], ch1_data_sync};  // 符号扩展
-assign ch2_data_11b = {ch2_data_sync[9], ch2_data_sync};  // 符号扩展
+// 10位ADC数据保持不变（变量名保留兼容性，但实际只用10位）
+wire [10:0] ch1_data_11b;                   // 通道1数据（兼容变量名，实际10位有效）
+wire [10:0] ch2_data_11b;                   // 通道2数据（兼容变量名，实际10位有效）
+assign ch1_data_11b = {1'b0, ch1_data_sync};  // 高位补0，保持接口兼容
+assign ch2_data_11b = {1'b0, ch2_data_sync};  // 高位补0，保持接口兼容
 
 // ADC溢出检测信号
 reg         adc_ch1_otr_sync;               // 同步后的通道1 OTR信号
@@ -233,12 +233,14 @@ localparam  AUTO_TRIG_TIMEOUT = 24'd10_000_000;  // 100ms超时
 //=============================================================================
 // 通道1参数
 wire [15:0] ch1_freq;                       // CH1信号频率
+wire        ch1_freq_is_khz;                // CH1频率单位标志 (0=Hz, 1=kHz)
 wire [15:0] ch1_amplitude;                  // CH1信号幅度
 wire [15:0] ch1_duty;                       // CH1占空比
 wire [15:0] ch1_thd;                        // CH1总谐波失真
 
 // 通道2参数
 wire [15:0] ch2_freq;                       // CH2信号频率
+wire        ch2_freq_is_khz;                // CH2频率单位标志 (0=Hz, 1=kHz)
 wire [15:0] ch2_amplitude;                  // CH2信号幅度
 wire [15:0] ch2_duty;                       // CH2占空比
 wire [15:0] ch2_thd;                        // CH2总谐波失真
@@ -711,7 +713,7 @@ end
 
 // 通道1数据源选择（支持测试信号）
 wire [15:0] ch1_fifo_data_source;
-assign ch1_fifo_data_source = test_mode ? test_signal_gen : {5'h00, ch1_data_11b};  // 11位数据扩展到16位
+assign ch1_fifo_data_source = test_mode ? test_signal_gen : {6'h00, ch1_data_11b[10:1]};  // 10位数据扩展到16位
 // FIFO写使能：触发后才写入（时域模式），或者其他模式正常写入
 assign ch1_fifo_wr_en = test_mode ? 1'b1 : 
                         (work_mode_sync == 2'd0) ? (dual_data_valid && run_flag && triggered) :
@@ -721,7 +723,7 @@ assign ch1_fifo_din = ch1_fifo_data_source;
 // 通道2数据源（正常ADC数据，应用触发控制）
 assign ch2_fifo_wr_en = (work_mode_sync == 2'd0) ? (dual_data_valid && run_flag && triggered) :
                         (dual_data_valid && run_flag);
-assign ch2_fifo_din = {5'h00, ch2_data_11b};  // 11位数据扩展到16位
+assign ch2_fifo_din = {6'h00, ch2_data_11b[10:1]};  // 10位数据扩展到16位
 
 // 通道1 FIFO
 fifo_async #(
@@ -942,7 +944,7 @@ always @(posedge clk_fft or negedge rst_n) begin
 end
 
 //=============================================================================
-// 6. FFT IP核实例化 - 使用8192点11位FFT
+// 6. FFT IP核实例化 - 使用8192点10位FFT
 //=============================================================================
 fft_8192 u_fft_8192 (
     // 时钟和复位
@@ -953,7 +955,7 @@ fft_8192 u_fft_8192 (
     .i_axi4s_data_tvalid    (fft_din_valid),        // 输入数据有效
     .o_axi4s_data_tready    (fft_din_ready),        // FFT准备接收
     .i_axi4s_data_tlast     (fft_din_last),         // 最后一个输入数据
-    .i_axi4s_data_tdata     ({5'd0, fft_din[26:16], 5'd0, fft_din[10:0]}),  // 32位输入：[31:27]=0,[26:16]=虚部11位,[15:11]=0,[10:0]=实部11位
+    .i_axi4s_data_tdata     ({6'd0, fft_din[25:16], 6'd0, fft_din[9:0]}),  // 32位输入：[31:26]=0,[25:16]=虚部10位,[15:10]=0,[9:0]=实部10位
     
     // 配置接口（参考官方例程）
     .i_axi4s_cfg_tdata      (1'b1),                 // 1=FFT, 0=IFFT
@@ -1342,55 +1344,55 @@ assign ch2_spectrum_rd_data = ch2_rd_buffer_sel ? ch2_ram1_rd_data : ch2_ram0_rd
 assign spectrum_rd_data = display_channel ? ch2_spectrum_rd_data : ch1_spectrum_rd_data;
 
 //=============================================================================
-// 通道1 RAM0实例化 - 使用8192x11 DPRAM包装模块
+// 通道1 RAM0实例化 - 使用8192x10 DPRAM包装模块
 //=============================================================================
 dpram_8192x11 u_ch1_spectrum_ram0 (
     .clka   (clk_fft),
     .wea    (ch1_ram0_we),
     .addra  (ch1_ram0_wr_addr),
-    .dina   (ch1_ram0_wr_data[10:0]),  // 截取低11位
+    .dina   (ch1_ram0_wr_data[9:0]),  // 截取低10位
     .clkb   (clk_hdmi_pixel),
     .addrb  (ch1_ram0_rd_addr),
-    .doutb  (ch1_ram0_rd_data_11b)     // 输出11位
+    .doutb  (ch1_ram0_rd_data_11b)     // 输出11位（实际10位有效，最高位填0）
 );
 
 //=============================================================================
-// 通道1 RAM1实例化 - 使用8192x11 DPRAM包装模块
+// 通道1 RAM1实例化 - 使用8192x10 DPRAM包装模块
 //=============================================================================
 dpram_8192x11 u_ch1_spectrum_ram1 (
     .clka   (clk_fft),
     .wea    (ch1_ram1_we),
     .addra  (ch1_ram1_wr_addr),
-    .dina   (ch1_ram1_wr_data[10:0]),  // 截取低11位
+    .dina   (ch1_ram1_wr_data[9:0]),  // 截取低10位
     .clkb   (clk_hdmi_pixel),
     .addrb  (ch1_ram1_rd_addr),
-    .doutb  (ch1_ram1_rd_data_11b)     // 输出11位
+    .doutb  (ch1_ram1_rd_data_11b)     // 输出11位（实际10位有效，最高位填0）
 );
 
 //=============================================================================
-// 通道2 RAM0实例化 - 使用8192x11 DPRAM包装模块
+// 通道2 RAM0实例化 - 使用8192x10 DPRAM包装模块
 //=============================================================================
 dpram_8192x11 u_ch2_spectrum_ram0 (
     .clka   (clk_fft),
     .wea    (ch2_ram0_we),
     .addra  (ch2_ram0_wr_addr),
-    .dina   (ch2_ram0_wr_data[10:0]),  // 截取低11位
+    .dina   (ch2_ram0_wr_data[9:0]),  // 截取低10位
     .clkb   (clk_hdmi_pixel),
     .addrb  (ch2_ram0_rd_addr),
-    .doutb  (ch2_ram0_rd_data_11b)     // 输出11位
+    .doutb  (ch2_ram0_rd_data_11b)     // 输出11位（实际10位有效，最高位填0）
 );
 
 //=============================================================================
-// 通道2 RAM1实例化 - 使用8192x11 DPRAM包装模块
+// 通道2 RAM1实例化 - 使用8192x10 DPRAM包装模块
 //=============================================================================
 dpram_8192x11 u_ch2_spectrum_ram1 (
     .clka   (clk_fft),
     .wea    (ch2_ram1_we),
     .addra  (ch2_ram1_wr_addr),
-    .dina   (ch2_ram1_wr_data[10:0]),  // 截取低11位
+    .dina   (ch2_ram1_wr_data[9:0]),  // 截取低10位
     .clkb   (clk_hdmi_pixel),
     .addrb  (ch2_ram1_rd_addr),
-    .doutb  (ch2_ram1_rd_data_11b)     // 输出11位
+    .doutb  (ch2_ram1_rd_data_11b)     // 输出11位（实际10位有效，最高位填0）
 );
 
 //=============================================================================
@@ -1413,6 +1415,7 @@ signal_parameter_measure u_ch1_param_measure (
     
     // 参数输出
     .freq_out       (ch1_freq),
+    .freq_is_khz    (ch1_freq_is_khz),
     .amplitude_out  (ch1_amplitude),
     .duty_out       (ch1_duty),
     .thd_out        (ch1_thd),
@@ -1438,6 +1441,7 @@ signal_parameter_measure u_ch2_param_measure (
     
     // 参数输出
     .freq_out       (ch2_freq),
+    .freq_is_khz    (ch2_freq_is_khz),
     .amplitude_out  (ch2_amplitude),
     .duty_out       (ch2_duty),
     .thd_out        (ch2_thd),
@@ -1665,10 +1669,12 @@ hdmi_display_ctrl u_hdmi_ctrl (
     
     // 双通道参数显示
     .ch1_freq           (ch1_freq),
+    .ch1_freq_is_khz    (ch1_freq_is_khz),
     .ch1_amplitude      (ch1_amplitude),
     .ch1_duty           (ch1_duty),
     .ch1_thd            (ch1_thd),
     .ch2_freq           (ch2_freq),
+    .ch2_freq_is_khz    (ch2_freq_is_khz),
     .ch2_amplitude      (ch2_amplitude),
     .ch2_duty           (ch2_duty),
     .ch2_thd            (ch2_thd),

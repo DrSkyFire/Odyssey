@@ -2,7 +2,7 @@
 // 文件名: dual_channel_fft_controller.v
 // 描述: 双通道时分复用FFT控制器
 // 功能: 使用单个FFT核交替处理两个通道的数据
-// 优点: 零额外APM消耗，支持8192点11位精度
+// 优点: 零额外APM消耗，支持8192点10位精度
 //=============================================================================
 
 module dual_channel_fft_controller #(
@@ -79,7 +79,7 @@ reg [12:0]  recv_cnt;           // 接收计数器（8192需要13位）
 reg [15:0]  data_buffer;        // 数据缓存
 reg         fifo_rd_en;         // 统一的FIFO读使能
 wire [15:0] fifo_dout_mux;      // 多路复用后的FIFO输出
-wire [10:0] data_11bit;         // 11位ADC数据（从16位FIFO数据中提取）
+wire [9:0]  data_10bit;         // 10位ADC数据（从16位FIFO数据中提取）
 
 // 频谱计算相关
 wire [15:0] spectrum_magnitude;
@@ -101,8 +101,8 @@ initial begin
     $readmemh("source/hann_window_8192.hex", hann_window_rom);
 end
 
-// 从FIFO输出的16位数据中提取11位有效数据（高11位）
-assign data_11bit = fifo_dout_mux[15:5];
+// 从FIFO输出的16位数据中提取10位有效数据（高10位）
+assign data_10bit = fifo_dout_mux[15:6];
 
 //=============================================================================
 // Hann窗地址计数器（提前1拍，补偿ROM读取延迟）
@@ -137,8 +137,8 @@ always @(posedge clk or negedge rst_n) begin
         window_coeff <= hann_window_rom[window_addr];
 end
 
-// 第2级：ADC数据符号扩展（11位->16位）
-assign adc_signed = {{5{data_buffer[15]}}, data_buffer[15:5]};
+// 第2级：ADC数据符号扩展（10位->16位）
+assign adc_signed = {{6{data_buffer[15]}}, data_buffer[15:6]};
 
 // 第3级：乘法（组合逻辑）
 assign windowed_mult = adc_signed * $signed({1'b0, window_coeff});
