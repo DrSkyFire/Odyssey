@@ -377,6 +377,12 @@ end
 // 2B. 【新增】FFT频谱峰值频率测量（频域模式，精度更高）
 //=============================================================================
 // 实时流式峰值搜�?- 在FFT输出数据流中找最大�?
+// 【新增】峰值历史记录（用于稳定性判断）
+reg [15:0] fft_max_amp_history [0:3];  // 最近4次FFT的峰值幅度
+reg [12:0] fft_peak_bin_history [0:3]; // 最近4次FFT的峰值bin
+reg [1:0]  fft_history_index;          // 历史索引
+reg [15:0] fft_avg_amp;                // 平均峰值幅度
+
 always @(posedge clk or negedge rst_n) begin
     if (!rst_n) begin
         fft_max_amp <= 16'd0;
@@ -385,16 +391,19 @@ always @(posedge clk or negedge rst_n) begin
         fft_freq_hz <= 32'd0;
         fft_freq_ready <= 1'b0;
         use_fft_freq <= 1'b0;
+        fft_history_index <= 2'd0;
+        fft_avg_amp <= 16'd0;
     end else if (measure_en && spectrum_valid) begin
         // 检测FFT扫描开始（DC分量）
         if (spectrum_addr == 13'd0) begin
             fft_scan_active <= 1'b1;
-            fft_max_amp <= 16'd100;  // 【修复】设置噪声阈值（避免检测到噪声底）
-            fft_peak_bin <= 13'd0;   // 默认DC（如果没有找到峰值）
+            fft_max_amp <= 16'd200;  // 【修复】提高噪声阈值
+            fft_peak_bin <= 13'd0;
             fft_freq_ready <= 1'b0;
             use_fft_freq <= 1'b1;
         end
-        // 峰值搜索（跳过DC，扫描前半部分避免镜像）
+        // 【关键修复】峰值搜索从bin 1开始（不跳过低频）
+        // 1kHz在bin 0.234，必须从bin 1开始才能检测到
         else if (fft_scan_active && spectrum_addr >= 13'd1 && spectrum_addr < (FFT_POINTS/2)) begin
             if (spectrum_data > fft_max_amp) begin
                 fft_max_amp <= spectrum_data;
@@ -404,17 +413,25 @@ always @(posedge clk or negedge rst_n) begin
         // 扫描结束，计算频率
         else if (spectrum_addr == (FFT_POINTS/2)) begin
             fft_scan_active <= 1'b0;
-            // 【修复】只有找到有效峰值才更新频率（避免锁定到噪声）
-            if (fft_max_amp > 16'd100) begin  // 峰值幅度必须>阈值
+            
+            // 记录历史
+            fft_max_amp_history[fft_history_index] <= fft_max_amp;
+            fft_peak_bin_history[fft_history_index] <= fft_peak_bin;
+            fft_history_index <= fft_history_index + 1'b1;
+            
+            // 计算平均峰值幅度
+            fft_avg_amp <= (fft_max_amp_history[0] + fft_max_amp_history[1] + 
+                           fft_max_amp_history[2] + fft_max_amp_history[3]) >> 2;
+            
+            // 【修复】只有平均峰值>阈值才使用FFT
+            if (fft_avg_amp > 16'd300) begin
                 fft_freq_hz <= fft_peak_bin * FREQ_RES;
                 fft_freq_ready <= 1'b1;
             end else begin
-                // 信号太弱，使用时域测量
                 fft_freq_ready <= 1'b0;
             end
         end
     end 
-    // fft_freq_ready保持锁存，直到下次扫描开始时清零
 end
 
 //=============================================================================
@@ -1112,29 +1129,26 @@ always @(posedge clk or negedge rst_n) begin
         duty_out <= 16'd0;
         thd_out <= 16'd0;
     end else if (measure_en) begin
-        // 【修复】优先使用FFT数据，只在FFT未就绪时回退到时域测量
+        // 【临时诊断】强制使用时域测量，观察结果
         if (measure_done) begin
-            // 每100ms更新一次
-            if (use_fft_freq && fft_freq_ready) begin
-                // FFT频率和幅度（频域模式优先）
-                if (fft_freq_hz >= 32'd100000) begin
-                    freq_is_khz <= 1'b1;
-                    freq_out <= (fft_freq_hz / 32'd100);
-                end else begin
-                    freq_is_khz <= 1'b0;
-                    freq_out <= fft_freq_hz[15:0];
-                end
-                amplitude_out <= fft_max_amp;
-            end else begin
-                // 时域测量（回退模式）
-                freq_out <= freq_calc;
-                freq_is_khz <= freq_unit_flag_int;
-                amplitude_out <= amplitude_calc;
-            end
-            // 占空比和THD（始终更新）
+            // 始终使用时域测量
+            freq_out <= freq_calc;
+            freq_is_khz <= freq_unit_flag_int;
+            amplitude_out <= amplitude_calc;
             duty_out <= duty_filtered;
             thd_out <= thd_calc;
         end
+        // FFT测量暂时注释掉用于诊断
+        // if (use_fft_freq && fft_freq_ready) begin
+        //     if (fft_freq_hz >= 32'd100000) begin
+        //         freq_is_khz <= 1'b1;
+        //         freq_out <= (fft_freq_hz / 32'd100);
+        //     end else begin
+        //         freq_is_khz <= 1'b0;
+        //         freq_out <= fft_freq_hz[15:0];
+        //     end
+        //     amplitude_out <= fft_max_amp;
+        // end
     end
 end
 
