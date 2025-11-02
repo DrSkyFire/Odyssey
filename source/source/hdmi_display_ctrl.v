@@ -86,18 +86,18 @@ localparam TICK_LENGTH = 5;             // 刻度线长度 (8 * 0.67)
 //=============================================================================
 // 垂直布局 (Y坐标)
 localparam TABLE_Y_HEADER   = 580;      // 表头行 Y起始
-localparam TABLE_Y_CH1      = 600;      // CH1数据行 Y起始
-localparam TABLE_Y_CH2      = 636;      // CH2数据行 Y起始 (600+36)
-localparam TABLE_Y_PHASE    = 672;      // 相位差行 Y起始 (636+36)
+localparam TABLE_Y_CH1      = 612;      // CH1数据行 Y起始 (580+32)
+localparam TABLE_Y_CH2      = 648;      // CH2数据行 Y起始 (612+36)
+localparam TABLE_Y_PHASE    = 684;      // 相位差行 Y起始 (648+36)
 localparam ROW_HEIGHT       = 36;       // 数据行高度 (字符32px + 4px间距)
 
 // 水平布局 (X坐标) - 列起始位置
 localparam COL_CH_X         = 40;       // CH列
-localparam COL_FREQ_X       = 80;       // Freq列
-localparam COL_AMPL_X       = 280;      // Ampl列
-localparam COL_DUTY_X       = 400;      // Duty列
-localparam COL_THD_X        = 520;      // THD列
-localparam COL_WAVE_X       = 640;      // Wave列
+localparam COL_FREQ_X       = 120;      // Freq列 (右移40px)
+localparam COL_AMPL_X       = 320;      // Ampl列 (右移40px)
+localparam COL_DUTY_X       = 440;      // Duty列 (右移40px)
+localparam COL_THD_X        = 560;      // THD列 (右移40px)
+localparam COL_WAVE_X       = 680;      // Wave列 (右移40px)
 
 // 列宽度
 localparam COL_CH_WIDTH     = 40;
@@ -1096,10 +1096,10 @@ always @(posedge clk_pixel or negedge rst_n) begin
     else if (pixel_y_d1 >= PARAM_Y_START && pixel_y_d1 < PARAM_Y_END) begin
         
         //=====================================================================
-        // 表头行 (Y: 580-600, 20px高)
+        // 表头行 (Y: 580-612, 32px高)
         //=====================================================================
-        if (pixel_y_d1 >= TABLE_Y_HEADER && pixel_y_d1 < TABLE_Y_HEADER + 20) begin
-            char_row <= pixel_y_d1 - TABLE_Y_HEADER;  // 0-19
+        if (pixel_y_d1 >= TABLE_Y_HEADER && pixel_y_d1 < TABLE_Y_HEADER + 32) begin
+            char_row <= pixel_y_d1 - TABLE_Y_HEADER;  // 0-31
             
             // 列1: "CH"
             if (pixel_x_d1 >= COL_CH_X + 4 && pixel_x_d1 < COL_CH_X + 20) begin
