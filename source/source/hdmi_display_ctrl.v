@@ -87,9 +87,9 @@ localparam TICK_LENGTH = 5;             // 刻度线长度 (8 * 0.67)
 // 垂直布局 (Y坐标)
 localparam TABLE_Y_HEADER   = 580;      // 表头行 Y起始
 localparam TABLE_Y_CH1      = 600;      // CH1数据行 Y起始
-localparam TABLE_Y_CH2      = 640;      // CH2数据行 Y起始  
-localparam TABLE_Y_PHASE    = 680;      // 相位差行 Y起始
-localparam ROW_HEIGHT       = 40;       // 数据行高度
+localparam TABLE_Y_CH2      = 636;      // CH2数据行 Y起始 (600+36)
+localparam TABLE_Y_PHASE    = 672;      // 相位差行 Y起始 (636+36)
+localparam ROW_HEIGHT       = 36;       // 数据行高度 (字符32px + 4px间距)
 
 // 水平布局 (X坐标) - 列起始位置
 localparam COL_CH_X         = 40;       // CH列
@@ -1907,102 +1907,74 @@ always @(posedge clk_pixel or negedge rst_n) begin
             if (pixel_y_d1 < TABLE_Y_PHASE + 32) begin
                 char_row <= pixel_y_d1 - TABLE_Y_PHASE;  // 0-31，不需要左移
             
-                // 居中显示：屏幕宽度1280，文本约13个字符(208px)，起始X=(1280-208)/2=536
-                // "Phase Diff: XXX.X°"
+                // 左对齐显示 "Phase: XXX.X°"
             
-                // "Phase "
-                if (pixel_x_d1 >= 480 && pixel_x_d1 < 496) begin
+                // "Phase: "
+                if (pixel_x_d1 >= 60 && pixel_x_d1 < 76) begin
                 char_code <= 8'd80;  // 'P'
-                char_col <= pixel_x_d1 - 12'd480;
+                char_col <= pixel_x_d1 - 12'd60;
                 in_char_area <= 1'b1;
             end
-            else if (pixel_x_d1 >= 496 && pixel_x_d1 < 512) begin
+            else if (pixel_x_d1 >= 76 && pixel_x_d1 < 92) begin
                 char_code <= 8'd104;  // 'h'
-                char_col <= pixel_x_d1 - 12'd496;
+                char_col <= pixel_x_d1 - 12'd76;
                 in_char_area <= 1'b1;
             end
-            else if (pixel_x_d1 >= 512 && pixel_x_d1 < 528) begin
+            else if (pixel_x_d1 >= 92 && pixel_x_d1 < 108) begin
                 char_code <= 8'd97;  // 'a'
-                char_col <= pixel_x_d1 - 12'd512;
+                char_col <= pixel_x_d1 - 12'd92;
                 in_char_area <= 1'b1;
             end
-            else if (pixel_x_d1 >= 528 && pixel_x_d1 < 544) begin
+            else if (pixel_x_d1 >= 108 && pixel_x_d1 < 124) begin
                 char_code <= 8'd115;  // 's'
-                char_col <= pixel_x_d1 - 12'd528;
+                char_col <= pixel_x_d1 - 12'd108;
                 in_char_area <= 1'b1;
             end
-            else if (pixel_x_d1 >= 544 && pixel_x_d1 < 560) begin
+            else if (pixel_x_d1 >= 124 && pixel_x_d1 < 140) begin
                 char_code <= 8'd101;  // 'e'
-                char_col <= pixel_x_d1 - 12'd544;
+                char_col <= pixel_x_d1 - 12'd124;
                 in_char_area <= 1'b1;
             end
-            else if (pixel_x_d1 >= 560 && pixel_x_d1 < 576) begin
-                char_code <= 8'd32;  // ' '
-                char_col <= pixel_x_d1 - 12'd560;
-                in_char_area <= 1'b1;
-            end
-            
-            // "Diff: "
-            else if (pixel_x_d1 >= 576 && pixel_x_d1 < 592) begin
-                char_code <= 8'd68;  // 'D'
-                char_col <= pixel_x_d1 - 12'd576;
-                in_char_area <= 1'b1;
-            end
-            else if (pixel_x_d1 >= 592 && pixel_x_d1 < 608) begin
-                char_code <= 8'd105;  // 'i'
-                char_col <= pixel_x_d1 - 12'd592;
-                in_char_area <= 1'b1;
-            end
-            else if (pixel_x_d1 >= 608 && pixel_x_d1 < 624) begin
-                char_code <= 8'd102;  // 'f'
-                char_col <= pixel_x_d1 - 12'd608;
-                in_char_area <= 1'b1;
-            end
-            else if (pixel_x_d1 >= 624 && pixel_x_d1 < 640) begin
-                char_code <= 8'd102;  // 'f'
-                char_col <= pixel_x_d1 - 12'd624;
-                in_char_area <= 1'b1;
-            end
-            else if (pixel_x_d1 >= 640 && pixel_x_d1 < 656) begin
+            else if (pixel_x_d1 >= 140 && pixel_x_d1 < 156) begin
                 char_code <= 8'd58;  // ':'
-                char_col <= pixel_x_d1 - 12'd640;
+                char_col <= pixel_x_d1 - 12'd140;
                 in_char_area <= 1'b1;
             end
-            else if (pixel_x_d1 >= 656 && pixel_x_d1 < 672) begin
+            else if (pixel_x_d1 >= 156 && pixel_x_d1 < 172) begin
                 char_code <= 8'd32;  // ' '
-                char_col <= pixel_x_d1 - 12'd656;
+                char_col <= pixel_x_d1 - 12'd156;
                 in_char_area <= 1'b1;
             end
-            
+
             // "XXX.X°" - 相位差数值（0-359.9度）
-            else if (pixel_x_d1 >= 672 && pixel_x_d1 < 688) begin
+            else if (pixel_x_d1 >= 172 && pixel_x_d1 < 188) begin
                 char_code <= digit_to_ascii(phase_d3);  // 百位
-                char_col <= pixel_x_d1 - 12'd672;
+                char_col <= pixel_x_d1 - 12'd172;
                 in_char_area <= 1'b1;
             end
-            else if (pixel_x_d1 >= 688 && pixel_x_d1 < 704) begin
+            else if (pixel_x_d1 >= 188 && pixel_x_d1 < 204) begin
                 char_code <= digit_to_ascii(phase_d2);  // 十位
-                char_col <= pixel_x_d1 - 12'd688;
+                char_col <= pixel_x_d1 - 12'd188;
                 in_char_area <= 1'b1;
             end
-            else if (pixel_x_d1 >= 704 && pixel_x_d1 < 720) begin
+            else if (pixel_x_d1 >= 204 && pixel_x_d1 < 220) begin
                 char_code <= digit_to_ascii(phase_d1);  // 个位
-                char_col <= pixel_x_d1 - 12'd704;
+                char_col <= pixel_x_d1 - 12'd204;
                 in_char_area <= 1'b1;
             end
-            else if (pixel_x_d1 >= 720 && pixel_x_d1 < 736) begin
+            else if (pixel_x_d1 >= 220 && pixel_x_d1 < 236) begin
                 char_code <= 8'd46;  // '.'
-                char_col <= pixel_x_d1 - 12'd720;
+                char_col <= pixel_x_d1 - 12'd220;
                 in_char_area <= 1'b1;
             end
-            else if (pixel_x_d1 >= 736 && pixel_x_d1 < 752) begin
+            else if (pixel_x_d1 >= 236 && pixel_x_d1 < 252) begin
                 char_code <= digit_to_ascii(phase_d0);  // 小数位
-                char_col <= pixel_x_d1 - 12'd736;
+                char_col <= pixel_x_d1 - 12'd236;
                 in_char_area <= 1'b1;
             end
-            else if (pixel_x_d1 >= 752 && pixel_x_d1 < 768) begin
+            else if (pixel_x_d1 >= 252 && pixel_x_d1 < 268) begin
                 char_code <= 8'd176;  // '°' (度数符号)
-                char_col <= pixel_x_d1 - 12'd752;
+                char_col <= pixel_x_d1 - 12'd252;
                 in_char_area <= 1'b1;
             end
             else begin
