@@ -1896,11 +1896,18 @@ end
 
 // 【诊断用】spectrum_valid活动检测
 reg ch1_spectrum_active;
+reg [12:0] ch1_peak_bin_debug;  // 【新增】调试：记录检测到的峰值bin
 always @(posedge clk_100m or negedge rst_n) begin
-    if (!rst_n)
+    if (!rst_n) begin
         ch1_spectrum_active <= 1'b0;
-    else if (ch1_spectrum_valid)
+        ch1_peak_bin_debug <= 13'd0;
+    end else if (ch1_spectrum_valid) begin
         ch1_spectrum_active <= 1'b1;  // 锁存，检测到FFT输出就保持
+        // 简单记录：如果幅度>512，记录这个bin
+        if (ch1_spectrum_magnitude > 16'd512) begin
+            ch1_peak_bin_debug <= ch1_spectrum_wr_addr;
+        end
+    end
 end
 
 always @(posedge clk_100m or negedge rst_n) begin
@@ -1912,7 +1919,7 @@ always @(posedge clk_100m or negedge rst_n) begin
         user_led_reg[2] <= fft_start;               // 【诊断】FFT启动信号
         user_led_reg[3] <= work_mode[0];            // 工作模式 bit0
         user_led_reg[4] <= work_mode[1];            // 工作模式 bit1 (00=时域 01=频域 10=测量)
-        user_led_reg[5] <= test_mode;               // 测试模式（必须为0才测量外部信号）
+        user_led_reg[5] <= (ch1_peak_bin_debug < 13'd10);  // 【诊断】峰值bin<10
         user_led_reg[6] <= pll1_lock;               // PLL1锁定
         user_led_reg[7] <= pll2_lock;               // PLL2锁定
     end
