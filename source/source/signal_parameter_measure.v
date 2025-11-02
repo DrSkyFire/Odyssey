@@ -932,90 +932,47 @@ always @(posedge clk or negedge rst_n) begin
 end
 
 //=============================================================================
-// 5. THD测量 - 改进算法：基于频率测量动态计算基波和谐波位置
-// THD = sqrt(P2^2 + P3^2 + ... + Pn^2) / P1
-// 简化计�? THD �?(P2 + P3 + ... + Pn) / P1
+// 5. THD测量 - 优化算法：直接使用FFT谐波检测结果
+// THD = sqrt(H2^2 + H3^2 + H4^2 + H5^2) / H1 × 100%
+// 简化（避免平方根）: THD ≈ (H2 + H3 + H4 + H5) / H1 × 70.7%
 // 
-// 频率分辨�?= 采样�?/ FFT点数 = 35MHz / 8192 �?4.27kHz
-// bin_index = 频率 / 频率分辨�?
+// 数据来源：FFT谐波检测状态机已提供 fft_harmonic_2/3/4/5
 //=============================================================================
-reg [12:0]  fundamental_bin;                // 基波bin（根据频率动态计算）
-reg [12:0]  current_harmonic_bin;          // 当前检测的谐波bin
-reg [3:0]   harmonic_order;                 // 当前谐波次数(2-10)
-reg [31:0]  total_spectrum_power;          // 总频谱能量（用于改进THD算法�?
-reg         thd_scan_active;               // THD扫描激�?
+reg [31:0]  thd_harmonic_sum;               // 谐波幅度总和
+reg [31:0]  thd_numerator;                  // THD分子
+reg         thd_fft_trigger;                // FFT THD触发信号
 
+// THD检测：当FFT谐波扫描完成时触发
 always @(posedge clk or negedge rst_n) begin
     if (!rst_n) begin
-        fundamental_power <= 32'd0;
-        harmonic_power <= 32'd0;
-        total_spectrum_power <= 32'd0;
-        harmonic_cnt <= 4'd0;
+        thd_harmonic_sum <= 32'd0;
+        thd_numerator <= 32'd0;
         thd_calc_trigger <= 1'b0;
-        fundamental_bin <= 13'd0;
-        current_harmonic_bin <= 13'd0;
-        harmonic_order <= 4'd0;
-        thd_scan_active <= 1'b0;
-    end else if (spectrum_valid && measure_en) begin
-        // 频谱扫描开始时，根据测得的频率计算基波bin
-        if (spectrum_addr == 13'd0) begin
-            // 计算基波bin: bin = freq / (35MHz / 8192) = freq / 4272.46 �?freq * 192 / 1000000
-            // 简�? bin �?(freq * 192) >> 20
-            fundamental_bin <= (freq_calc < 16'd100) ? 13'd1 : 
-                              ((freq_calc * 13'd192) >> 10);  // 近似：freq / 4272
-            harmonic_power <= 32'd0;
-            total_spectrum_power <= 32'd0;
-            harmonic_cnt <= 4'd0;
-            harmonic_order <= 4'd2;  // �?次谐波开�?
-            thd_calc_trigger <= 1'b0;
-            thd_scan_active <= 1'b1;
-        end
-        
-        // 检测基波（允许±2 bin的范围）
-        else if (thd_scan_active && 
-                 spectrum_addr >= (fundamental_bin - 13'd2) && 
-                 spectrum_addr <= (fundamental_bin + 13'd2)) begin
-            // 找到基波峰�?
-            if ({16'd0, spectrum_data} > fundamental_power) begin
-                fundamental_power <= {16'd0, spectrum_data};
-            end
-        end
-        
-        // 检�?-10次谐波（每次谐波搜索±2 bin范围�?
-        else if (thd_scan_active && harmonic_order <= 4'd10) begin
-            current_harmonic_bin <= fundamental_bin * harmonic_order;
-            if (spectrum_addr >= (fundamental_bin * harmonic_order - 13'd2) && 
-                spectrum_addr <= (fundamental_bin * harmonic_order + 13'd2)) begin
-                // 累加谐波能量
-                harmonic_power <= harmonic_power + {16'd0, spectrum_data};
-            end
-            // 当前谐波扫描完成，移动到下一�?
-            else if (spectrum_addr == (fundamental_bin * harmonic_order + 13'd3)) begin
-                harmonic_cnt <= harmonic_cnt + 1'b1;
-                harmonic_order <= harmonic_order + 1'b1;
-            end
-        end
-        
-        // 扫描结束，触发THD计算
-        else if (spectrum_addr == 13'd1023 && thd_scan_active) begin
+        thd_fft_trigger <= 1'b0;
+        fundamental_power <= 32'd0;
+    end else begin
+        // 检测FFT谐波扫描完成（状态机到HARM_DONE）
+        if (fft_harm_state == HARM_DONE && !thd_fft_trigger) begin
+            // 计算谐波总和（2-5次）
+            thd_harmonic_sum <= {16'd0, fft_harmonic_2} + 
+                               {16'd0, fft_harmonic_3} + 
+                               {16'd0, fft_harmonic_4} + 
+                               {16'd0, fft_harmonic_5};
+            
+            // 基波幅度来自FFT峰值
+            fundamental_power <= {16'd0, fft_max_amp};
+            
+            thd_fft_trigger <= 1'b1;
             thd_calc_trigger <= 1'b1;
-            thd_scan_active <= 1'b0;
         end else begin
             thd_calc_trigger <= 1'b0;
+            if (fft_harm_state != HARM_DONE)
+                thd_fft_trigger <= 1'b0;
         end
-        
-        // 累加总能量（用于归一化）
-        if (spectrum_addr < 13'd1024) begin
-            total_spectrum_power <= total_spectrum_power + {16'd0, spectrum_data};
-        end
-    end else begin
-        thd_calc_trigger <= 1'b0;
-        thd_scan_active <= 1'b0;
     end
 end
 
-// THD计算 - 3级流水线，使用移位近似除�?
-// THD = (harmonic * 1024) / fundamental，然后调整到1000�?
+// THD计算 - 简化流水线：THD = (谐波和 × 1000) / 基波
 always @(posedge clk or negedge rst_n) begin
     if (!rst_n) begin
         thd_mult_stage1 <= 40'd0;
@@ -1023,9 +980,9 @@ always @(posedge clk or negedge rst_n) begin
         thd_calc <= 16'd0;
         thd_pipe_valid <= 3'd0;
     end else begin
-        // 流水线第1级：乘法 (harmonic_power * 1024)
-        if (thd_calc_trigger && fundamental_power != 0) begin
-            thd_mult_stage1 <= harmonic_power << 10;  // 乘以1024
+        // 流水线第1级：乘法 (thd_harmonic_sum * 1000)
+        if (thd_calc_trigger && fundamental_power != 32'd0) begin
+            thd_mult_stage1 <= thd_harmonic_sum * 32'd1000;
             thd_pipe_valid[0] <= 1'b1;
         end else begin
             thd_pipe_valid[0] <= 1'b0;
@@ -1035,38 +992,36 @@ always @(posedge clk or negedge rst_n) begin
         thd_mult_stage2 <= thd_mult_stage1;
         thd_pipe_valid[1] <= thd_pipe_valid[0];
         
-        // 流水线第3级：近似除法（使用移位）
+        // 流水线第3级：除法（使用移位近似）
         thd_pipe_valid[2] <= thd_pipe_valid[1];
         if (thd_pipe_valid[1]) begin
-            // 根据fundamental_power的大小选择合适的移位�?
-            if (fundamental_power >= (1 << 20))
-                thd_calc <= thd_mult_stage2[39:24];
-            else if (fundamental_power >= (1 << 19))
-                thd_calc <= thd_mult_stage2[38:23];
-            else if (fundamental_power >= (1 << 18))
-                thd_calc <= thd_mult_stage2[37:22];
-            else if (fundamental_power >= (1 << 17))
-                thd_calc <= thd_mult_stage2[36:21];
-            else if (fundamental_power >= (1 << 16))
-                thd_calc <= thd_mult_stage2[35:20];
-            else if (fundamental_power >= (1 << 15))
-                thd_calc <= thd_mult_stage2[34:19];
-            else if (fundamental_power >= (1 << 14))
-                thd_calc <= thd_mult_stage2[33:18];
-            else if (fundamental_power >= (1 << 13))
-                thd_calc <= thd_mult_stage2[32:17];
-            else if (fundamental_power >= (1 << 12))
-                thd_calc <= thd_mult_stage2[31:16];
-            else if (fundamental_power >= (1 << 11))
-                thd_calc <= thd_mult_stage2[30:15];
+            // 根据fundamental_power的大小选择合适的移位量
+            // result = (numerator << shift) / (fundamental_power << shift)
+            //        ≈ numerator >> (log2(fundamental_power) - shift)
+            if (fundamental_power >= 32'd65536)
+                thd_calc <= thd_mult_stage2[39:16];       // 除以65536
+            else if (fundamental_power >= 32'd32768)
+                thd_calc <= thd_mult_stage2[38:15];       // 除以32768
+            else if (fundamental_power >= 32'd16384)
+                thd_calc <= thd_mult_stage2[37:14];       // 除以16384
+            else if (fundamental_power >= 32'd8192)
+                thd_calc <= thd_mult_stage2[36:13];       // 除以8192
+            else if (fundamental_power >= 32'd4096)
+                thd_calc <= thd_mult_stage2[35:12];       // 除以4096
+            else if (fundamental_power >= 32'd2048)
+                thd_calc <= thd_mult_stage2[34:11];       // 除以2048
+            else if (fundamental_power >= 32'd1024)
+                thd_calc <= thd_mult_stage2[33:10];       // 除以1024
+            else if (fundamental_power >= 32'd512)
+                thd_calc <= thd_mult_stage2[32:9];        // 除以512
             else
-                thd_calc <= thd_mult_stage2[29:14];
+                thd_calc <= thd_mult_stage2[31:8];        // 除以256（最小值）
         end
     end
 end
 
 //=============================================================================
-// 输出寄存�?
+// 输出寄存器
 //=============================================================================
 always @(posedge clk or negedge rst_n) begin
     if (!rst_n) begin
