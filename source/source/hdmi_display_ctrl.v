@@ -86,18 +86,18 @@ localparam TICK_LENGTH = 5;             // 刻度线长度 (8 * 0.67)
 //=============================================================================
 // 垂直布局 (Y坐标)
 localparam TABLE_Y_HEADER   = 580;      // 表头行 Y起始
-localparam TABLE_Y_CH1      = 600;      // CH1数据行 Y起始
-localparam TABLE_Y_CH2      = 640;      // CH2数据行 Y起始  
-localparam TABLE_Y_PHASE    = 680;      // 相位差行 Y起始
-localparam ROW_HEIGHT       = 40;       // 数据行高度
+localparam TABLE_Y_CH1      = 612;      // CH1数据行 Y起始 (580+32)
+localparam TABLE_Y_CH2      = 648;      // CH2数据行 Y起始 (612+36)
+localparam TABLE_Y_PHASE    = 684;      // 相位差行 Y起始 (648+36)
+localparam ROW_HEIGHT       = 36;       // 数据行高度 (字符32px + 4px间距)
 
 // 水平布局 (X坐标) - 列起始位置
 localparam COL_CH_X         = 40;       // CH列
-localparam COL_FREQ_X       = 80;       // Freq列
-localparam COL_AMPL_X       = 280;      // Ampl列
-localparam COL_DUTY_X       = 400;      // Duty列
-localparam COL_THD_X        = 520;      // THD列
-localparam COL_WAVE_X       = 640;      // Wave列
+localparam COL_FREQ_X       = 120;      // Freq列 (右移40px)
+localparam COL_AMPL_X       = 320;      // Ampl列 (右移40px)
+localparam COL_DUTY_X       = 440;      // Duty列 (右移40px)
+localparam COL_THD_X        = 560;      // THD列 (右移40px)
+localparam COL_WAVE_X       = 680;      // Wave列 (右移40px)
 
 // 列宽度
 localparam COL_CH_WIDTH     = 40;
@@ -749,103 +749,110 @@ always @(posedge clk_pixel or negedge rst_n) begin
         y_axis_char_row <= 5'd0;
         y_axis_char_col <= 12'd0;
         
-        // 只在Y轴标度区域预计算字符
-        if (pixel_x >= 8 && pixel_x < AXIS_LEFT_MARGIN - TICK_LENGTH - 4) begin
-            // 100% (Y: 75-107)
+        // Y轴单位标签 "%" (Y: 28-44, 16px高，2倍缩放显示)
+        if (pixel_y >= 28 && pixel_y < 44 && pixel_x >= 4 && pixel_x < 12) begin
+            y_axis_char_row <= (pixel_y - 12'd28) << 1;  // 0-15 -> 0-30 (隔行采样)
+            y_axis_char_col <= (pixel_x - 12'd4) << 1;   // 0-7 -> 0-14 (隔列采样)
+            y_axis_char_code <= 8'd37;  // '%'
+            y_axis_char_valid <= 1'b1;
+        end
+        // 只在Y轴标度区域预计算字符（缩放显示，16px高）
+        else if (pixel_x >= 4 && pixel_x < AXIS_LEFT_MARGIN - TICK_LENGTH - 4) begin
+            // 100% (Y: 50-66, 16px高，2倍缩放)
             if (pixel_y >= 50 && pixel_y < 66) begin
-                y_axis_char_row <= (pixel_y - 12'd50) << 1;
+                y_axis_char_row <= (pixel_y - 12'd50) << 1;  // 0-15 -> 0-30 (隔行采样)
                 y_axis_char_valid <= 1'b1;
-                if (pixel_x >= 8 && pixel_x < 24) begin
+                if (pixel_x >= 4 && pixel_x < 12) begin
                     y_axis_char_code <= 8'd49;  // '1'
-                    y_axis_char_col <= pixel_x - 12'd8;
+                    y_axis_char_col <= (pixel_x - 12'd4) << 1;  // 0-7 -> 0-14
                 end
-                else if (pixel_x >= 24 && pixel_x < 40) begin
+                else if (pixel_x >= 12 && pixel_x < 20) begin
                     y_axis_char_code <= 8'd48;  // '0'
-                    y_axis_char_col <= pixel_x - 12'd24;
+                    y_axis_char_col <= (pixel_x - 12'd12) << 1;
                 end
-                else if (pixel_x >= 40 && pixel_x < 56) begin
+                else if (pixel_x >= 20 && pixel_x < 28) begin
                     y_axis_char_code <= 8'd48;  // '0'
-                    y_axis_char_col <= pixel_x - 12'd40;
+                    y_axis_char_col <= (pixel_x - 12'd20) << 1;
                 end
-                else if (pixel_x >= 56 && pixel_x < 72) begin
+                else if (pixel_x >= 28 && pixel_x < 36) begin
                     y_axis_char_code <= 8'd37;  // '%'
-                    y_axis_char_col <= pixel_x - 12'd56;
+                    y_axis_char_col <= (pixel_x - 12'd28) << 1;
                 end
                 else begin
                     y_axis_char_valid <= 1'b0;
                 end
             end
-            // 75% (Y: 262-294)
+            // 75% (Y: 175-191, 16px高，2倍缩放)
             else if (pixel_y >= 175 && pixel_y < 191) begin
-                y_axis_char_row <= (pixel_y - 12'd175) << 1;
+                y_axis_char_row <= (pixel_y - 12'd175) << 1;  // 0-15 -> 0-30
                 y_axis_char_valid <= 1'b1;
-                if (pixel_x >= 24 && pixel_x < 40) begin
+                if (pixel_x >= 12 && pixel_x < 20) begin
                     y_axis_char_code <= 8'd55;  // '7'
-                    y_axis_char_col <= pixel_x - 12'd24;
+                    y_axis_char_col <= (pixel_x - 12'd12) << 1;
                 end
-                else if (pixel_x >= 40 && pixel_x < 56) begin
+                else if (pixel_x >= 20 && pixel_x < 28) begin
                     y_axis_char_code <= 8'd53;  // '5'
-                    y_axis_char_col <= pixel_x - 12'd40;
+                    y_axis_char_col <= (pixel_x - 12'd20) << 1;
                 end
-                else if (pixel_x >= 56 && pixel_x < 72) begin
+                else if (pixel_x >= 28 && pixel_x < 36) begin
                     y_axis_char_code <= 8'd37;  // '%'
-                    y_axis_char_col <= pixel_x - 12'd56;
+                    y_axis_char_col <= (pixel_x - 12'd28) << 1;
                 end
                 else begin
                     y_axis_char_valid <= 1'b0;
                 end
             end
-            // 50% (Y: 450-482)
+            // 50% (Y: 300-316, 16px高，2倍缩放)
             else if (pixel_y >= 300 && pixel_y < 316) begin
-                y_axis_char_row <= (pixel_y - 12'd300) << 1;
+                y_axis_char_row <= (pixel_y - 12'd300) << 1;  // 0-15 -> 0-30
                 y_axis_char_valid <= 1'b1;
-                if (pixel_x >= 24 && pixel_x < 40) begin
+                if (pixel_x >= 12 && pixel_x < 20) begin
                     y_axis_char_code <= 8'd53;  // '5'
-                    y_axis_char_col <= pixel_x - 12'd24;
+                    y_axis_char_col <= (pixel_x - 12'd12) << 1;
                 end
-                else if (pixel_x >= 40 && pixel_x < 56) begin
+                else if (pixel_x >= 20 && pixel_x < 28) begin
                     y_axis_char_code <= 8'd48;  // '0'
-                    y_axis_char_col <= pixel_x - 12'd40;
+                    y_axis_char_col <= (pixel_x - 12'd20) << 1;
                 end
-                else if (pixel_x >= 56 && pixel_x < 72) begin
+                else if (pixel_x >= 28 && pixel_x < 36) begin
                     y_axis_char_code <= 8'd37;  // '%'
-                    y_axis_char_col <= pixel_x - 12'd56;
+                    y_axis_char_col <= (pixel_x - 12'd28) << 1;
                 end
                 else begin
                     y_axis_char_valid <= 1'b0;
                 end
             end
-            // 25% (Y: 637-669)
+            // 25% (Y: 425-441, 16px高，2倍缩放)
             else if (pixel_y >= 425 && pixel_y < 441) begin
-                y_axis_char_row <= (pixel_y - 12'd425) << 1;
+                y_axis_char_row <= (pixel_y - 12'd425) << 1;  // 0-15 -> 0-30
                 y_axis_char_valid <= 1'b1;
-                if (pixel_x >= 24 && pixel_x < 40) begin
+                if (pixel_x >= 12 && pixel_x < 20) begin
                     y_axis_char_code <= 8'd50;  // '2'
-                    y_axis_char_col <= pixel_x - 12'd24;
+                    y_axis_char_col <= (pixel_x - 12'd12) << 1;
                 end
-                else if (pixel_x >= 40 && pixel_x < 56) begin
+                else if (pixel_x >= 20 && pixel_x < 28) begin
                     y_axis_char_code <= 8'd53;  // '5'
-                    y_axis_char_col <= pixel_x - 12'd40;
+                    y_axis_char_col <= (pixel_x - 12'd20) << 1;
                 end
-                else if (pixel_x >= 56 && pixel_x < 72) begin
+                else if (pixel_x >= 28 && pixel_x < 36) begin
                     y_axis_char_code <= 8'd37;  // '%'
-                    y_axis_char_col <= pixel_x - 12'd56;
+                    y_axis_char_col <= (pixel_x - 12'd28) << 1;
                 end
                 else begin
                     y_axis_char_valid <= 1'b0;
                 end
             end
-            // 0% (Y: 793-825)
+            // 0% (Y: 532-548, 16px高，2倍缩放)
             else if (pixel_y >= 532 && pixel_y < 548) begin
-                y_axis_char_row <= (pixel_y - 12'd532) << 1;
+                y_axis_char_row <= (pixel_y - 12'd532) << 1;  // 0-15 -> 0-30
                 y_axis_char_valid <= 1'b1;
-                if (pixel_x >= 40 && pixel_x < 56) begin
+                if (pixel_x >= 20 && pixel_x < 28) begin
                     y_axis_char_code <= 8'd48;  // '0'
-                    y_axis_char_col <= pixel_x - 12'd40;
+                    y_axis_char_col <= (pixel_x - 12'd20) << 1;
                 end
-                else if (pixel_x >= 56 && pixel_x < 72) begin
+                else if (pixel_x >= 28 && pixel_x < 36) begin
                     y_axis_char_code <= 8'd37;  // '%'
-                    y_axis_char_col <= pixel_x - 12'd56;
+                    y_axis_char_col <= (pixel_x - 12'd28) << 1;
                 end
                 else begin
                     y_axis_char_valid <= 1'b0;
@@ -984,1065 +991,1040 @@ always @(posedge clk_pixel or negedge rst_n) begin
     // �?有效频谱�? �?Fs/2 = 17.5MHz（前4096个bin�?
     // 频域模式�?, 3.5, 7.0, 10.5, 14.0, 17.5 MHz
     // 时域模式�?, 47, 93, 140, 186, 234 us (8192�?@ 35MHz = 234us)
-    else if (pixel_y_d1 >= SPECTRUM_Y_END && pixel_y_d1 < SPECTRUM_Y_END + 16) begin
-        char_row <= (pixel_y_d1 - SPECTRUM_Y_END) << 1;
+    else if (pixel_y_d1 >= SPECTRUM_Y_END && pixel_y_d1 < SPECTRUM_Y_END + 24) begin
+        char_row <= ((pixel_y_d1 - SPECTRUM_Y_END) << 2) / 3;  // 0-23 -> 0-30 (1.33倍缩放)
         
-        // X = 80: "0"
-        if (pixel_x_d1 >= 80 && pixel_x_d1 < 96) begin
+        // 标记点0: X=80, "0"
+        if (pixel_x_d1 >= 80 && pixel_x_d1 < 92) begin
             char_code <= 8'd48;  // '0'
-            char_col <= pixel_x_d1 - 12'd80;
+            char_col <= ((pixel_x_d1 - 12'd80) << 2) / 3;  // 0-11 -> 0-14 (1.33倍缩放)
             in_char_area <= 1'b1;
         end
-        // X = 444: "3.5" (频域MHz) �?"47" (时域us)
-        else if (pixel_x_d1 >= 428 && pixel_x_d1 < 444 && work_mode_d1[0]) begin
-            char_code <= 8'd51;  // '3'
-            char_col <= pixel_x_d1 - 12'd428;
+        // 标记点1: X=272, "2.9" (频域MHz) / "39" (时域us)
+        else if (pixel_x_d1 >= 260 && pixel_x_d1 < 272) begin
+            char_code <= work_mode_d1[0] ? 8'd50 : 8'd51;  // '2' or '3'
+            char_col <= ((pixel_x_d1 - 12'd260) << 2) / 3;
             in_char_area <= 1'b1;
         end
-        else if (pixel_x_d1 >= 444 && pixel_x_d1 < 460) begin
-            char_code <= work_mode_d1[0] ? 8'd46 : 8'd52;  // '.' or '4'
-            char_col <= pixel_x_d1 - 12'd444;
+        else if (pixel_x_d1 >= 272 && pixel_x_d1 < 284) begin
+            char_code <= work_mode_d1[0] ? 8'd46 : 8'd57;  // '.' or '9'
+            char_col <= ((pixel_x_d1 - 12'd272) << 2) / 3;
             in_char_area <= 1'b1;
         end
-        else if (pixel_x_d1 >= 460 && pixel_x_d1 < 476) begin
+        else if (pixel_x_d1 >= 284 && pixel_x_d1 < 296 && work_mode_d1[0]) begin
+            char_code <= 8'd57;  // '9' (频域的小数位)
+            char_col <= ((pixel_x_d1 - 12'd284) << 2) / 3;
+            in_char_area <= 1'b1;
+        end
+        // 标记点2: X=463, "5.8" (频域MHz) / "78" (时域us)
+        else if (pixel_x_d1 >= 451 && pixel_x_d1 < 463) begin
             char_code <= work_mode_d1[0] ? 8'd53 : 8'd55;  // '5' or '7'
-            char_col <= pixel_x_d1 - 12'd460;
+            char_col <= ((pixel_x_d1 - 12'd451) << 2) / 3;
             in_char_area <= 1'b1;
         end
-        // X = 808: "7.0" (频域) �?"93" (时域)
-        else if (pixel_x_d1 >= 808 && pixel_x_d1 < 824) begin
-            char_code <= work_mode_d1[0] ? 8'd55 : 8'd57;  // '7' or '9'
-            char_col <= pixel_x_d1 - 12'd808;
+        else if (pixel_x_d1 >= 463 && pixel_x_d1 < 475) begin
+            char_code <= work_mode_d1[0] ? 8'd46 : 8'd56;  // '.' or '8'
+            char_col <= ((pixel_x_d1 - 12'd463) << 2) / 3;
             in_char_area <= 1'b1;
         end
-        else if (pixel_x_d1 >= 824 && pixel_x_d1 < 840) begin
-            char_code <= work_mode_d1[0] ? 8'd46 : 8'd51;  // '.' or '3'
-            char_col <= pixel_x_d1 - 12'd824;
+        else if (pixel_x_d1 >= 475 && pixel_x_d1 < 487 && work_mode_d1[0]) begin
+            char_code <= 8'd56;  // '8' (频域的小数位)
+            char_col <= ((pixel_x_d1 - 12'd475) << 2) / 3;
             in_char_area <= 1'b1;
         end
-        else if (pixel_x_d1 >= 840 && pixel_x_d1 < 856 && work_mode_d1[0]) begin
-            char_code <= 8'd48;  // '0' (频域的小数位)
-            char_col <= pixel_x_d1 - 12'd840;
+        // 标记点3: X=655, "8.8" (频域MHz) / "117" (时域us)
+        else if (pixel_x_d1 >= 643 && pixel_x_d1 < 655) begin
+            char_code <= work_mode_d1[0] ? 8'd56 : 8'd49;  // '8' or '1'
+            char_col <= ((pixel_x_d1 - 12'd643) << 2) / 3;
             in_char_area <= 1'b1;
         end
-        // X = 1172: "10.5" (频域) �?"140" (时域)
-        else if (pixel_x_d1 >= 1156 && pixel_x_d1 < 1172) begin
+        else if (pixel_x_d1 >= 655 && pixel_x_d1 < 667) begin
+            char_code <= work_mode_d1[0] ? 8'd46 : 8'd49;  // '.' or '1'
+            char_col <= ((pixel_x_d1 - 12'd655) << 2) / 3;
+            in_char_area <= 1'b1;
+        end
+        else if (pixel_x_d1 >= 667 && pixel_x_d1 < 679) begin
+            char_code <= work_mode_d1[0] ? 8'd56 : 8'd55;  // '8' or '7'
+            char_col <= ((pixel_x_d1 - 12'd667) << 2) / 3;
+            in_char_area <= 1'b1;
+        end
+        // 标记点4: X=847, "11.7" (频域MHz) / "156" (时域us)
+        else if (pixel_x_d1 >= 835 && pixel_x_d1 < 847) begin
             char_code <= 8'd49;  // '1'
-            char_col <= pixel_x_d1 - 12'd1156;
+            char_col <= ((pixel_x_d1 - 12'd835) << 2) / 3;
             in_char_area <= 1'b1;
         end
-        else if (pixel_x_d1 >= 1172 && pixel_x_d1 < 1188) begin
-            char_code <= work_mode_d1[0] ? 8'd48 : 8'd52;  // '0' or '4'
-            char_col <= pixel_x_d1 - 12'd1172;
+        else if (pixel_x_d1 >= 847 && pixel_x_d1 < 859) begin
+            char_code <= work_mode_d1[0] ? 8'd49 : 8'd53;  // '1' or '5'
+            char_col <= ((pixel_x_d1 - 12'd847) << 2) / 3;
             in_char_area <= 1'b1;
         end
-        else if (pixel_x_d1 >= 1188 && pixel_x_d1 < 1204) begin
-            char_code <= work_mode_d1[0] ? 8'd46 : 8'd48;  // '.' or '0'
-            char_col <= pixel_x_d1 - 12'd1188;
-            in_char_area <= 1'b1;
-        end
-        else if (pixel_x_d1 >= 1204 && pixel_x_d1 < 1220 && work_mode_d1[0]) begin
-            char_code <= 8'd53;  // '5' (频域的小数位)
-            char_col <= pixel_x_d1 - 12'd1204;
-            in_char_area <= 1'b1;
-        end
-        // X = 1536: "14.0" (频域) �?"186" (时域)
-        else if (pixel_x_d1 >= 1520 && pixel_x_d1 < 1536) begin
-            char_code <= 8'd49;  // '1'
-            char_col <= pixel_x_d1 - 12'd1520;
-            in_char_area <= 1'b1;
-        end
-        else if (pixel_x_d1 >= 1536 && pixel_x_d1 < 1552) begin
-            char_code <= work_mode_d1[0] ? 8'd52 : 8'd56;  // '4' or '8'
-            char_col <= pixel_x_d1 - 12'd1536;
-            in_char_area <= 1'b1;
-        end
-        else if (pixel_x_d1 >= 1552 && pixel_x_d1 < 1568) begin
+        else if (pixel_x_d1 >= 859 && pixel_x_d1 < 871) begin
             char_code <= work_mode_d1[0] ? 8'd46 : 8'd54;  // '.' or '6'
-            char_col <= pixel_x_d1 - 12'd1552;
+            char_col <= ((pixel_x_d1 - 12'd859) << 2) / 3;
             in_char_area <= 1'b1;
         end
-        else if (pixel_x_d1 >= 1568 && pixel_x_d1 < 1584 && work_mode_d1[0]) begin
-            char_code <= 8'd48;  // '0' (频域的小数位)
-            char_col <= pixel_x_d1 - 12'd1568;
+        else if (pixel_x_d1 >= 871 && pixel_x_d1 < 883 && work_mode_d1[0]) begin
+            char_code <= 8'd55;  // '7' (频域的小数位)
+            char_col <= ((pixel_x_d1 - 12'd871) << 2) / 3;
             in_char_area <= 1'b1;
         end
-        // X = 1840: "17.5" (频域) �?"234" (时域)
-        else if (pixel_x_d1 >= 1824 && pixel_x_d1 < 1840) begin
+        // 标记点5: X=1038, "14.6" (频域MHz) / "195" (时域us)
+        else if (pixel_x_d1 >= 1026 && pixel_x_d1 < 1038) begin
+            char_code <= work_mode_d1[0] ? 8'd49 : 8'd49;  // '1'
+            char_col <= ((pixel_x_d1 - 12'd1026) << 2) / 3;
+            in_char_area <= 1'b1;
+        end
+        else if (pixel_x_d1 >= 1038 && pixel_x_d1 < 1050) begin
+            char_code <= work_mode_d1[0] ? 8'd52 : 8'd57;  // '4' or '9'
+            char_col <= ((pixel_x_d1 - 12'd1038) << 2) / 3;
+            in_char_area <= 1'b1;
+        end
+        else if (pixel_x_d1 >= 1050 && pixel_x_d1 < 1062) begin
+            char_code <= work_mode_d1[0] ? 8'd46 : 8'd53;  // '.' or '5'
+            char_col <= ((pixel_x_d1 - 12'd1050) << 2) / 3;
+            in_char_area <= 1'b1;
+        end
+        else if (pixel_x_d1 >= 1062 && pixel_x_d1 < 1074 && work_mode_d1[0]) begin
+            char_code <= 8'd54;  // '6' (频域的小数位)
+            char_col <= ((pixel_x_d1 - 12'd1062) << 2) / 3;
+            in_char_area <= 1'b1;
+        end
+        // 标记点6: X=1230, "17.5" (频域MHz) / "234" (时域us)
+        else if (pixel_x_d1 >= 1218 && pixel_x_d1 < 1230) begin
             char_code <= work_mode_d1[0] ? 8'd49 : 8'd50;  // '1' or '2'
-            char_col <= pixel_x_d1 - 12'd1824;
+            char_col <= ((pixel_x_d1 - 12'd1218) << 2) / 3;
             in_char_area <= 1'b1;
         end
-        else if (pixel_x_d1 >= 1840 && pixel_x_d1 < 1856) begin
+        else if (pixel_x_d1 >= 1230 && pixel_x_d1 < 1242) begin
             char_code <= work_mode_d1[0] ? 8'd55 : 8'd51;  // '7' or '3'
-            char_col <= pixel_x_d1 - 12'd1840;
+            char_col <= ((pixel_x_d1 - 12'd1230) << 2) / 3;
             in_char_area <= 1'b1;
         end
-        else if (pixel_x_d1 >= 1856 && pixel_x_d1 < 1872) begin
+        else if (pixel_x_d1 >= 1242 && pixel_x_d1 < 1254) begin
             char_code <= work_mode_d1[0] ? 8'd46 : 8'd52;  // '.' or '4'
-            char_col <= pixel_x_d1 - 12'd1856;
+            char_col <= ((pixel_x_d1 - 12'd1242) << 2) / 3;
             in_char_area <= 1'b1;
         end
-        else if (pixel_x_d1 >= 1872 && pixel_x_d1 < 1888 && work_mode_d1[0]) begin
+        else if (pixel_x_d1 >= 1254 && pixel_x_d1 < 1266 && work_mode_d1[0]) begin
             char_code <= 8'd53;  // '5' (频域的小数位)
-            char_col <= pixel_x_d1 - 12'd1872;
+            char_col <= ((pixel_x_d1 - 12'd1254) << 2) / 3;
+            in_char_area <= 1'b1;
+        end
+        // X轴单位标签: "MHz" (频域) / "us" (时域) - 右侧，仅显示前2个字符
+        else if (pixel_x_d1 >= 1256 && pixel_x_d1 < 1268 && work_mode_d1[0]) begin
+            char_code <= 8'd77;  // 'M' (频域)
+            char_col <= ((pixel_x_d1 - 12'd1256) << 2) / 3;
+            in_char_area <= 1'b1;
+        end
+        else if (pixel_x_d1 >= 1268 && pixel_x_d1 < 1280 && work_mode_d1[0]) begin
+            char_code <= 8'd72;  // 'H' (频域)
+            char_col <= ((pixel_x_d1 - 12'd1268) << 2) / 3;
+            in_char_area <= 1'b1;
+        end
+        else if (pixel_x_d1 >= 1256 && pixel_x_d1 < 1268 && !work_mode_d1[0]) begin
+            char_code <= 8'd117;  // 'u' (时域)
+            char_col <= ((pixel_x_d1 - 12'd1256) << 2) / 3;
+            in_char_area <= 1'b1;
+        end
+        else if (pixel_x_d1 >= 1268 && pixel_x_d1 < 1280 && !work_mode_d1[0]) begin
+            char_code <= 8'd115;  // 's' (时域)
+            char_col <= ((pixel_x_d1 - 12'd1268) << 2) / 3;
             in_char_area <= 1'b1;
         end
     end
     
-    // 判断是否在参数显示区�?
-    if (pixel_y_d1 >= PARAM_Y_START && pixel_y_d1 < PARAM_Y_END) begin
+    //=========================================================================
+    // 表格式参数显示区域 (新版)
+    //=========================================================================
+    else if (pixel_y_d1 >= PARAM_Y_START && pixel_y_d1 < PARAM_Y_END) begin
         
-        // ========== 第1行: 频率 "CH1 Freq: 05000Hz    CH2 Freq: 05000Hz" (高度21像素) ==========
-        if (pixel_y_d1 >= PARAM_Y_START && pixel_y_d1 < PARAM_Y_START + 16) begin
-            char_row <= (pixel_y_d1 - PARAM_Y_START) << 1;
+        //=====================================================================
+        // 表头行 (Y: 580-612, 32px高)
+        //=====================================================================
+        if (pixel_y_d1 >= TABLE_Y_HEADER && pixel_y_d1 < TABLE_Y_HEADER + 32) begin
+            char_row <= pixel_y_d1 - TABLE_Y_HEADER;  // 0-31
             
-            // ----- CH1频率显示 (左侧) -----
-            // "CH1 "
-            if (pixel_x_d1 >= 40 && pixel_x_d1 < 56) begin
+            // 列1: "CH"
+            if (pixel_x_d1 >= COL_CH_X + 4 && pixel_x_d1 < COL_CH_X + 20) begin
                 char_code <= 8'd67;  // 'C'
-                char_col <= pixel_x_d1 - 12'd40;
-                in_char_area <= ch1_enable;
+                char_col <= pixel_x_d1 - COL_CH_X - 12'd4;
+                in_char_area <= 1'b1;
             end
-            else if (pixel_x_d1 >= 56 && pixel_x_d1 < 72) begin
+            else if (pixel_x_d1 >= COL_CH_X + 20 && pixel_x_d1 < COL_CH_X + 36) begin
                 char_code <= 8'd72;  // 'H'
-                char_col <= pixel_x_d1 - 12'd56;
-                in_char_area <= ch1_enable;
+                char_col <= pixel_x_d1 - COL_CH_X - 12'd20;
+                in_char_area <= 1'b1;
             end
-            else if (pixel_x_d1 >= 72 && pixel_x_d1 < 88) begin
-                char_code <= 8'd49;  // '1'
-                char_col <= pixel_x_d1 - 12'd72;
-                in_char_area <= ch1_enable;
-            end
-            // "Freq: "
-            else if (pixel_x_d1 >= 104 && pixel_x_d1 < 120) begin
+            
+            // 列2: "Freq"
+            else if (pixel_x_d1 >= COL_FREQ_X + 8 && pixel_x_d1 < COL_FREQ_X + 24) begin
                 char_code <= 8'd70;  // 'F'
-                char_col <= pixel_x_d1 - 12'd104;
-                in_char_area <= ch1_enable;
+                char_col <= pixel_x_d1 - COL_FREQ_X - 12'd8;
+                in_char_area <= 1'b1;
             end
-            else if (pixel_x_d1 >= 120 && pixel_x_d1 < 136) begin
-                char_code <= 8'd114; // 'r'
-                char_col <= pixel_x_d1 - 12'd120;
-                in_char_area <= ch1_enable;
+            else if (pixel_x_d1 >= COL_FREQ_X + 24 && pixel_x_d1 < COL_FREQ_X + 40) begin
+                char_code <= 8'd114;  // 'r'
+                char_col <= pixel_x_d1 - COL_FREQ_X - 12'd24;
+                in_char_area <= 1'b1;
             end
-            else if (pixel_x_d1 >= 136 && pixel_x_d1 < 152) begin
-                char_code <= 8'd101; // 'e'
-                char_col <= pixel_x_d1 - 12'd136;
-                in_char_area <= ch1_enable;
+            else if (pixel_x_d1 >= COL_FREQ_X + 40 && pixel_x_d1 < COL_FREQ_X + 56) begin
+                char_code <= 8'd101;  // 'e'
+                char_col <= pixel_x_d1 - COL_FREQ_X - 12'd40;
+                in_char_area <= 1'b1;
             end
-            else if (pixel_x_d1 >= 152 && pixel_x_d1 < 168) begin
-                char_code <= 8'd113; // 'q'
-                char_col <= pixel_x_d1 - 12'd152;
-                in_char_area <= ch1_enable;
-            end
-            else if (pixel_x_d1 >= 168 && pixel_x_d1 < 184) begin
-                char_code <= 8'd58;  // ':'
-                char_col <= pixel_x_d1 - 12'd168;
-                in_char_area <= ch1_enable;
-            end
-            // CH1频率数字 (自适应格式：Hz模式5位整数，kHz/MHz模式3位+小数点+2位小数)
-            else if (pixel_x_d1 >= 192 && pixel_x_d1 < 208) begin
-                // 第1位 (192-207)
-                if (ch1_freq_unit == 2'd0) begin
-                    // Hz模式：万位 (前导零抑制)
-                    char_code <= (ch1_freq_d4 == 4'd0) ? 8'd48 : digit_to_ascii(ch1_freq_d4);
-                end else begin
-                    // kHz/MHz模式：百位
-                    char_code <= digit_to_ascii(ch1_freq_d4);
-                end
-                char_col <= pixel_x_d1 - 12'd192;
-                in_char_area <= ch1_enable;
-            end
-            else if (pixel_x_d1 >= 208 && pixel_x_d1 < 224) begin
-                // 第2位 (208-223)
-                if (ch1_freq_unit == 2'd0) begin
-                    // Hz模式：千位
-                    char_code <= digit_to_ascii(ch1_freq_d3);
-                end else begin
-                    // kHz/MHz模式：十位
-                    char_code <= digit_to_ascii(ch1_freq_d3);
-                end
-                char_col <= pixel_x_d1 - 12'd208;
-                in_char_area <= ch1_enable;
-            end
-            else if (pixel_x_d1 >= 224 && pixel_x_d1 < 240) begin
-                // 第3位 (224-239)
-                if (ch1_freq_unit == 2'd0) begin
-                    // Hz模式：百位
-                    char_code <= digit_to_ascii(ch1_freq_d2);
-                end else begin
-                    // kHz/MHz模式：个位
-                    char_code <= digit_to_ascii(ch1_freq_d2);
-                end
-                char_col <= pixel_x_d1 - 12'd224;
-                in_char_area <= ch1_enable;
-            end
-            else if (pixel_x_d1 >= 240 && pixel_x_d1 < 256) begin
-                // 第4位 (240-255)
-                if (ch1_freq_unit == 2'd0) begin
-                    // Hz模式：十位
-                    char_code <= digit_to_ascii(ch1_freq_d1);
-                end else begin
-                    // kHz/MHz模式：小数点 '.'
-                    char_code <= 8'd46;
-                end
-                char_col <= pixel_x_d1 - 12'd240;
-                in_char_area <= ch1_enable;
-            end
-            else if (pixel_x_d1 >= 256 && pixel_x_d1 < 272) begin
-                // 第5位 (256-271)
-                if (ch1_freq_unit == 2'd0) begin
-                    // Hz模式：个位
-                    char_code <= digit_to_ascii(ch1_freq_d0);
-                end else begin
-                    // kHz/MHz模式：小数第1位
-                    char_code <= digit_to_ascii(ch1_freq_d1);
-                end
-                char_col <= pixel_x_d1 - 12'd256;
-                in_char_area <= ch1_enable;
-            end
-            else if (pixel_x_d1 >= 272 && pixel_x_d1 < 288) begin
-                // 第6位 (272-287) - 仅kHz/MHz模式使用
-                if (ch1_freq_unit != 2'd0) begin
-                    // kHz/MHz模式：小数第2位
-                    char_code <= digit_to_ascii(ch1_freq_d0);
-                    char_col <= pixel_x_d1 - 12'd272;
-                    in_char_area <= ch1_enable;
-                end else begin
-                    in_char_area <= 1'b0;  // Hz模式无此位
-                end
-            end
-            // 单位显示：Hz / kHz / MHz (从288px开始)
-            else if (pixel_x_d1 >= 288 && pixel_x_d1 < 304) begin
-                // 第一个字符：'H' / 'k' / 'M'
-                case (ch1_freq_unit)
-                    2'd0: char_code <= 8'd72;   // 'H' (Hz)
-                    2'd1: char_code <= 8'd107;  // 'k' (kHz)
-                    2'd2: char_code <= 8'd77;   // 'M' (MHz)
-                    default: char_code <= 8'd32;
-                endcase
-                char_col <= pixel_x_d1 - 12'd288;
-                in_char_area <= ch1_enable;
-            end
-            else if (pixel_x_d1 >= 304 && pixel_x_d1 < 320) begin
-                // 第二个字符：'z' / 'H' / 'H'
-                case (ch1_freq_unit)
-                    2'd0: char_code <= 8'd122;  // 'z' (Hz)
-                    2'd1: char_code <= 8'd72;   // 'H' (kHz)
-                    2'd2: char_code <= 8'd72;   // 'H' (MHz)
-                    default: char_code <= 8'd32;
-                endcase
-                char_col <= pixel_x_d1 - 12'd304;
-                in_char_area <= ch1_enable;
-            end
-            else if (pixel_x_d1 >= 320 && pixel_x_d1 < 336) begin
-                // 第三个字符：' ' / 'z' / 'z'
-                case (ch1_freq_unit)
-                    2'd0: char_code <= 8'd32;   // ' ' (Hz只有2字符)
-                    2'd1: char_code <= 8'd122;  // 'z' (kHz)
-                    2'd2: char_code <= 8'd122;  // 'z' (MHz)
-                    default: char_code <= 8'd32;
-                endcase
-                char_col <= pixel_x_d1 - 12'd320;
-                in_char_area <= ch1_enable;
+            else if (pixel_x_d1 >= COL_FREQ_X + 56 && pixel_x_d1 < COL_FREQ_X + 72) begin
+                char_code <= 8'd113;  // 'q'
+                char_col <= pixel_x_d1 - COL_FREQ_X - 12'd56;
+                in_char_area <= 1'b1;
             end
             
-            // ----- CH2频率显示 (右侧，X: 1000开�? -----
-            // "CH2 "
-            else if (pixel_x_d1 >= 1000 && pixel_x_d1 < 1016) begin
-                char_code <= 8'd67;  // 'C'
-                char_col <= pixel_x_d1 - 12'd1000;
-                in_char_area <= ch2_enable;
-            end
-            else if (pixel_x_d1 >= 1016 && pixel_x_d1 < 1032) begin
-                char_code <= 8'd72;  // 'H'
-                char_col <= pixel_x_d1 - 12'd1016;
-                in_char_area <= ch2_enable;
-            end
-            else if (pixel_x_d1 >= 1032 && pixel_x_d1 < 1048) begin
-                char_code <= 8'd50;  // '2'
-                char_col <= pixel_x_d1 - 12'd1032;
-                in_char_area <= ch2_enable;
-            end
-            // "Freq: "
-            else if (pixel_x_d1 >= 1064 && pixel_x_d1 < 1080) begin
-                char_code <= 8'd70;  // 'F'
-                char_col <= pixel_x_d1 - 12'd1064;
-                in_char_area <= ch2_enable;
-            end
-            else if (pixel_x_d1 >= 1080 && pixel_x_d1 < 1096) begin
-                char_code <= 8'd114; // 'r'
-                char_col <= pixel_x_d1 - 12'd1080;
-                in_char_area <= ch2_enable;
-            end
-            else if (pixel_x_d1 >= 1096 && pixel_x_d1 < 1112) begin
-                char_code <= 8'd101; // 'e'
-                char_col <= pixel_x_d1 - 12'd1096;
-                in_char_area <= ch2_enable;
-            end
-            else if (pixel_x_d1 >= 1112 && pixel_x_d1 < 1128) begin
-                char_code <= 8'd113; // 'q'
-                char_col <= pixel_x_d1 - 12'd1112;
-                in_char_area <= ch2_enable;
-            end
-            else if (pixel_x_d1 >= 1128 && pixel_x_d1 < 1144) begin
-                char_code <= 8'd58;  // ':'
-                char_col <= pixel_x_d1 - 12'd1128;
-                in_char_area <= ch2_enable;
-            end
-            // CH2频率数字 (自适应格式：Hz模式5位整数，kHz/MHz模式3位+小数点+2位小数)
-            else if (pixel_x_d1 >= 1152 && pixel_x_d1 < 1168) begin
-                // 第1位
-                if (ch2_freq_unit == 2'd0) begin
-                    // Hz模式：万位
-                    char_code <= (ch2_freq_d4 == 4'd0) ? 8'd48 : digit_to_ascii(ch2_freq_d4);
-                end else begin
-                    // kHz/MHz模式：百位
-                    char_code <= digit_to_ascii(ch2_freq_d4);
-                end
-                char_col <= pixel_x_d1 - 12'd1152;
-                in_char_area <= ch2_enable;
-            end
-            else if (pixel_x_d1 >= 1168 && pixel_x_d1 < 1184) begin
-                // 第2位
-                if (ch2_freq_unit == 2'd0) begin
-                    // Hz模式：千位
-                    char_code <= digit_to_ascii(ch2_freq_d3);
-                end else begin
-                    // kHz/MHz模式：十位
-                    char_code <= digit_to_ascii(ch2_freq_d3);
-                end
-                char_col <= pixel_x_d1 - 12'd1168;
-                in_char_area <= ch2_enable;
-            end
-            else if (pixel_x_d1 >= 1184 && pixel_x_d1 < 1200) begin
-                // 第3位
-                if (ch2_freq_unit == 2'd0) begin
-                    // Hz模式：百位
-                    char_code <= digit_to_ascii(ch2_freq_d2);
-                end else begin
-                    // kHz/MHz模式：个位
-                    char_code <= digit_to_ascii(ch2_freq_d2);
-                end
-                char_col <= pixel_x_d1 - 12'd1184;
-                in_char_area <= ch2_enable;
-            end
-            else if (pixel_x_d1 >= 1200 && pixel_x_d1 < 1216) begin
-                // 第4位
-                if (ch2_freq_unit == 2'd0) begin
-                    // Hz模式：十位
-                    char_code <= digit_to_ascii(ch2_freq_d1);
-                end else begin
-                    // kHz/MHz模式：小数点 '.'
-                    char_code <= 8'd46;
-                end
-                char_col <= pixel_x_d1 - 12'd1200;
-                in_char_area <= ch2_enable;
-            end
-            else if (pixel_x_d1 >= 1216 && pixel_x_d1 < 1232) begin
-                // 第5位
-                if (ch2_freq_unit == 2'd0) begin
-                    // Hz模式：个位
-                    char_code <= digit_to_ascii(ch2_freq_d0);
-                end else begin
-                    // kHz/MHz模式：小数第1位
-                    char_code <= digit_to_ascii(ch2_freq_d1);
-                end
-                char_col <= pixel_x_d1 - 12'd1216;
-                in_char_area <= ch2_enable;
-            end
-            else if (pixel_x_d1 >= 1232 && pixel_x_d1 < 1248) begin
-                // 第6位 - 仅kHz/MHz模式使用
-                if (ch2_freq_unit != 2'd0) begin
-                    // kHz/MHz模式：小数第2位
-                    char_code <= digit_to_ascii(ch2_freq_d0);
-                    char_col <= pixel_x_d1 - 12'd1232;
-                    in_char_area <= ch2_enable;
-                end else begin
-                    in_char_area <= 1'b0;  // Hz模式无此位
-                end
-            end
-            // 单位显示：Hz / kHz / MHz (从1248px开始)
-            else if (pixel_x_d1 >= 1248 && pixel_x_d1 < 1264) begin
-                // 第一个字符：'H' / 'k' / 'M'
-                case (ch2_freq_unit)
-                    2'd0: char_code <= 8'd72;   // 'H' (Hz)
-                    2'd1: char_code <= 8'd107;  // 'k' (kHz)
-                    2'd2: char_code <= 8'd77;   // 'M' (MHz)
-                    default: char_code <= 8'd32;
-                endcase
-                char_col <= pixel_x_d1 - 12'd1248;
-                in_char_area <= ch2_enable;
-            end
-            else if (pixel_x_d1 >= 1264 && pixel_x_d1 < 1280) begin
-                // 第二个字符：'z' / 'H' / 'H'
-                case (ch2_freq_unit)
-                    2'd0: char_code <= 8'd122;  // 'z' (Hz)
-                    2'd1: char_code <= 8'd72;   // 'H' (kHz)
-                    2'd2: char_code <= 8'd72;   // 'H' (MHz)
-                    default: char_code <= 8'd32;
-                endcase
-                char_col <= pixel_x_d1 - 12'd1264;
-                in_char_area <= ch2_enable;
-            end
-        end
-        
-        // ========== 第2行: 幅度 "CH1 Ampl: 0051    CH2 Ampl: 0051" (高度21像素) ==========
-        else if (pixel_y_d1 >= PARAM_Y_START + 20 && pixel_y_d1 < PARAM_Y_START + 36) begin
-            char_row <= (pixel_y_d1 - PARAM_Y_START - 12'd20) << 1;
-            
-            // ----- CH1幅度显示 (左侧) -----
-            // "CH1 "
-            if (pixel_x_d1 >= 40 && pixel_x_d1 < 56) begin
-                char_code <= 8'd67;  // 'C'
-                char_col <= pixel_x_d1 - 12'd40;
-                in_char_area <= ch1_enable;
-            end
-            else if (pixel_x_d1 >= 56 && pixel_x_d1 < 72) begin
-                char_code <= 8'd72;  // 'H'
-                char_col <= pixel_x_d1 - 12'd56;
-                in_char_area <= ch1_enable;
-            end
-            else if (pixel_x_d1 >= 72 && pixel_x_d1 < 88) begin
-                char_code <= 8'd49;  // '1'
-                char_col <= pixel_x_d1 - 12'd72;
-                in_char_area <= ch1_enable;
-            end
-            // "Ampl: "
-            else if (pixel_x_d1 >= 104 && pixel_x_d1 < 120) begin
+            // 列3: "Ampl"
+            else if (pixel_x_d1 >= COL_AMPL_X + 8 && pixel_x_d1 < COL_AMPL_X + 24) begin
                 char_code <= 8'd65;  // 'A'
-                char_col <= pixel_x_d1 - 12'd104;
-                in_char_area <= ch1_enable;
+                char_col <= pixel_x_d1 - COL_AMPL_X - 12'd8;
+                in_char_area <= 1'b1;
             end
-            else if (pixel_x_d1 >= 120 && pixel_x_d1 < 136) begin
-                char_code <= 8'd109; // 'm'
-                char_col <= pixel_x_d1 - 12'd120;
-                in_char_area <= ch1_enable;
+            else if (pixel_x_d1 >= COL_AMPL_X + 24 && pixel_x_d1 < COL_AMPL_X + 40) begin
+                char_code <= 8'd109;  // 'm'
+                char_col <= pixel_x_d1 - COL_AMPL_X - 12'd24;
+                in_char_area <= 1'b1;
             end
-            else if (pixel_x_d1 >= 136 && pixel_x_d1 < 152) begin
-                char_code <= 8'd112; // 'p'
-                char_col <= pixel_x_d1 - 12'd136;
-                in_char_area <= ch1_enable;
+            else if (pixel_x_d1 >= COL_AMPL_X + 40 && pixel_x_d1 < COL_AMPL_X + 56) begin
+                char_code <= 8'd112;  // 'p'
+                char_col <= pixel_x_d1 - COL_AMPL_X - 12'd40;
+                in_char_area <= 1'b1;
             end
-            else if (pixel_x_d1 >= 152 && pixel_x_d1 < 168) begin
-                char_code <= 8'd108; // 'l'
-                char_col <= pixel_x_d1 - 12'd152;
-                in_char_area <= ch1_enable;
-            end
-            else if (pixel_x_d1 >= 168 && pixel_x_d1 < 184) begin
-                char_code <= 8'd58;  // ':'
-                char_col <= pixel_x_d1 - 12'd168;
-                in_char_area <= ch1_enable;
-            end
-            // CH1幅度数�?(4位数)
-            else if (pixel_x_d1 >= 192 && pixel_x_d1 < 208) begin
-                char_code <= digit_to_ascii(ch1_amp_d3);
-                char_col <= pixel_x_d1 - 12'd192;
-                in_char_area <= ch1_enable;
-            end
-            else if (pixel_x_d1 >= 208 && pixel_x_d1 < 224) begin
-                char_code <= digit_to_ascii(ch1_amp_d2);
-                char_col <= pixel_x_d1 - 12'd208;
-                in_char_area <= ch1_enable;
-            end
-            else if (pixel_x_d1 >= 224 && pixel_x_d1 < 240) begin
-                char_code <= digit_to_ascii(ch1_amp_d1);
-                char_col <= pixel_x_d1 - 12'd224;
-                in_char_area <= ch1_enable;
-            end
-            else if (pixel_x_d1 >= 240 && pixel_x_d1 < 256) begin
-                char_code <= digit_to_ascii(ch1_amp_d0);
-                char_col <= pixel_x_d1 - 12'd240;
-                in_char_area <= ch1_enable;
+            else if (pixel_x_d1 >= COL_AMPL_X + 56 && pixel_x_d1 < COL_AMPL_X + 72) begin
+                char_code <= 8'd108;  // 'l'
+                char_col <= pixel_x_d1 - COL_AMPL_X - 12'd56;
+                in_char_area <= 1'b1;
             end
             
-            // ----- CH2幅度显示 (右侧) -----
-            // "CH2 "
-            else if (pixel_x_d1 >= 1000 && pixel_x_d1 < 1016) begin
-                char_code <= 8'd67;  // 'C'
-                char_col <= pixel_x_d1 - 12'd1000;
-                in_char_area <= ch2_enable;
-            end
-            else if (pixel_x_d1 >= 1016 && pixel_x_d1 < 1032) begin
-                char_code <= 8'd72;  // 'H'
-                char_col <= pixel_x_d1 - 12'd1016;
-                in_char_area <= ch2_enable;
-            end
-            else if (pixel_x_d1 >= 1032 && pixel_x_d1 < 1048) begin
-                char_code <= 8'd50;  // '2'
-                char_col <= pixel_x_d1 - 12'd1032;
-                in_char_area <= ch2_enable;
-            end
-            // "Ampl: "
-            else if (pixel_x_d1 >= 1064 && pixel_x_d1 < 1080) begin
-                char_code <= 8'd65;  // 'A'
-                char_col <= pixel_x_d1 - 12'd1064;
-                in_char_area <= ch2_enable;
-            end
-            else if (pixel_x_d1 >= 1080 && pixel_x_d1 < 1096) begin
-                char_code <= 8'd109; // 'm'
-                char_col <= pixel_x_d1 - 12'd1080;
-                in_char_area <= ch2_enable;
-            end
-            else if (pixel_x_d1 >= 1096 && pixel_x_d1 < 1112) begin
-                char_code <= 8'd112; // 'p'
-                char_col <= pixel_x_d1 - 12'd1096;
-                in_char_area <= ch2_enable;
-            end
-            else if (pixel_x_d1 >= 1112 && pixel_x_d1 < 1128) begin
-                char_code <= 8'd108; // 'l'
-                char_col <= pixel_x_d1 - 12'd1112;
-                in_char_area <= ch2_enable;
-            end
-            else if (pixel_x_d1 >= 1128 && pixel_x_d1 < 1144) begin
-                char_code <= 8'd58;  // ':'
-                char_col <= pixel_x_d1 - 12'd1128;
-                in_char_area <= ch2_enable;
-            end
-            // CH2幅度数�?(4位数)
-            else if (pixel_x_d1 >= 1152 && pixel_x_d1 < 1168) begin
-                char_code <= digit_to_ascii(ch2_amp_d3);
-                char_col <= pixel_x_d1 - 12'd1152;
-                in_char_area <= ch2_enable;
-            end
-            else if (pixel_x_d1 >= 1168 && pixel_x_d1 < 1184) begin
-                char_code <= digit_to_ascii(ch2_amp_d2);
-                char_col <= pixel_x_d1 - 12'd1168;
-                in_char_area <= ch2_enable;
-            end
-            else if (pixel_x_d1 >= 1184 && pixel_x_d1 < 1200) begin
-                char_code <= digit_to_ascii(ch2_amp_d1);
-                char_col <= pixel_x_d1 - 12'd1184;
-                in_char_area <= ch2_enable;
-            end
-            else if (pixel_x_d1 >= 1200 && pixel_x_d1 < 1216) begin
-                char_code <= digit_to_ascii(ch2_amp_d0);
-                char_col <= pixel_x_d1 - 12'd1200;
-                in_char_area <= ch2_enable;
-            end
-        end
-        
-        // ========== �?�? 占空�?"CH1 Duty: 50.0%    CH2 Duty: 50.0%" ==========
-        else if (pixel_y_d1 >= PARAM_Y_START + 40 && pixel_y_d1 < PARAM_Y_START + 56) begin
-            char_row <= (pixel_y_d1 - PARAM_Y_START - 12'd40) << 1;
-            
-            // ----- CH1占空�?(左侧) -----
-            // "CH1 "
-            if (pixel_x_d1 >= 40 && pixel_x_d1 < 56) begin
-                char_code <= 8'd67;  // 'C'
-                char_col <= pixel_x_d1 - 12'd40;
-                in_char_area <= ch1_enable;
-            end
-            else if (pixel_x_d1 >= 56 && pixel_x_d1 < 72) begin
-                char_code <= 8'd72;  // 'H'
-                char_col <= pixel_x_d1 - 12'd56;
-                in_char_area <= ch1_enable;
-            end
-            else if (pixel_x_d1 >= 72 && pixel_x_d1 < 88) begin
-                char_code <= 8'd49;  // '1'
-                char_col <= pixel_x_d1 - 12'd72;
-                in_char_area <= ch1_enable;
-            end
-            // "Duty: "
-            else if (pixel_x_d1 >= 104 && pixel_x_d1 < 120) begin
+            // 列4: "Duty"
+            else if (pixel_x_d1 >= COL_DUTY_X + 8 && pixel_x_d1 < COL_DUTY_X + 24) begin
                 char_code <= 8'd68;  // 'D'
-                char_col <= pixel_x_d1 - 12'd104;
-                in_char_area <= ch1_enable;
+                char_col <= pixel_x_d1 - COL_DUTY_X - 12'd8;
+                in_char_area <= 1'b1;
             end
-            else if (pixel_x_d1 >= 120 && pixel_x_d1 < 136) begin
-                char_code <= 8'd117; // 'u'
-                char_col <= pixel_x_d1 - 12'd120;
-                in_char_area <= ch1_enable;
+            else if (pixel_x_d1 >= COL_DUTY_X + 24 && pixel_x_d1 < COL_DUTY_X + 40) begin
+                char_code <= 8'd117;  // 'u'
+                char_col <= pixel_x_d1 - COL_DUTY_X - 12'd24;
+                in_char_area <= 1'b1;
             end
-            else if (pixel_x_d1 >= 136 && pixel_x_d1 < 152) begin
-                char_code <= 8'd116; // 't'
-                char_col <= pixel_x_d1 - 12'd136;
-                in_char_area <= ch1_enable;
+            else if (pixel_x_d1 >= COL_DUTY_X + 40 && pixel_x_d1 < COL_DUTY_X + 56) begin
+                char_code <= 8'd116;  // 't'
+                char_col <= pixel_x_d1 - COL_DUTY_X - 12'd40;
+                in_char_area <= 1'b1;
             end
-            else if (pixel_x_d1 >= 152 && pixel_x_d1 < 168) begin
-                char_code <= 8'd121; // 'y'
-                char_col <= pixel_x_d1 - 12'd152;
-                in_char_area <= ch1_enable;
-            end
-            else if (pixel_x_d1 >= 168 && pixel_x_d1 < 184) begin
-                char_code <= 8'd58;  // ':'
-                char_col <= pixel_x_d1 - 12'd168;
-                in_char_area <= ch1_enable;
-            end
-            // CH1占空比数�?(格式: 50.0%)
-            else if (pixel_x_d1 >= 192 && pixel_x_d1 < 208) begin
-                char_code <= digit_to_ascii(ch1_duty_d2);
-                char_col <= pixel_x_d1 - 12'd192;
-                in_char_area <= ch1_enable;
-            end
-            else if (pixel_x_d1 >= 208 && pixel_x_d1 < 224) begin
-                char_code <= digit_to_ascii(ch1_duty_d1);
-                char_col <= pixel_x_d1 - 12'd208;
-                in_char_area <= ch1_enable;
-            end
-            else if (pixel_x_d1 >= 224 && pixel_x_d1 < 240) begin
-                char_code <= 8'd46;  // '.'
-                char_col <= pixel_x_d1 - 12'd224;
-                in_char_area <= ch1_enable;
-            end
-            else if (pixel_x_d1 >= 240 && pixel_x_d1 < 256) begin
-                char_code <= digit_to_ascii(ch1_duty_d0);
-                char_col <= pixel_x_d1 - 12'd240;
-                in_char_area <= ch1_enable;
-            end
-            else if (pixel_x_d1 >= 256 && pixel_x_d1 < 272) begin
-                char_code <= 8'd37;  // '%'
-                char_col <= pixel_x_d1 - 12'd256;
-                in_char_area <= ch1_enable;
+            else if (pixel_x_d1 >= COL_DUTY_X + 56 && pixel_x_d1 < COL_DUTY_X + 72) begin
+                char_code <= 8'd121;  // 'y'
+                char_col <= pixel_x_d1 - COL_DUTY_X - 12'd56;
+                in_char_area <= 1'b1;
             end
             
-            // ----- CH2占空�?(右侧) -----
-            // "CH2 "
-            else if (pixel_x_d1 >= 1000 && pixel_x_d1 < 1016) begin
-                char_code <= 8'd67;  // 'C'
-                char_col <= pixel_x_d1 - 12'd1000;
-                in_char_area <= ch2_enable;
-            end
-            else if (pixel_x_d1 >= 1016 && pixel_x_d1 < 1032) begin
-                char_code <= 8'd72;  // 'H'
-                char_col <= pixel_x_d1 - 12'd1016;
-                in_char_area <= ch2_enable;
-            end
-            else if (pixel_x_d1 >= 1032 && pixel_x_d1 < 1048) begin
-                char_code <= 8'd50;  // '2'
-                char_col <= pixel_x_d1 - 12'd1032;
-                in_char_area <= ch2_enable;
-            end
-            // "Duty: "
-            else if (pixel_x_d1 >= 1064 && pixel_x_d1 < 1080) begin
-                char_code <= 8'd68;  // 'D'
-                char_col <= pixel_x_d1 - 12'd1064;
-                in_char_area <= ch2_enable;
-            end
-            else if (pixel_x_d1 >= 1080 && pixel_x_d1 < 1096) begin
-                char_code <= 8'd117; // 'u'
-                char_col <= pixel_x_d1 - 12'd1080;
-                in_char_area <= ch2_enable;
-            end
-            else if (pixel_x_d1 >= 1096 && pixel_x_d1 < 1112) begin
-                char_code <= 8'd116; // 't'
-                char_col <= pixel_x_d1 - 12'd1096;
-                in_char_area <= ch2_enable;
-            end
-            else if (pixel_x_d1 >= 1112 && pixel_x_d1 < 1128) begin
-                char_code <= 8'd121; // 'y'
-                char_col <= pixel_x_d1 - 12'd1112;
-                in_char_area <= ch2_enable;
-            end
-            else if (pixel_x_d1 >= 1128 && pixel_x_d1 < 1144) begin
-                char_code <= 8'd58;  // ':'
-                char_col <= pixel_x_d1 - 12'd1128;
-                in_char_area <= ch2_enable;
-            end
-            // CH2占空比数�?(格式: 50.0%)
-            else if (pixel_x_d1 >= 1152 && pixel_x_d1 < 1168) begin
-                char_code <= digit_to_ascii(ch2_duty_d2);
-                char_col <= pixel_x_d1 - 12'd1152;
-                in_char_area <= ch2_enable;
-            end
-            else if (pixel_x_d1 >= 1168 && pixel_x_d1 < 1184) begin
-                char_code <= digit_to_ascii(ch2_duty_d1);
-                char_col <= pixel_x_d1 - 12'd1168;
-                in_char_area <= ch2_enable;
-            end
-            else if (pixel_x_d1 >= 1184 && pixel_x_d1 < 1200) begin
-                char_code <= 8'd46;  // '.'
-                char_col <= pixel_x_d1 - 12'd1184;
-                in_char_area <= ch2_enable;
-            end
-            else if (pixel_x_d1 >= 1200 && pixel_x_d1 < 1216) begin
-                char_code <= digit_to_ascii(ch2_duty_d0);
-                char_col <= pixel_x_d1 - 12'd1200;
-                in_char_area <= ch2_enable;
-            end
-            else if (pixel_x_d1 >= 1216 && pixel_x_d1 < 1232) begin
-                char_code <= 8'd37;  // '%'
-                char_col <= pixel_x_d1 - 12'd1216;
-                in_char_area <= ch2_enable;
-            end
-        end
-        
-        // ========== �?�? THD "CH1 THD: 1.23%    CH2 THD: 1.23%" ==========
-        else if (pixel_y_d1 >= PARAM_Y_START + 60 && pixel_y_d1 < PARAM_Y_START + 76) begin
-            char_row <= (pixel_y_d1 - PARAM_Y_START - 12'd60) << 1;
-            
-            // ----- CH1 THD (左侧) -----
-            // "CH1 "
-            if (pixel_x_d1 >= 40 && pixel_x_d1 < 56) begin
-                char_code <= 8'd67;  // 'C'
-                char_col <= pixel_x_d1 - 12'd40;
-                in_char_area <= ch1_enable;
-            end
-            else if (pixel_x_d1 >= 56 && pixel_x_d1 < 72) begin
-                char_code <= 8'd72;  // 'H'
-                char_col <= pixel_x_d1 - 12'd56;
-                in_char_area <= ch1_enable;
-            end
-            else if (pixel_x_d1 >= 72 && pixel_x_d1 < 88) begin
-                char_code <= 8'd49;  // '1'
-                char_col <= pixel_x_d1 - 12'd72;
-                in_char_area <= ch1_enable;
-            end
-            // "THD: "
-            else if (pixel_x_d1 >= 104 && pixel_x_d1 < 120) begin
+            // 列5: "THD"
+            else if (pixel_x_d1 >= COL_THD_X + 8 && pixel_x_d1 < COL_THD_X + 24) begin
                 char_code <= 8'd84;  // 'T'
-                char_col <= pixel_x_d1 - 12'd104;
-                in_char_area <= ch1_enable;
+                char_col <= pixel_x_d1 - COL_THD_X - 12'd8;
+                in_char_area <= 1'b1;
             end
-            else if (pixel_x_d1 >= 120 && pixel_x_d1 < 136) begin
+            else if (pixel_x_d1 >= COL_THD_X + 24 && pixel_x_d1 < COL_THD_X + 40) begin
                 char_code <= 8'd72;  // 'H'
-                char_col <= pixel_x_d1 - 12'd120;
-                in_char_area <= ch1_enable;
+                char_col <= pixel_x_d1 - COL_THD_X - 12'd24;
+                in_char_area <= 1'b1;
             end
-            else if (pixel_x_d1 >= 136 && pixel_x_d1 < 152) begin
+            else if (pixel_x_d1 >= COL_THD_X + 40 && pixel_x_d1 < COL_THD_X + 56) begin
                 char_code <= 8'd68;  // 'D'
-                char_col <= pixel_x_d1 - 12'd136;
-                in_char_area <= ch1_enable;
-            end
-            else if (pixel_x_d1 >= 152 && pixel_x_d1 < 168) begin
-                char_code <= 8'd58;  // ':'
-                char_col <= pixel_x_d1 - 12'd152;
-                in_char_area <= ch1_enable;
-            end
-            // CH1 THD数�?(格式: 1.23%)
-            else if (pixel_x_d1 >= 192 && pixel_x_d1 < 208) begin
-                char_code <= digit_to_ascii(ch1_thd_d2);
-                char_col <= pixel_x_d1 - 12'd192;
-                in_char_area <= ch1_enable;
-            end
-            else if (pixel_x_d1 >= 208 && pixel_x_d1 < 224) begin
-                char_code <= 8'd46;  // '.'
-                char_col <= pixel_x_d1 - 12'd208;
-                in_char_area <= ch1_enable;
-            end
-            else if (pixel_x_d1 >= 224 && pixel_x_d1 < 240) begin
-                char_code <= digit_to_ascii(ch1_thd_d1);
-                char_col <= pixel_x_d1 - 12'd224;
-                in_char_area <= ch1_enable;
-            end
-            else if (pixel_x_d1 >= 240 && pixel_x_d1 < 256) begin
-                char_code <= digit_to_ascii(ch1_thd_d0);
-                char_col <= pixel_x_d1 - 12'd240;
-                in_char_area <= ch1_enable;
-            end
-            else if (pixel_x_d1 >= 256 && pixel_x_d1 < 272) begin
-                char_code <= 8'd37;  // '%'
-                char_col <= pixel_x_d1 - 12'd256;
-                in_char_area <= ch1_enable;
-            end
-            
-            // ----- CH2 THD (右侧) -----
-            // "CH2 "
-            else if (pixel_x_d1 >= 1000 && pixel_x_d1 < 1016) begin
-                char_code <= 8'd67;  // 'C'
-                char_col <= pixel_x_d1 - 12'd1000;
-                in_char_area <= ch2_enable;
-            end
-            else if (pixel_x_d1 >= 1016 && pixel_x_d1 < 1032) begin
-                char_code <= 8'd72;  // 'H'
-                char_col <= pixel_x_d1 - 12'd1016;
-                in_char_area <= ch2_enable;
-            end
-            else if (pixel_x_d1 >= 1032 && pixel_x_d1 < 1048) begin
-                char_code <= 8'd50;  // '2'
-                char_col <= pixel_x_d1 - 12'd1032;
-                in_char_area <= ch2_enable;
-            end
-            // "THD: "
-            else if (pixel_x_d1 >= 1064 && pixel_x_d1 < 1080) begin
-                char_code <= 8'd84;  // 'T'
-                char_col <= pixel_x_d1 - 12'd1064;
-                in_char_area <= ch2_enable;
-            end
-            else if (pixel_x_d1 >= 1080 && pixel_x_d1 < 1096) begin
-                char_code <= 8'd72;  // 'H'
-                char_col <= pixel_x_d1 - 12'd1080;
-                in_char_area <= ch2_enable;
-            end
-            else if (pixel_x_d1 >= 1096 && pixel_x_d1 < 1112) begin
-                char_code <= 8'd68;  // 'D'
-                char_col <= pixel_x_d1 - 12'd1096;
-                in_char_area <= ch2_enable;
-            end
-            else if (pixel_x_d1 >= 1112 && pixel_x_d1 < 1128) begin
-                char_code <= 8'd58;  // ':'
-                char_col <= pixel_x_d1 - 12'd1112;
-                in_char_area <= ch2_enable;
-            end
-            // CH2 THD数�?(格式: 1.23%)
-            else if (pixel_x_d1 >= 1152 && pixel_x_d1 < 1168) begin
-                char_code <= digit_to_ascii(ch2_thd_d2);
-                char_col <= pixel_x_d1 - 12'd1152;
-                in_char_area <= ch2_enable;
-            end
-            else if (pixel_x_d1 >= 1168 && pixel_x_d1 < 1184) begin
-                char_code <= 8'd46;  // '.'
-                char_col <= pixel_x_d1 - 12'd1168;
-                in_char_area <= ch2_enable;
-            end
-            else if (pixel_x_d1 >= 1184 && pixel_x_d1 < 1200) begin
-                char_code <= digit_to_ascii(ch2_thd_d1);
-                char_col <= pixel_x_d1 - 12'd1184;
-                in_char_area <= ch2_enable;
-            end
-            else if (pixel_x_d1 >= 1200 && pixel_x_d1 < 1216) begin
-                char_code <= digit_to_ascii(ch2_thd_d0);
-                char_col <= pixel_x_d1 - 12'd1200;
-                in_char_area <= ch2_enable;
-            end
-            else if (pixel_x_d1 >= 1216 && pixel_x_d1 < 1232) begin
-                char_code <= 8'd37;  // '%'
-                char_col <= pixel_x_d1 - 12'd1216;
-                in_char_area <= ch2_enable;
-            end
-        end
-        
-        // �?�? AI识别结果 "CH1: Sine 95%    CH2: Squr 88%" (Y: 870+140=1010)
-        else if (pixel_y_d1 >= PARAM_Y_START + 80 && pixel_y_d1 < PARAM_Y_START + 80) begin
-            char_row <= (pixel_y_d1 - PARAM_Y_START - 12'd80) << 1;
-            
-            // ========== CH1部分 (左侧) ==========
-            // "CH1:"
-            if (pixel_x_d1 >= 40 && pixel_x_d1 < 56) begin
-                char_code <= 8'd67;  // 'C'
-                char_col <= pixel_x_d1 - 12'd40;
-                in_char_area <= 1'b1;
-            end
-            else if (pixel_x_d1 >= 56 && pixel_x_d1 < 72) begin
-                char_code <= 8'd72;  // 'H'
-                char_col <= pixel_x_d1 - 12'd56;
-                in_char_area <= 1'b1;
-            end
-            else if (pixel_x_d1 >= 72 && pixel_x_d1 < 88) begin
-                char_code <= 8'd49;  // '1'
-                char_col <= pixel_x_d1 - 12'd72;
-                in_char_area <= 1'b1;
-            end
-            else if (pixel_x_d1 >= 88 && pixel_x_d1 < 104) begin
-                char_code <= 8'd58;  // ':'
-                char_col <= pixel_x_d1 - 12'd88;
-                in_char_area <= 1'b1;
-            end
-            // CH1波形类型名称 (4个字符)
-            else if (pixel_x_d1 >= 104 && pixel_x_d1 < 120) begin
-                case (ch1_waveform_type)
-                    3'd1: char_code <= 8'd83;  // 'S' (Sine)
-                    3'd2: char_code <= 8'd83;  // 'S' (Square)
-                    3'd3: char_code <= 8'd84;  // 'T' (Triangle)
-                    3'd4: char_code <= 8'd83;  // 'S' (Sawtooth)
-                    3'd5: char_code <= 8'd78;  // 'N' (Noise)
-                    default: char_code <= 8'd85; // 'U' (Unknown)
-                endcase
-                char_col <= pixel_x_d1 - 12'd104;
-                in_char_area <= 1'b1;
-            end
-            else if (pixel_x_d1 >= 120 && pixel_x_d1 < 136) begin
-                case (ch1_waveform_type)
-                    3'd1: char_code <= 8'd105; // 'i'
-                    3'd2: char_code <= 8'd113; // 'q'
-                    3'd3: char_code <= 8'd114; // 'r'
-                    3'd4: char_code <= 8'd97;  // 'a'
-                    3'd5: char_code <= 8'd111; // 'o'
-                    default: char_code <= 8'd110; // 'n'
-                endcase
-                char_col <= pixel_x_d1 - 12'd120;
-                in_char_area <= 1'b1;
-            end
-            else if (pixel_x_d1 >= 136 && pixel_x_d1 < 152) begin
-                case (ch1_waveform_type)
-                    3'd1: char_code <= 8'd110; // 'n'
-                    3'd2: char_code <= 8'd117; // 'u'
-                    3'd3: char_code <= 8'd105; // 'i'
-                    3'd4: char_code <= 8'd119; // 'w'
-                    3'd5: char_code <= 8'd105; // 'i'
-                    default: char_code <= 8'd107; // 'k'
-                endcase
-                char_col <= pixel_x_d1 - 12'd136;
-                in_char_area <= 1'b1;
-            end
-            else if (pixel_x_d1 >= 152 && pixel_x_d1 < 168) begin
-                case (ch1_waveform_type)
-                    3'd1: char_code <= 8'd101; // 'e' (Sine)
-                    3'd2: char_code <= 8'd114; // 'r' (Squr)
-                    3'd3: char_code <= 8'd97;  // 'a' (Tria)
-                    3'd4: char_code <= 8'd32;  // ' ' (Saw)
-                    3'd5: char_code <= 8'd115; // 's' (Nois)
-                    default: char_code <= 8'd110; // 'n' (Unkn)
-                endcase
-                char_col <= pixel_x_d1 - 12'd152;
-                in_char_area <= 1'b1;
-            end
-            // CH1置信度(两位数字 + '%')
-            else if (pixel_x_d1 >= 168 && pixel_x_d1 < 184) begin
-                char_code <= digit_to_ascii((ch1_confidence / 10) % 10); // 十位
-                char_col <= pixel_x_d1 - 12'd168;
-                in_char_area <= 1'b1;
-            end
-            else if (pixel_x_d1 >= 184 && pixel_x_d1 < 200) begin
-                char_code <= digit_to_ascii(ch1_confidence % 10); // 个位
-                char_col <= pixel_x_d1 - 12'd184;
-                in_char_area <= 1'b1;
-            end
-            else if (pixel_x_d1 >= 200 && pixel_x_d1 < 216) begin
-                char_code <= 8'd37; // '%'
-                char_col <= pixel_x_d1 - 12'd200;
+                char_col <= pixel_x_d1 - COL_THD_X - 12'd40;
                 in_char_area <= 1'b1;
             end
             
-            // ========== CH2部分 (中间偏右) ==========
-            // "CH2:"
-            else if (pixel_x_d1 >= 280 && pixel_x_d1 < 296) begin
-                char_code <= 8'd67;  // 'C'
-                char_col <= pixel_x_d1 - 12'd280;
+            // 列6: "Wave"
+            else if (pixel_x_d1 >= COL_WAVE_X + 8 && pixel_x_d1 < COL_WAVE_X + 24) begin
+                char_code <= 8'd87;  // 'W'
+                char_col <= pixel_x_d1 - COL_WAVE_X - 12'd8;
                 in_char_area <= 1'b1;
             end
-            else if (pixel_x_d1 >= 296 && pixel_x_d1 < 312) begin
-                char_code <= 8'd72;  // 'H'
-                char_col <= pixel_x_d1 - 12'd296;
-                in_char_area <= 1'b1;
-            end
-            else if (pixel_x_d1 >= 312 && pixel_x_d1 < 328) begin
-                char_code <= 8'd50;  // '2'
-                char_col <= pixel_x_d1 - 12'd312;
-                in_char_area <= 1'b1;
-            end
-            else if (pixel_x_d1 >= 328 && pixel_x_d1 < 344) begin
-                char_code <= 8'd58;  // ':'
-                char_col <= pixel_x_d1 - 12'd328;
-                in_char_area <= 1'b1;
-            end
-            // CH2波形类型名称 (4个字符)
-            else if (pixel_x_d1 >= 344 && pixel_x_d1 < 360) begin
-                case (ch2_waveform_type)
-                    3'd1: char_code <= 8'd83;  // 'S' (Sine)
-                    3'd2: char_code <= 8'd83;  // 'S' (Square)
-                    3'd3: char_code <= 8'd84;  // 'T' (Triangle)
-                    3'd4: char_code <= 8'd83;  // 'S' (Sawtooth)
-                    3'd5: char_code <= 8'd78;  // 'N' (Noise)
-                    default: char_code <= 8'd85; // 'U' (Unknown)
-                endcase
-                char_col <= pixel_x_d1 - 12'd344;
-                in_char_area <= 1'b1;
-            end
-            else if (pixel_x_d1 >= 360 && pixel_x_d1 < 376) begin
-                case (ch2_waveform_type)
-                    3'd1: char_code <= 8'd105; // 'i'
-                    3'd2: char_code <= 8'd113; // 'q'
-                    3'd3: char_code <= 8'd114; // 'r'
-                    3'd4: char_code <= 8'd97;  // 'a'
-                    3'd5: char_code <= 8'd111; // 'o'
-                    default: char_code <= 8'd110; // 'n'
-                endcase
-                char_col <= pixel_x_d1 - 12'd360;
-                in_char_area <= 1'b1;
-            end
-            else if (pixel_x_d1 >= 376 && pixel_x_d1 < 392) begin
-                case (ch2_waveform_type)
-                    3'd1: char_code <= 8'd110; // 'n'
-                    3'd2: char_code <= 8'd117; // 'u'
-                    3'd3: char_code <= 8'd105; // 'i'
-                    3'd4: char_code <= 8'd119; // 'w'
-                    3'd5: char_code <= 8'd105; // 'i'
-                    default: char_code <= 8'd107; // 'k'
-                endcase
-                char_col <= pixel_x_d1 - 12'd376;
-                in_char_area <= 1'b1;
-            end
-            else if (pixel_x_d1 >= 392 && pixel_x_d1 < 408) begin
-                case (ch2_waveform_type)
-                    3'd1: char_code <= 8'd101; // 'e' (Sine)
-                    3'd2: char_code <= 8'd114; // 'r' (Squr)
-                    3'd3: char_code <= 8'd97;  // 'a' (Tria)
-                    3'd4: char_code <= 8'd32;  // ' ' (Saw)
-                    3'd5: char_code <= 8'd115; // 's' (Nois)
-                    default: char_code <= 8'd110; // 'n' (Unkn)
-                endcase
-                char_col <= pixel_x_d1 - 12'd392;
-                in_char_area <= 1'b1;
-            end
-            // CH2置信度(两位数字 + '%')
-            else if (pixel_x_d1 >= 408 && pixel_x_d1 < 424) begin
-                char_code <= digit_to_ascii((ch2_confidence / 10) % 10); // 十位
-                char_col <= pixel_x_d1 - 12'd408;
-                in_char_area <= 1'b1;
-            end
-            else if (pixel_x_d1 >= 424 && pixel_x_d1 < 440) begin
-                char_code <= digit_to_ascii(ch2_confidence % 10); // 个位
-                char_col <= pixel_x_d1 - 12'd424;
-                in_char_area <= 1'b1;
-            end
-            else if (pixel_x_d1 >= 440 && pixel_x_d1 < 456) begin
-                char_code <= 8'd37; // '%'
-                char_col <= pixel_x_d1 - 12'd440;
-                in_char_area <= 1'b1;
-            end
-        end
-        
-        // �?�? "Phase:180.0" (相位差，Y: 870+175=1045)
-        else if (pixel_y_d1 >= PARAM_Y_START + 100 && pixel_y_d1 < PARAM_Y_START + 116) begin
-            char_row <= (pixel_y_d1 - PARAM_Y_START - 12'd100) << 1;
-            // "Phase:"
-            if (pixel_x_d1 >= 40 && pixel_x_d1 < 56) begin
-                char_code <= 8'd80;  // 'P'
-                char_col <= pixel_x_d1 - 12'd40;
-                in_char_area <= 1'b1;
-            end
-            else if (pixel_x_d1 >= 56 && pixel_x_d1 < 72) begin
-                char_code <= 8'd104; // 'h'
-                char_col <= pixel_x_d1 - 12'd56;
-                in_char_area <= 1'b1;
-            end
-            else if (pixel_x_d1 >= 72 && pixel_x_d1 < 88) begin
+            else if (pixel_x_d1 >= COL_WAVE_X + 24 && pixel_x_d1 < COL_WAVE_X + 40) begin
                 char_code <= 8'd97;  // 'a'
-                char_col <= pixel_x_d1 - 12'd72;
+                char_col <= pixel_x_d1 - COL_WAVE_X - 12'd24;
                 in_char_area <= 1'b1;
             end
-            else if (pixel_x_d1 >= 88 && pixel_x_d1 < 104) begin
-                char_code <= 8'd115; // 's'
-                char_col <= pixel_x_d1 - 12'd88;
+            else if (pixel_x_d1 >= COL_WAVE_X + 40 && pixel_x_d1 < COL_WAVE_X + 56) begin
+                char_code <= 8'd118;  // 'v'
+                char_col <= pixel_x_d1 - COL_WAVE_X - 12'd40;
                 in_char_area <= 1'b1;
             end
-            else if (pixel_x_d1 >= 104 && pixel_x_d1 < 120) begin
-                char_code <= 8'd101; // 'e'
-                char_col <= pixel_x_d1 - 12'd104;
+            else if (pixel_x_d1 >= COL_WAVE_X + 56 && pixel_x_d1 < COL_WAVE_X + 72) begin
+                char_code <= 8'd101;  // 'e'
+                char_col <= pixel_x_d1 - COL_WAVE_X - 12'd56;
                 in_char_area <= 1'b1;
             end
-            else if (pixel_x_d1 >= 120 && pixel_x_d1 < 136) begin
+            else begin
+                in_char_area <= 1'b0;
+            end
+        end
+        
+        //=====================================================================
+        // CH1数据行 (Y: 600-640, 40px高)
+        //=====================================================================
+        else if (pixel_y_d1 >= TABLE_Y_CH1 && pixel_y_d1 < TABLE_Y_CH1 + ROW_HEIGHT) begin
+            // 只在行内前32px显示字符（40px行高，字符32px，底部8px留空）
+            if (pixel_y_d1 < TABLE_Y_CH1 + 32) begin
+                char_row <= pixel_y_d1 - TABLE_Y_CH1;  // 0-31，不需要左移
+            
+                // 列1: 通道号 "1"
+                if (pixel_x_d1 >= COL_CH_X + 12 && pixel_x_d1 < COL_CH_X + 28) begin
+                char_code <= 8'd49;  // '1'
+                char_col <= pixel_x_d1 - COL_CH_X - 12'd12;
+                in_char_area <= ch1_enable;
+            end
+            
+            // 列2: 频率显示 (自适应Hz/kHz/MHz)
+            // Hz模式: "12345Hz " (5位整数)
+            // kHz模式: "123.45kHz" (3位整数+小数点+2位小数)
+            else if (pixel_x_d1 >= COL_FREQ_X && pixel_x_d1 < COL_FREQ_X + 200) begin
+                if (ch1_freq_unit == 2'd0) begin
+                    // Hz模式：显示5位整数 + "Hz"
+                    if (pixel_x_d1 >= COL_FREQ_X + 8 && pixel_x_d1 < COL_FREQ_X + 24) begin
+                        // 第1位：万位 (前导零抑制)
+                        char_code <= (ch1_freq_d4 == 4'd0) ? 8'd32 : digit_to_ascii(ch1_freq_d4);
+                        char_col <= pixel_x_d1 - COL_FREQ_X - 12'd8;
+                        in_char_area <= ch1_enable;
+                    end
+                    else if (pixel_x_d1 >= COL_FREQ_X + 24 && pixel_x_d1 < COL_FREQ_X + 40) begin
+                        // 第2位：千位 (前导零抑制)
+                        char_code <= ((ch1_freq_d4 == 4'd0) && (ch1_freq_d3 == 4'd0)) ? 8'd32 : digit_to_ascii(ch1_freq_d3);
+                        char_col <= pixel_x_d1 - COL_FREQ_X - 12'd24;
+                        in_char_area <= ch1_enable;
+                    end
+                    else if (pixel_x_d1 >= COL_FREQ_X + 40 && pixel_x_d1 < COL_FREQ_X + 56) begin
+                        // 第3位：百位
+                        char_code <= digit_to_ascii(ch1_freq_d2);
+                        char_col <= pixel_x_d1 - COL_FREQ_X - 12'd40;
+                        in_char_area <= ch1_enable;
+                    end
+                    else if (pixel_x_d1 >= COL_FREQ_X + 56 && pixel_x_d1 < COL_FREQ_X + 72) begin
+                        // 第4位：十位
+                        char_code <= digit_to_ascii(ch1_freq_d1);
+                        char_col <= pixel_x_d1 - COL_FREQ_X - 12'd56;
+                        in_char_area <= ch1_enable;
+                    end
+                    else if (pixel_x_d1 >= COL_FREQ_X + 72 && pixel_x_d1 < COL_FREQ_X + 88) begin
+                        // 第5位：个位
+                        char_code <= digit_to_ascii(ch1_freq_d0);
+                        char_col <= pixel_x_d1 - COL_FREQ_X - 12'd72;
+                        in_char_area <= ch1_enable;
+                    end
+                    else if (pixel_x_d1 >= COL_FREQ_X + 88 && pixel_x_d1 < COL_FREQ_X + 104) begin
+                        char_code <= 8'd72;  // 'H'
+                        char_col <= pixel_x_d1 - COL_FREQ_X - 12'd88;
+                        in_char_area <= ch1_enable;
+                    end
+                    else if (pixel_x_d1 >= COL_FREQ_X + 104 && pixel_x_d1 < COL_FREQ_X + 120) begin
+                        char_code <= 8'd122; // 'z'
+                        char_col <= pixel_x_d1 - COL_FREQ_X - 12'd104;
+                        in_char_area <= ch1_enable;
+                    end
+                    else begin
+                        in_char_area <= 1'b0;
+                    end
+                end else begin
+                    // kHz/MHz模式：显示 "65.43kHz" (前导零抑制)
+                    if (pixel_x_d1 >= COL_FREQ_X + 8 && pixel_x_d1 < COL_FREQ_X + 24) begin
+                        // 百位：前导零抑制
+                        char_code <= (ch1_freq_d2 == 4'd0) ? 8'd32 : digit_to_ascii(ch1_freq_d2);
+                        char_col <= pixel_x_d1 - COL_FREQ_X - 12'd8;
+                        in_char_area <= ch1_enable;
+                    end
+                    else if (pixel_x_d1 >= COL_FREQ_X + 24 && pixel_x_d1 < COL_FREQ_X + 40) begin
+                        char_code <= digit_to_ascii(ch1_freq_d1);  // 十位：始终显示
+                        char_col <= pixel_x_d1 - COL_FREQ_X - 12'd24;
+                        in_char_area <= ch1_enable;
+                    end
+                    else if (pixel_x_d1 >= COL_FREQ_X + 40 && pixel_x_d1 < COL_FREQ_X + 56) begin
+                        // 第3位：个位
+                        char_code <= digit_to_ascii(ch1_freq_d0);
+                        char_col <= pixel_x_d1 - COL_FREQ_X - 12'd40;
+                        in_char_area <= ch1_enable;
+                    end
+                    else if (pixel_x_d1 >= COL_FREQ_X + 56 && pixel_x_d1 < COL_FREQ_X + 72) begin
+                        char_code <= 8'd46;  // '.'
+                        char_col <= pixel_x_d1 - COL_FREQ_X - 12'd56;
+                        in_char_area <= ch1_enable;
+                    end
+                    else if (pixel_x_d1 >= COL_FREQ_X + 72 && pixel_x_d1 < COL_FREQ_X + 88) begin
+                        // 小数第1位
+                        char_code <= digit_to_ascii(ch1_freq_d4);
+                        char_col <= pixel_x_d1 - COL_FREQ_X - 12'd72;
+                        in_char_area <= ch1_enable;
+                    end
+                    else if (pixel_x_d1 >= COL_FREQ_X + 88 && pixel_x_d1 < COL_FREQ_X + 104) begin
+                        // 小数第2位
+                        char_code <= digit_to_ascii(ch1_freq_d3);
+                        char_col <= pixel_x_d1 - COL_FREQ_X - 12'd88;
+                        in_char_area <= ch1_enable;
+                    end
+                    else if (pixel_x_d1 >= COL_FREQ_X + 104 && pixel_x_d1 < COL_FREQ_X + 120) begin
+                        char_code <= 8'd107; // 'k'
+                        char_col <= pixel_x_d1 - COL_FREQ_X - 12'd104;
+                        in_char_area <= ch1_enable;
+                    end
+                    else if (pixel_x_d1 >= COL_FREQ_X + 120 && pixel_x_d1 < COL_FREQ_X + 136) begin
+                        char_code <= 8'd72;  // 'H'
+                        char_col <= pixel_x_d1 - COL_FREQ_X - 12'd120;
+                        in_char_area <= ch1_enable;
+                    end
+                    else if (pixel_x_d1 >= COL_FREQ_X + 136 && pixel_x_d1 < COL_FREQ_X + 152) begin
+                        char_code <= 8'd122; // 'z'
+                        char_col <= pixel_x_d1 - COL_FREQ_X - 12'd136;
+                        in_char_area <= ch1_enable;
+                    end
+                    else begin
+                        in_char_area <= 1'b0;
+                    end
+                end
+            end
+            
+            // 列3: 幅度显示 "255mV" (前导零抑制)
+            else if (pixel_x_d1 >= COL_AMPL_X && pixel_x_d1 < COL_AMPL_X + 120) begin
+                if (pixel_x_d1 >= COL_AMPL_X + 8 && pixel_x_d1 < COL_AMPL_X + 24) begin
+                    // 千位：前导零抑制
+                    char_code <= (ch1_amp_d3 == 4'd0) ? 8'd32 : digit_to_ascii(ch1_amp_d3);
+                    char_col <= pixel_x_d1 - COL_AMPL_X - 12'd8;
+                    in_char_area <= ch1_enable;
+                end
+                else if (pixel_x_d1 >= COL_AMPL_X + 24 && pixel_x_d1 < COL_AMPL_X + 40) begin
+                    // 百位：千位和百位都为0时抑制
+                    char_code <= ((ch1_amp_d3 == 4'd0) && (ch1_amp_d2 == 4'd0)) ? 8'd32 : digit_to_ascii(ch1_amp_d2);
+                    char_col <= pixel_x_d1 - COL_AMPL_X - 12'd24;
+                    in_char_area <= ch1_enable;
+                end
+                else if (pixel_x_d1 >= COL_AMPL_X + 40 && pixel_x_d1 < COL_AMPL_X + 56) begin
+                    char_code <= digit_to_ascii(ch1_amp_d1);  // 十位：始终显示
+                    char_col <= pixel_x_d1 - COL_AMPL_X - 12'd40;
+                    in_char_area <= ch1_enable;
+                end
+                else if (pixel_x_d1 >= COL_AMPL_X + 56 && pixel_x_d1 < COL_AMPL_X + 72) begin
+                    char_code <= digit_to_ascii(ch1_amp_d0);  // 个位
+                    char_col <= pixel_x_d1 - COL_AMPL_X - 12'd56;
+                    in_char_area <= ch1_enable;
+                end
+                else if (pixel_x_d1 >= COL_AMPL_X + 72 && pixel_x_d1 < COL_AMPL_X + 88) begin
+                    char_code <= 8'd109;  // 'm'
+                    char_col <= pixel_x_d1 - COL_AMPL_X - 12'd72;
+                    in_char_area <= ch1_enable;
+                end
+                else if (pixel_x_d1 >= COL_AMPL_X + 88 && pixel_x_d1 < COL_AMPL_X + 104) begin
+                    char_code <= 8'd86;  // 'V'
+                    char_col <= pixel_x_d1 - COL_AMPL_X - 12'd88;
+                    in_char_area <= ch1_enable;
+                end
+                else begin
+                    in_char_area <= 1'b0;
+                end
+            end
+            
+            // 列4: 占空比显示 "50.0%"
+            else if (pixel_x_d1 >= COL_DUTY_X && pixel_x_d1 < COL_DUTY_X + 120) begin
+                if (pixel_x_d1 >= COL_DUTY_X + 8 && pixel_x_d1 < COL_DUTY_X + 24) begin
+                    char_code <= digit_to_ascii(ch1_duty_d2);  // 百位（十位整数）
+                    char_col <= pixel_x_d1 - COL_DUTY_X - 12'd8;
+                    in_char_area <= ch1_enable;
+                end
+                else if (pixel_x_d1 >= COL_DUTY_X + 24 && pixel_x_d1 < COL_DUTY_X + 40) begin
+                    char_code <= digit_to_ascii(ch1_duty_d1);  // 十位（个位整数）
+                    char_col <= pixel_x_d1 - COL_DUTY_X - 12'd24;
+                    in_char_area <= ch1_enable;
+                end
+                else if (pixel_x_d1 >= COL_DUTY_X + 40 && pixel_x_d1 < COL_DUTY_X + 56) begin
+                    char_code <= 8'd46;  // '.'
+                    char_col <= pixel_x_d1 - COL_DUTY_X - 12'd40;
+                    in_char_area <= ch1_enable;
+                end
+                else if (pixel_x_d1 >= COL_DUTY_X + 56 && pixel_x_d1 < COL_DUTY_X + 72) begin
+                    char_code <= digit_to_ascii(ch1_duty_d0);  // 小数位
+                    char_col <= pixel_x_d1 - COL_DUTY_X - 12'd56;
+                    in_char_area <= ch1_enable;
+                end
+                else if (pixel_x_d1 >= COL_DUTY_X + 72 && pixel_x_d1 < COL_DUTY_X + 88) begin
+                    char_code <= 8'd37;  // '%'
+                    char_col <= pixel_x_d1 - COL_DUTY_X - 12'd72;
+                    in_char_area <= ch1_enable;
+                end
+                else begin
+                    in_char_area <= 1'b0;
+                end
+            end
+            
+            // 列5: THD显示 "02.5%" → "2.5%" (前导零抑制)
+            else if (pixel_x_d1 >= COL_THD_X && pixel_x_d1 < COL_THD_X + 120) begin
+                if (pixel_x_d1 >= COL_THD_X + 8 && pixel_x_d1 < COL_THD_X + 24) begin
+                    // 十位：前导零抑制（0-99.9%范围）
+                    char_code <= (ch1_thd_d2 == 4'd0) ? 8'd32 : digit_to_ascii(ch1_thd_d2);
+                    char_col <= pixel_x_d1 - COL_THD_X - 12'd8;
+                    in_char_area <= ch1_enable;
+                end
+                else if (pixel_x_d1 >= COL_THD_X + 24 && pixel_x_d1 < COL_THD_X + 40) begin
+                    char_code <= digit_to_ascii(ch1_thd_d1);  // 个位：始终显示
+                    char_col <= pixel_x_d1 - COL_THD_X - 12'd24;
+                    in_char_area <= ch1_enable;
+                end
+                else if (pixel_x_d1 >= COL_THD_X + 40 && pixel_x_d1 < COL_THD_X + 56) begin
+                    char_code <= 8'd46;  // '.'
+                    char_col <= pixel_x_d1 - COL_THD_X - 12'd40;
+                    in_char_area <= ch1_enable;
+                end
+                else if (pixel_x_d1 >= COL_THD_X + 56 && pixel_x_d1 < COL_THD_X + 72) begin
+                    char_code <= digit_to_ascii(ch1_thd_d0);  // 小数位
+                    char_col <= pixel_x_d1 - COL_THD_X - 12'd56;
+                    in_char_area <= ch1_enable;
+                end
+                else if (pixel_x_d1 >= COL_THD_X + 72 && pixel_x_d1 < COL_THD_X + 88) begin
+                    char_code <= 8'd37;  // '%'
+                    char_col <= pixel_x_d1 - COL_THD_X - 12'd72;
+                    in_char_area <= ch1_enable;
+                end
+                else begin
+                    in_char_area <= 1'b0;
+                end
+            end
+            
+            // 列6: 波形类型显示
+            else if (pixel_x_d1 >= COL_WAVE_X && pixel_x_d1 < COL_WAVE_X + 600) begin
+                // 根据ch1_waveform_type显示波形名称
+                case (ch1_waveform_type)
+                    3'd1: begin  // Sine
+                        if (pixel_x_d1 >= COL_WAVE_X + 8 && pixel_x_d1 < COL_WAVE_X + 24) begin
+                            char_code <= 8'd83;  // 'S'
+                            char_col <= pixel_x_d1 - COL_WAVE_X - 12'd8;
+                            in_char_area <= ch1_enable;
+                        end
+                        else if (pixel_x_d1 >= COL_WAVE_X + 24 && pixel_x_d1 < COL_WAVE_X + 40) begin
+                            char_code <= 8'd105; // 'i'
+                            char_col <= pixel_x_d1 - COL_WAVE_X - 12'd24;
+                            in_char_area <= ch1_enable;
+                        end
+                        else if (pixel_x_d1 >= COL_WAVE_X + 40 && pixel_x_d1 < COL_WAVE_X + 56) begin
+                            char_code <= 8'd110; // 'n'
+                            char_col <= pixel_x_d1 - COL_WAVE_X - 12'd40;
+                            in_char_area <= ch1_enable;
+                        end
+                        else if (pixel_x_d1 >= COL_WAVE_X + 56 && pixel_x_d1 < COL_WAVE_X + 72) begin
+                            char_code <= 8'd101; // 'e'
+                            char_col <= pixel_x_d1 - COL_WAVE_X - 12'd56;
+                            in_char_area <= ch1_enable;
+                        end
+                        else begin
+                            in_char_area <= 1'b0;
+                        end
+                    end
+                    3'd2: begin  // Square
+                        if (pixel_x_d1 >= COL_WAVE_X + 8 && pixel_x_d1 < COL_WAVE_X + 24) begin
+                            char_code <= 8'd83;  // 'S'
+                            char_col <= pixel_x_d1 - COL_WAVE_X - 12'd8;
+                            in_char_area <= ch1_enable;
+                        end
+                        else if (pixel_x_d1 >= COL_WAVE_X + 24 && pixel_x_d1 < COL_WAVE_X + 40) begin
+                            char_code <= 8'd113; // 'q'
+                            char_col <= pixel_x_d1 - COL_WAVE_X - 12'd24;
+                            in_char_area <= ch1_enable;
+                        end
+                        else if (pixel_x_d1 >= COL_WAVE_X + 40 && pixel_x_d1 < COL_WAVE_X + 56) begin
+                            char_code <= 8'd117; // 'u'
+                            char_col <= pixel_x_d1 - COL_WAVE_X - 12'd40;
+                            in_char_area <= ch1_enable;
+                        end
+                        else if (pixel_x_d1 >= COL_WAVE_X + 56 && pixel_x_d1 < COL_WAVE_X + 72) begin
+                            char_code <= 8'd97;  // 'a'
+                            char_col <= pixel_x_d1 - COL_WAVE_X - 12'd56;
+                            in_char_area <= ch1_enable;
+                        end
+                        else if (pixel_x_d1 >= COL_WAVE_X + 72 && pixel_x_d1 < COL_WAVE_X + 88) begin
+                            char_code <= 8'd114; // 'r'
+                            char_col <= pixel_x_d1 - COL_WAVE_X - 12'd72;
+                            in_char_area <= ch1_enable;
+                        end
+                        else if (pixel_x_d1 >= COL_WAVE_X + 88 && pixel_x_d1 < COL_WAVE_X + 104) begin
+                            char_code <= 8'd101; // 'e'
+                            char_col <= pixel_x_d1 - COL_WAVE_X - 12'd88;
+                            in_char_area <= ch1_enable;
+                        end
+                        else begin
+                            in_char_area <= 1'b0;
+                        end
+                    end
+                    3'd3: begin  // Triangle
+                        if (pixel_x_d1 >= COL_WAVE_X + 8 && pixel_x_d1 < COL_WAVE_X + 24) begin
+                            char_code <= 8'd84;  // 'T'
+                            char_col <= pixel_x_d1 - COL_WAVE_X - 12'd8;
+                            in_char_area <= ch1_enable;
+                        end
+                        else if (pixel_x_d1 >= COL_WAVE_X + 24 && pixel_x_d1 < COL_WAVE_X + 40) begin
+                            char_code <= 8'd114; // 'r'
+                            char_col <= pixel_x_d1 - COL_WAVE_X - 12'd24;
+                            in_char_area <= ch1_enable;
+                        end
+                        else if (pixel_x_d1 >= COL_WAVE_X + 40 && pixel_x_d1 < COL_WAVE_X + 56) begin
+                            char_code <= 8'd105; // 'i'
+                            char_col <= pixel_x_d1 - COL_WAVE_X - 12'd40;
+                            in_char_area <= ch1_enable;
+                        end
+                        else begin
+                            in_char_area <= 1'b0;
+                        end
+                    end
+                    3'd4: begin  // Sawtooth
+                        if (pixel_x_d1 >= COL_WAVE_X + 8 && pixel_x_d1 < COL_WAVE_X + 24) begin
+                            char_code <= 8'd83;  // 'S'
+                            char_col <= pixel_x_d1 - COL_WAVE_X - 12'd8;
+                            in_char_area <= ch1_enable;
+                        end
+                        else if (pixel_x_d1 >= COL_WAVE_X + 24 && pixel_x_d1 < COL_WAVE_X + 40) begin
+                            char_code <= 8'd97;  // 'a'
+                            char_col <= pixel_x_d1 - COL_WAVE_X - 12'd24;
+                            in_char_area <= ch1_enable;
+                        end
+                        else if (pixel_x_d1 >= COL_WAVE_X + 40 && pixel_x_d1 < COL_WAVE_X + 56) begin
+                            char_code <= 8'd119; // 'w'
+                            char_col <= pixel_x_d1 - COL_WAVE_X - 12'd40;
+                            in_char_area <= ch1_enable;
+                        end
+                        else begin
+                            in_char_area <= 1'b0;
+                        end
+                    end
+                    default: begin  // Unknown或Noise
+                        if (pixel_x_d1 >= COL_WAVE_X + 8 && pixel_x_d1 < COL_WAVE_X + 24) begin
+                            char_code <= 8'd45;  // '-'
+                            char_col <= pixel_x_d1 - COL_WAVE_X - 12'd8;
+                            in_char_area <= ch1_enable;
+                        end
+                        else begin
+                            in_char_area <= 1'b0;
+                        end
+                    end
+                endcase
+            end
+            end  // 结束 if (pixel_y_d1 < TABLE_Y_CH1 + 32)
+        end
+        
+        //=====================================================================
+        // CH2数据行 (Y: 640-680, 40px高)
+        //=====================================================================
+        else if (pixel_y_d1 >= TABLE_Y_CH2 && pixel_y_d1 < TABLE_Y_CH2 + ROW_HEIGHT) begin
+            // 只在行内前32px显示字符（40px行高，字符32px，底部8px留空）
+            if (pixel_y_d1 < TABLE_Y_CH2 + 32) begin
+                char_row <= pixel_y_d1 - TABLE_Y_CH2;  // 0-31，不需要左移
+            
+                // 列1: 通道号 "2"
+                if (pixel_x_d1 >= COL_CH_X + 12 && pixel_x_d1 < COL_CH_X + 28) begin
+                char_code <= 8'd50;  // '2'
+                char_col <= pixel_x_d1 - COL_CH_X - 12'd12;
+                in_char_area <= ch2_enable;
+            end
+            
+            // 列2: 频率显示 (自适应Hz/kHz/MHz)
+            else if (pixel_x_d1 >= COL_FREQ_X && pixel_x_d1 < COL_FREQ_X + 200) begin
+                if (ch2_freq_unit == 2'd0) begin
+                    // Hz模式：显示5位整数 + "Hz"
+                    if (pixel_x_d1 >= COL_FREQ_X + 8 && pixel_x_d1 < COL_FREQ_X + 24) begin
+                        char_code <= (ch2_freq_d4 == 4'd0) ? 8'd32 : digit_to_ascii(ch2_freq_d4);
+                        char_col <= pixel_x_d1 - COL_FREQ_X - 12'd8;
+                        in_char_area <= ch2_enable;
+                    end
+                    else if (pixel_x_d1 >= COL_FREQ_X + 24 && pixel_x_d1 < COL_FREQ_X + 40) begin
+                        char_code <= ((ch2_freq_d4 == 4'd0) && (ch2_freq_d3 == 4'd0)) ? 8'd32 : digit_to_ascii(ch2_freq_d3);
+                        char_col <= pixel_x_d1 - COL_FREQ_X - 12'd24;
+                        in_char_area <= ch2_enable;
+                    end
+                    else if (pixel_x_d1 >= COL_FREQ_X + 40 && pixel_x_d1 < COL_FREQ_X + 56) begin
+                        char_code <= digit_to_ascii(ch2_freq_d2);
+                        char_col <= pixel_x_d1 - COL_FREQ_X - 12'd40;
+                        in_char_area <= ch2_enable;
+                    end
+                    else if (pixel_x_d1 >= COL_FREQ_X + 56 && pixel_x_d1 < COL_FREQ_X + 72) begin
+                        char_code <= digit_to_ascii(ch2_freq_d1);
+                        char_col <= pixel_x_d1 - COL_FREQ_X - 12'd56;
+                        in_char_area <= ch2_enable;
+                    end
+                    else if (pixel_x_d1 >= COL_FREQ_X + 72 && pixel_x_d1 < COL_FREQ_X + 88) begin
+                        char_code <= digit_to_ascii(ch2_freq_d0);
+                        char_col <= pixel_x_d1 - COL_FREQ_X - 12'd72;
+                        in_char_area <= ch2_enable;
+                    end
+                    else if (pixel_x_d1 >= COL_FREQ_X + 88 && pixel_x_d1 < COL_FREQ_X + 104) begin
+                        char_code <= 8'd72;  // 'H'
+                        char_col <= pixel_x_d1 - COL_FREQ_X - 12'd88;
+                        in_char_area <= ch2_enable;
+                    end
+                    else if (pixel_x_d1 >= COL_FREQ_X + 104 && pixel_x_d1 < COL_FREQ_X + 120) begin
+                        char_code <= 8'd122; // 'z'
+                        char_col <= pixel_x_d1 - COL_FREQ_X - 12'd104;
+                        in_char_area <= ch2_enable;
+                    end
+                    else begin
+                        in_char_area <= 1'b0;
+                    end
+                end else begin
+                    // kHz/MHz模式：显示 "65.43kHz" (前导零抑制)
+                    if (pixel_x_d1 >= COL_FREQ_X + 8 && pixel_x_d1 < COL_FREQ_X + 24) begin
+                        // 百位：前导零抑制
+                        char_code <= (ch2_freq_d2 == 4'd0) ? 8'd32 : digit_to_ascii(ch2_freq_d2);
+                        char_col <= pixel_x_d1 - COL_FREQ_X - 12'd8;
+                        in_char_area <= ch2_enable;
+                    end
+                    else if (pixel_x_d1 >= COL_FREQ_X + 24 && pixel_x_d1 < COL_FREQ_X + 40) begin
+                        char_code <= digit_to_ascii(ch2_freq_d1);  // 十位：始终显示
+                        char_col <= pixel_x_d1 - COL_FREQ_X - 12'd24;
+                        in_char_area <= ch2_enable;
+                    end
+                    else if (pixel_x_d1 >= COL_FREQ_X + 40 && pixel_x_d1 < COL_FREQ_X + 56) begin
+                        char_code <= digit_to_ascii(ch2_freq_d0);
+                        char_col <= pixel_x_d1 - COL_FREQ_X - 12'd40;
+                        in_char_area <= ch2_enable;
+                    end
+                    else if (pixel_x_d1 >= COL_FREQ_X + 56 && pixel_x_d1 < COL_FREQ_X + 72) begin
+                        char_code <= 8'd46;  // '.'
+                        char_col <= pixel_x_d1 - COL_FREQ_X - 12'd56;
+                        in_char_area <= ch2_enable;
+                    end
+                    else if (pixel_x_d1 >= COL_FREQ_X + 72 && pixel_x_d1 < COL_FREQ_X + 88) begin
+                        char_code <= digit_to_ascii(ch2_freq_d4);
+                        char_col <= pixel_x_d1 - COL_FREQ_X - 12'd72;
+                        in_char_area <= ch2_enable;
+                    end
+                    else if (pixel_x_d1 >= COL_FREQ_X + 88 && pixel_x_d1 < COL_FREQ_X + 104) begin
+                        char_code <= digit_to_ascii(ch2_freq_d3);
+                        char_col <= pixel_x_d1 - COL_FREQ_X - 12'd88;
+                        in_char_area <= ch2_enable;
+                    end
+                    else if (pixel_x_d1 >= COL_FREQ_X + 104 && pixel_x_d1 < COL_FREQ_X + 120) begin
+                        char_code <= 8'd107; // 'k'
+                        char_col <= pixel_x_d1 - COL_FREQ_X - 12'd104;
+                        in_char_area <= ch2_enable;
+                    end
+                    else if (pixel_x_d1 >= COL_FREQ_X + 120 && pixel_x_d1 < COL_FREQ_X + 136) begin
+                        char_code <= 8'd72;  // 'H'
+                        char_col <= pixel_x_d1 - COL_FREQ_X - 12'd120;
+                        in_char_area <= ch2_enable;
+                    end
+                    else if (pixel_x_d1 >= COL_FREQ_X + 136 && pixel_x_d1 < COL_FREQ_X + 152) begin
+                        char_code <= 8'd122; // 'z'
+                        char_col <= pixel_x_d1 - COL_FREQ_X - 12'd136;
+                        in_char_area <= ch2_enable;
+                    end
+                    else begin
+                        in_char_area <= 1'b0;
+                    end
+                end
+            end
+            
+            // 列3: 幅度显示 "255mV" (前导零抑制)
+            else if (pixel_x_d1 >= COL_AMPL_X && pixel_x_d1 < COL_AMPL_X + 120) begin
+                if (pixel_x_d1 >= COL_AMPL_X + 8 && pixel_x_d1 < COL_AMPL_X + 24) begin
+                    // 千位：前导零抑制
+                    char_code <= (ch2_amp_d3 == 4'd0) ? 8'd32 : digit_to_ascii(ch2_amp_d3);
+                    char_col <= pixel_x_d1 - COL_AMPL_X - 12'd8;
+                    in_char_area <= ch2_enable;
+                end
+                else if (pixel_x_d1 >= COL_AMPL_X + 24 && pixel_x_d1 < COL_AMPL_X + 40) begin
+                    // 百位：千位和百位都为0时抑制
+                    char_code <= ((ch2_amp_d3 == 4'd0) && (ch2_amp_d2 == 4'd0)) ? 8'd32 : digit_to_ascii(ch2_amp_d2);
+                    char_col <= pixel_x_d1 - COL_AMPL_X - 12'd24;
+                    in_char_area <= ch2_enable;
+                end
+                else if (pixel_x_d1 >= COL_AMPL_X + 40 && pixel_x_d1 < COL_AMPL_X + 56) begin
+                    char_code <= digit_to_ascii(ch2_amp_d1);  // 十位：始终显示
+                    char_col <= pixel_x_d1 - COL_AMPL_X - 12'd40;
+                    in_char_area <= ch2_enable;
+                end
+                else if (pixel_x_d1 >= COL_AMPL_X + 56 && pixel_x_d1 < COL_AMPL_X + 72) begin
+                    char_code <= digit_to_ascii(ch2_amp_d0);  // 个位：始终显示
+                    char_col <= pixel_x_d1 - COL_AMPL_X - 12'd56;
+                    in_char_area <= ch2_enable;
+                end
+                else if (pixel_x_d1 >= COL_AMPL_X + 72 && pixel_x_d1 < COL_AMPL_X + 88) begin
+                    char_code <= 8'd109;  // 'm'
+                    char_col <= pixel_x_d1 - COL_AMPL_X - 12'd72;
+                    in_char_area <= ch2_enable;
+                end
+                else if (pixel_x_d1 >= COL_AMPL_X + 88 && pixel_x_d1 < COL_AMPL_X + 104) begin
+                    char_code <= 8'd86;  // 'V'
+                    char_col <= pixel_x_d1 - COL_AMPL_X - 12'd88;
+                    in_char_area <= ch2_enable;
+                end
+                else begin
+                    in_char_area <= 1'b0;
+                end
+            end
+            
+            // 列4: 占空比显示 "50.0%"
+            else if (pixel_x_d1 >= COL_DUTY_X && pixel_x_d1 < COL_DUTY_X + 120) begin
+                if (pixel_x_d1 >= COL_DUTY_X + 8 && pixel_x_d1 < COL_DUTY_X + 24) begin
+                    char_code <= digit_to_ascii(ch2_duty_d2);
+                    char_col <= pixel_x_d1 - COL_DUTY_X - 12'd8;
+                    in_char_area <= ch2_enable;
+                end
+                else if (pixel_x_d1 >= COL_DUTY_X + 24 && pixel_x_d1 < COL_DUTY_X + 40) begin
+                    char_code <= digit_to_ascii(ch2_duty_d1);
+                    char_col <= pixel_x_d1 - COL_DUTY_X - 12'd24;
+                    in_char_area <= ch2_enable;
+                end
+                else if (pixel_x_d1 >= COL_DUTY_X + 40 && pixel_x_d1 < COL_DUTY_X + 56) begin
+                    char_code <= 8'd46;  // '.'
+                    char_col <= pixel_x_d1 - COL_DUTY_X - 12'd40;
+                    in_char_area <= ch2_enable;
+                end
+                else if (pixel_x_d1 >= COL_DUTY_X + 56 && pixel_x_d1 < COL_DUTY_X + 72) begin
+                    char_code <= digit_to_ascii(ch2_duty_d0);
+                    char_col <= pixel_x_d1 - COL_DUTY_X - 12'd56;
+                    in_char_area <= ch2_enable;
+                end
+                else if (pixel_x_d1 >= COL_DUTY_X + 72 && pixel_x_d1 < COL_DUTY_X + 88) begin
+                    char_code <= 8'd37;  // '%'
+                    char_col <= pixel_x_d1 - COL_DUTY_X - 12'd72;
+                    in_char_area <= ch2_enable;
+                end
+                else begin
+                    in_char_area <= 1'b0;
+                end
+            end
+            
+            // 列5: THD显示 "02.5%" → "2.5%" (前导零抑制)
+            else if (pixel_x_d1 >= COL_THD_X && pixel_x_d1 < COL_THD_X + 120) begin
+                if (pixel_x_d1 >= COL_THD_X + 8 && pixel_x_d1 < COL_THD_X + 24) begin
+                    // 十位：前导零抑制
+                    char_code <= (ch2_thd_d2 == 4'd0) ? 8'd32 : digit_to_ascii(ch2_thd_d2);
+                    char_col <= pixel_x_d1 - COL_THD_X - 12'd8;
+                    in_char_area <= ch2_enable;
+                end
+                else if (pixel_x_d1 >= COL_THD_X + 24 && pixel_x_d1 < COL_THD_X + 40) begin
+                    char_code <= digit_to_ascii(ch2_thd_d1);  // 个位：始终显示
+                    char_col <= pixel_x_d1 - COL_THD_X - 12'd24;
+                    in_char_area <= ch2_enable;
+                end
+                else if (pixel_x_d1 >= COL_THD_X + 40 && pixel_x_d1 < COL_THD_X + 56) begin
+                    char_code <= 8'd46;  // '.'
+                    char_col <= pixel_x_d1 - COL_THD_X - 12'd40;
+                    in_char_area <= ch2_enable;
+                end
+                else if (pixel_x_d1 >= COL_THD_X + 56 && pixel_x_d1 < COL_THD_X + 72) begin
+                    char_code <= digit_to_ascii(ch2_thd_d0);
+                    char_col <= pixel_x_d1 - COL_THD_X - 12'd56;
+                    in_char_area <= ch2_enable;
+                end
+                else if (pixel_x_d1 >= COL_THD_X + 72 && pixel_x_d1 < COL_THD_X + 88) begin
+                    char_code <= 8'd37;  // '%'
+                    char_col <= pixel_x_d1 - COL_THD_X - 12'd72;
+                    in_char_area <= ch2_enable;
+                end
+                else begin
+                    in_char_area <= 1'b0;
+                end
+            end
+            
+            // 列6: 波形类型显示
+            else if (pixel_x_d1 >= COL_WAVE_X && pixel_x_d1 < COL_WAVE_X + 600) begin
+                case (ch2_waveform_type)
+                    3'd1: begin  // Sine
+                        if (pixel_x_d1 >= COL_WAVE_X + 8 && pixel_x_d1 < COL_WAVE_X + 24) begin
+                            char_code <= 8'd83;  // 'S'
+                            char_col <= pixel_x_d1 - COL_WAVE_X - 12'd8;
+                            in_char_area <= ch2_enable;
+                        end
+                        else if (pixel_x_d1 >= COL_WAVE_X + 24 && pixel_x_d1 < COL_WAVE_X + 40) begin
+                            char_code <= 8'd105; // 'i'
+                            char_col <= pixel_x_d1 - COL_WAVE_X - 12'd24;
+                            in_char_area <= ch2_enable;
+                        end
+                        else if (pixel_x_d1 >= COL_WAVE_X + 40 && pixel_x_d1 < COL_WAVE_X + 56) begin
+                            char_code <= 8'd110; // 'n'
+                            char_col <= pixel_x_d1 - COL_WAVE_X - 12'd40;
+                            in_char_area <= ch2_enable;
+                        end
+                        else if (pixel_x_d1 >= COL_WAVE_X + 56 && pixel_x_d1 < COL_WAVE_X + 72) begin
+                            char_code <= 8'd101; // 'e'
+                            char_col <= pixel_x_d1 - COL_WAVE_X - 12'd56;
+                            in_char_area <= ch2_enable;
+                        end
+                        else begin
+                            in_char_area <= 1'b0;
+                        end
+                    end
+                    3'd2: begin  // Square
+                        if (pixel_x_d1 >= COL_WAVE_X + 8 && pixel_x_d1 < COL_WAVE_X + 24) begin
+                            char_code <= 8'd83;  // 'S'
+                            char_col <= pixel_x_d1 - COL_WAVE_X - 12'd8;
+                            in_char_area <= ch2_enable;
+                        end
+                        else if (pixel_x_d1 >= COL_WAVE_X + 24 && pixel_x_d1 < COL_WAVE_X + 40) begin
+                            char_code <= 8'd113; // 'q'
+                            char_col <= pixel_x_d1 - COL_WAVE_X - 12'd24;
+                            in_char_area <= ch2_enable;
+                        end
+                        else if (pixel_x_d1 >= COL_WAVE_X + 40 && pixel_x_d1 < COL_WAVE_X + 56) begin
+                            char_code <= 8'd117; // 'u'
+                            char_col <= pixel_x_d1 - COL_WAVE_X - 12'd40;
+                            in_char_area <= ch2_enable;
+                        end
+                        else if (pixel_x_d1 >= COL_WAVE_X + 56 && pixel_x_d1 < COL_WAVE_X + 72) begin
+                            char_code <= 8'd97;  // 'a'
+                            char_col <= pixel_x_d1 - COL_WAVE_X - 12'd56;
+                            in_char_area <= ch2_enable;
+                        end
+                        else if (pixel_x_d1 >= COL_WAVE_X + 72 && pixel_x_d1 < COL_WAVE_X + 88) begin
+                            char_code <= 8'd114; // 'r'
+                            char_col <= pixel_x_d1 - COL_WAVE_X - 12'd72;
+                            in_char_area <= ch2_enable;
+                        end
+                        else if (pixel_x_d1 >= COL_WAVE_X + 88 && pixel_x_d1 < COL_WAVE_X + 104) begin
+                            char_code <= 8'd101; // 'e'
+                            char_col <= pixel_x_d1 - COL_WAVE_X - 12'd88;
+                            in_char_area <= ch2_enable;
+                        end
+                        else begin
+                            in_char_area <= 1'b0;
+                        end
+                    end
+                    3'd3: begin  // Triangle
+                        if (pixel_x_d1 >= COL_WAVE_X + 8 && pixel_x_d1 < COL_WAVE_X + 24) begin
+                            char_code <= 8'd84;  // 'T'
+                            char_col <= pixel_x_d1 - COL_WAVE_X - 12'd8;
+                            in_char_area <= ch2_enable;
+                        end
+                        else if (pixel_x_d1 >= COL_WAVE_X + 24 && pixel_x_d1 < COL_WAVE_X + 40) begin
+                            char_code <= 8'd114; // 'r'
+                            char_col <= pixel_x_d1 - COL_WAVE_X - 12'd24;
+                            in_char_area <= ch2_enable;
+                        end
+                        else if (pixel_x_d1 >= COL_WAVE_X + 40 && pixel_x_d1 < COL_WAVE_X + 56) begin
+                            char_code <= 8'd105; // 'i'
+                            char_col <= pixel_x_d1 - COL_WAVE_X - 12'd40;
+                            in_char_area <= ch2_enable;
+                        end
+                        else begin
+                            in_char_area <= 1'b0;
+                        end
+                    end
+                    3'd4: begin  // Sawtooth
+                        if (pixel_x_d1 >= COL_WAVE_X + 8 && pixel_x_d1 < COL_WAVE_X + 24) begin
+                            char_code <= 8'd83;  // 'S'
+                            char_col <= pixel_x_d1 - COL_WAVE_X - 12'd8;
+                            in_char_area <= ch2_enable;
+                        end
+                        else if (pixel_x_d1 >= COL_WAVE_X + 24 && pixel_x_d1 < COL_WAVE_X + 40) begin
+                            char_code <= 8'd97;  // 'a'
+                            char_col <= pixel_x_d1 - COL_WAVE_X - 12'd24;
+                            in_char_area <= ch2_enable;
+                        end
+                        else if (pixel_x_d1 >= COL_WAVE_X + 40 && pixel_x_d1 < COL_WAVE_X + 56) begin
+                            char_code <= 8'd119; // 'w'
+                            char_col <= pixel_x_d1 - COL_WAVE_X - 12'd40;
+                            in_char_area <= ch2_enable;
+                        end
+                        else begin
+                            in_char_area <= 1'b0;
+                        end
+                    end
+                    default: begin  // Unknown或Noise
+                        if (pixel_x_d1 >= COL_WAVE_X + 8 && pixel_x_d1 < COL_WAVE_X + 24) begin
+                            char_code <= 8'd45;  // '-'
+                            char_col <= pixel_x_d1 - COL_WAVE_X - 12'd8;
+                            in_char_area <= ch2_enable;
+                        end
+                        else begin
+                            in_char_area <= 1'b0;
+                        end
+                    end
+                endcase
+            end
+            end  // 结束 if (pixel_y_d1 < TABLE_Y_CH2 + 32)
+        end
+        
+        //=====================================================================
+        // 相位差行 (Y: 680-720, 40px高) - 居中显示 "Phase Diff: XXX.X°"
+        //=====================================================================
+        else if (pixel_y_d1 >= TABLE_Y_PHASE && pixel_y_d1 < PARAM_Y_END) begin
+            // 只在行内前32px显示字符（40px行高，字符32px，底部8px留空）
+            if (pixel_y_d1 < TABLE_Y_PHASE + 32) begin
+                char_row <= pixel_y_d1 - TABLE_Y_PHASE;  // 0-31，不需要左移
+            
+                // 左对齐显示 "Phase: XXX.X°"
+            
+                // "Phase: "
+                if (pixel_x_d1 >= 60 && pixel_x_d1 < 76) begin
+                char_code <= 8'd80;  // 'P'
+                char_col <= pixel_x_d1 - 12'd60;
+                in_char_area <= 1'b1;
+            end
+            else if (pixel_x_d1 >= 76 && pixel_x_d1 < 92) begin
+                char_code <= 8'd104;  // 'h'
+                char_col <= pixel_x_d1 - 12'd76;
+                in_char_area <= 1'b1;
+            end
+            else if (pixel_x_d1 >= 92 && pixel_x_d1 < 108) begin
+                char_code <= 8'd97;  // 'a'
+                char_col <= pixel_x_d1 - 12'd92;
+                in_char_area <= 1'b1;
+            end
+            else if (pixel_x_d1 >= 108 && pixel_x_d1 < 124) begin
+                char_code <= 8'd115;  // 's'
+                char_col <= pixel_x_d1 - 12'd108;
+                in_char_area <= 1'b1;
+            end
+            else if (pixel_x_d1 >= 124 && pixel_x_d1 < 140) begin
+                char_code <= 8'd101;  // 'e'
+                char_col <= pixel_x_d1 - 12'd124;
+                in_char_area <= 1'b1;
+            end
+            else if (pixel_x_d1 >= 140 && pixel_x_d1 < 156) begin
                 char_code <= 8'd58;  // ':'
-                char_col <= pixel_x_d1 - 12'd120;
+                char_col <= pixel_x_d1 - 12'd140;
                 in_char_area <= 1'b1;
             end
-            // 显示相位差数字(格式: 180.0)
-            else if (pixel_x_d1 >= 144 && pixel_x_d1 < 160) begin
+            else if (pixel_x_d1 >= 156 && pixel_x_d1 < 172) begin
+                char_code <= 8'd32;  // ' '
+                char_col <= pixel_x_d1 - 12'd156;
+                in_char_area <= 1'b1;
+            end
+
+            // "XXX.X°" - 相位差数值（0-359.9度）
+            else if (pixel_x_d1 >= 172 && pixel_x_d1 < 188) begin
                 char_code <= digit_to_ascii(phase_d3);  // 百位
-                char_col <= pixel_x_d1 - 12'd144;
+                char_col <= pixel_x_d1 - 12'd172;
                 in_char_area <= 1'b1;
             end
-            else if (pixel_x_d1 >= 160 && pixel_x_d1 < 176) begin
+            else if (pixel_x_d1 >= 188 && pixel_x_d1 < 204) begin
                 char_code <= digit_to_ascii(phase_d2);  // 十位
-                char_col <= pixel_x_d1 - 12'd160;
+                char_col <= pixel_x_d1 - 12'd188;
                 in_char_area <= 1'b1;
             end
-            else if (pixel_x_d1 >= 176 && pixel_x_d1 < 192) begin
+            else if (pixel_x_d1 >= 204 && pixel_x_d1 < 220) begin
                 char_code <= digit_to_ascii(phase_d1);  // 个位
-                char_col <= pixel_x_d1 - 12'd176;
+                char_col <= pixel_x_d1 - 12'd204;
                 in_char_area <= 1'b1;
             end
-            else if (pixel_x_d1 >= 192 && pixel_x_d1 < 208) begin
+            else if (pixel_x_d1 >= 220 && pixel_x_d1 < 236) begin
                 char_code <= 8'd46;  // '.'
-                char_col <= pixel_x_d1 - 12'd192;
+                char_col <= pixel_x_d1 - 12'd220;
                 in_char_area <= 1'b1;
             end
-            else if (pixel_x_d1 >= 208 && pixel_x_d1 < 224) begin
+            else if (pixel_x_d1 >= 236 && pixel_x_d1 < 252) begin
                 char_code <= digit_to_ascii(phase_d0);  // 小数位
-                char_col <= pixel_x_d1 - 12'd208;
+                char_col <= pixel_x_d1 - 12'd236;
                 in_char_area <= 1'b1;
             end
+            else if (pixel_x_d1 >= 252 && pixel_x_d1 < 268) begin
+                char_code <= 8'd176;  // '°' (度数符号)
+                char_col <= pixel_x_d1 - 12'd252;
+                in_char_area <= 1'b1;
+            end
+            else begin
+                in_char_area <= 1'b0;
+            end
+            end  // 结束 if (pixel_y_d1 < TABLE_Y_PHASE + 32)
         end
     end  // 结束 if (pixel_y_d1 >= PARAM_Y_START && pixel_y_d1 < PARAM_Y_END)
     end  // ✅ 结束 else begin (char_code时序逻辑块)
@@ -2249,19 +2231,14 @@ always @(*) begin
             // �?时序优化：使用延�?拍的in_char_area_d1和char_col_d1
             if (in_char_area_d1 && char_pixel_row[15 - char_col_d1[3:0]]) begin
                 // 根据参数行位置设置不同颜色（紧凑布局�?px间距�?
-                if (pixel_y_d4 < PARAM_Y_START + 20)           // Y < 905: �?�?(频率)
-                    char_color = 24'h00FFFF;  // 青色 - 频率
-                else if (pixel_y_d4 < PARAM_Y_START + 40)      // Y < 940: �?�?(幅度)
-                    char_color = 24'hFFFF00;  // 黄色 - 幅度
-                else if (pixel_y_d4 < PARAM_Y_START + 60)     // Y < 975: �?�?(占空�?
-                    char_color = 24'h00FF00;  // 绿色 - 占空�?
-                else if (pixel_y_d4 < PARAM_Y_START + 80)     // Y < 1010: �?�?(THD)
-                    char_color = 24'hFF8800;  // 橙色 - THD
-                else if (pixel_y_d4 < PARAM_Y_START + 100)     // Y < 1045: �?�?(AI识别)
-                    char_color = 24'hFFFFFF;  // 白色 - AI识别结果
-                else                                           // Y >= 1045: �?�?(相位�?
-                    char_color = 24'hFF00FF;  // 洋红�?- 相位�?
-                
+                if (pixel_y_d4 < TABLE_Y_CH1)
+                    char_color = 24'hFFFFFF;
+                else if (pixel_y_d4 < TABLE_Y_CH2)
+                    char_color = 24'h00FF00;
+                else if (pixel_y_d4 < TABLE_Y_PHASE)
+                    char_color = 24'hFF0000;
+                else
+                    char_color = 24'hFF00FF;
                 rgb_data = char_color;
             end
         end

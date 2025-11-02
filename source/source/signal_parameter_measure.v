@@ -60,6 +60,8 @@ reg [16:0]  freq_reciprocal;                // 倒数值 (17位)
 reg [48:0]  freq_product;                   // 乘法结果 (32×17=49位)
 reg [15:0]  freq_result;                    // 最终频率值
 reg         freq_unit_flag_int;             // 内部单位标志（流水线使用）
+reg         freq_result_done;               // Stage 4完成标志
+reg         freq_unit_d2;                   // 单位标志延迟2拍
 
 // 【优化】频率滑动平均滤波 (4次平均)
 reg [15:0]  freq_history[0:3];              // 历史值缓存
@@ -242,40 +244,24 @@ always @(posedge clk or negedge rst_n) begin
     end
 end
 
-// Stage 2: LUT查找（判断是否需要kHz显示）
+// Stage 2: 判断单位（Hz或kHz）
 always @(posedge clk or negedge rst_n) begin
     if (!rst_n) begin
-        freq_lut_index <= 8'd0;
-        freq_reciprocal <= 17'd0;
         freq_unit_flag_int <= 1'b0;
     end else if (freq_calc_trigger) begin
         // 100ms测量周期：freq_temp = 实际频率 / 10
-        // 【优化】如果实际频率 >= 100kHz (freq_temp >= 10000)，则显示kHz
-        // Hz模式: 0-99999 Hz (可以精确显示到100Hz精度)
-        // kHz模式: >= 100 kHz (显示为XXX.XX kHz，保持100Hz精度)
-        if (freq_temp >= 32'd10000) begin
-            // 高频模式：显示kHz (>= 100kHz)
-            // kHz = (freq_temp * 10) / 1000 = freq_temp / 100
-            // 使用固定倒数：65536/100 = 655.36
-            freq_reciprocal <= 17'd655;  // 65536/100 = 655.36
-            freq_unit_flag_int <= 1'b1;  // kHz单位
-        end else begin
-            // 低频模式：显示Hz (0-99999Hz，保持100Hz精度)
-            // Hz = freq_temp * 10
-            freq_reciprocal <= 17'd0;     // 不使用倒数，直接乘10
-            freq_unit_flag_int <= 1'b0;   // Hz单位
-        end
+        // 如果 freq_temp >= 10000，则实际频率 >= 100kHz，使用kHz显示
+        freq_unit_flag_int <= (freq_temp >= 32'd10000);
     end
 end
 
-// Stage 3: 乘法和缩放
+// Stage 3: 计算频率值
 reg freq_mult_done;
 reg [31:0] freq_temp_d1;  // 延迟一拍对齐流水线
 reg        freq_unit_d1;  // 单位标志延迟
 always @(posedge clk or negedge rst_n) begin
     if (!rst_n) begin
         freq_product <= 49'd0;
-        freq_result <= 16'd0;
         freq_mult_done <= 1'b0;
         freq_temp_d1 <= 32'd0;
         freq_unit_d1 <= 1'b0;
@@ -284,20 +270,38 @@ always @(posedge clk or negedge rst_n) begin
         freq_temp_d1 <= freq_temp;            // 对齐流水线
         freq_unit_d1 <= freq_unit_flag_int;   // 对齐单位标志
         
-        if (freq_mult_done) begin
-            if (freq_unit_d1) begin
-                // kHz模式：freq_temp / 100 ≈ freq_temp * 655 / 65536
-                freq_product <= freq_temp_d1 * 17'd655;  // 乘以655
-                freq_result <= freq_product[48:16];      // 除以65536
+        if (freq_calc_trigger) begin
+            if (freq_unit_flag_int) begin
+                // kHz模式：显示值 = freq_temp（保留2位小数，单位0.01kHz）
+                // 例如：freq_temp=50000表示500.00kHz
+                freq_product <= {17'd0, freq_temp};
             end else begin
-                // Hz模式：freq_temp * 10
-                freq_result <= freq_temp_d1[15:0] * 16'd10;
+                // Hz模式：显示值 = freq_temp * 10
+                // 例如：freq_temp=50表示500Hz
+                freq_product <= {17'd0, freq_temp * 32'd10};
             end
         end
     end
 end
 
-// Stage 4: 滑动平均滤波器（4次平均，减少抖动）
+// Stage 4: 提取结果（直接取低16位）
+always @(posedge clk or negedge rst_n) begin
+    if (!rst_n) begin
+        freq_result <= 16'd0;
+        freq_result_done <= 1'b0;
+        freq_unit_d2 <= 1'b0;
+    end else begin
+        freq_result_done <= freq_mult_done;
+        freq_unit_d2 <= freq_unit_d1;
+        
+        if (freq_mult_done) begin
+            // 直接取低16位作为结果
+            freq_result <= freq_product[15:0];
+        end
+    end
+end
+
+// Stage 5: 滑动平均滤波器（4次平均，减少抖动）
 integer j;
 always @(posedge clk or negedge rst_n) begin
     if (!rst_n) begin
@@ -307,7 +311,7 @@ always @(posedge clk or negedge rst_n) begin
         for (j = 0; j < 4; j = j + 1) begin
             freq_history[j] <= 16'd0;
         end
-    end else if (freq_mult_done && freq_result != freq_history[freq_hist_ptr]) begin
+    end else if (freq_result_done && freq_result != freq_history[freq_hist_ptr]) begin
         // 更新滑动平均（当新值与历史不同时）
         freq_sum <= freq_sum - freq_history[freq_hist_ptr] + freq_result;
         freq_history[freq_hist_ptr] <= freq_result;
@@ -316,7 +320,7 @@ always @(posedge clk or negedge rst_n) begin
     end
 end
 
-// Stage 5: 输出频率计算结果（freq_is_khz在输出寄存器处统一赋值）
+// Stage 6: 输出频率计算结果（freq_is_khz在输出寄存器处统一赋值）
 always @(posedge clk or negedge rst_n) begin
     if (!rst_n) begin
         freq_calc <= 16'd0;
