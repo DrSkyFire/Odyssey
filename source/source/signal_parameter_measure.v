@@ -386,31 +386,35 @@ always @(posedge clk or negedge rst_n) begin
         fft_freq_ready <= 1'b0;
         use_fft_freq <= 1'b0;
     end else if (measure_en && spectrum_valid) begin
-        // 检测FFT扫描开�?
+        // 检测FFT扫描开始（DC分量）
         if (spectrum_addr == 13'd0) begin
             fft_scan_active <= 1'b1;
-            fft_max_amp <= 16'd0;
-            fft_peak_bin <= 13'd0;
+            fft_max_amp <= 16'd100;  // 【修复】设置噪声阈值（避免检测到噪声底）
+            fft_peak_bin <= 13'd0;   // 默认DC（如果没有找到峰值）
             fft_freq_ready <= 1'b0;
-            use_fft_freq <= 1'b1;  // 标记使用FFT频率
+            use_fft_freq <= 1'b1;
         end
-        // 【修复】峰值搜索从bin 1开始（跳过DC），扫描前半部分避免镜像
+        // 峰值搜索（跳过DC，扫描前半部分避免镜像）
         else if (fft_scan_active && spectrum_addr >= 13'd1 && spectrum_addr < (FFT_POINTS/2)) begin
             if (spectrum_data > fft_max_amp) begin
                 fft_max_amp <= spectrum_data;
                 fft_peak_bin <= spectrum_addr;
             end
         end
-        // 扫描结束，计算频�?
+        // 扫描结束，计算频率
         else if (spectrum_addr == (FFT_POINTS/2)) begin
             fft_scan_active <= 1'b0;
-            // 频率 = peak_bin * 频率分辨�?(4272 Hz)
-            fft_freq_hz <= fft_peak_bin * FREQ_RES;
-            fft_freq_ready <= 1'b1;  // 锁存，保持有效直到下次扫描开始
+            // 【修复】只有找到有效峰值才更新频率（避免锁定到噪声）
+            if (fft_max_amp > 16'd100) begin  // 峰值幅度必须>阈值
+                fft_freq_hz <= fft_peak_bin * FREQ_RES;
+                fft_freq_ready <= 1'b1;
+            end else begin
+                // 信号太弱，使用时域测量
+                fft_freq_ready <= 1'b0;
+            end
         end
     end 
-    // 【修复】删除 else 分支，让 fft_freq_ready 保持锁存
-    // 只在下次FFT扫描开始时清零
+    // fft_freq_ready保持锁存，直到下次扫描开始时清零
 end
 
 //=============================================================================
