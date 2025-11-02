@@ -60,7 +60,7 @@ localparam FFT_WIDTH  = 10;                 // FFT数据位宽（10位ADC直接�
 //=============================================================================
 wire        clk_100m;                       // 100MHz系统时钟
 wire        clk_10m;                        // 10MHz中间时钟
-wire        clk_adc;                        // 35MHz ADC采样时钟（级联）
+wire        clk_adc;                        // 35MHz ADC采样时钟
 wire        clk_fft;                        // 100MHz FFT处理时钟
 wire        pll1_lock;                      // PLL1锁定信号
 // HDMI相关时钟
@@ -492,10 +492,10 @@ pll_sys u_pll_sys (
 );
 
 // PLL1配置说明：
-// VCO = 1000MHz (50MHz × 20 / 1)
-// CLKOUT0 = 100MHz (1000MHz / 10)
-// CLKOUT1 = 10MHz (1000MHz / 100)
-// CLKOUT2 = 1MHz (级联CLKOUT1 / 10)
+// VCO = 1400MHz (50MHz × 28 / 1)
+// CLKOUT0 = 100MHz (1400MHz / 14) - 系统时钟
+// CLKOUT1 = 10MHz (1400MHz / 140) - 保留
+// CLKOUT2 = 35MHz (1400MHz / 40) - ADC采样时钟
 
 //=============================================================================
 // 2. PLL2 - HDMI时钟管理（27MHz输入）
@@ -707,7 +707,7 @@ always @(posedge clk_adc or negedge rst_n) begin
 end
 
 //=============================================================================
-// 4. 双通道数据缓冲FIFO (跨时钟域：ADC 1MHz → FFT 100MHz)
+// 4. 双通道数据缓冲FIFO (跨时钟域：ADC 35MHz → FFT 100MHz)
 //=============================================================================
 // ✓ 双通道独立FIFO，支持同步采集
 
@@ -730,7 +730,7 @@ fifo_async #(
     .DATA_WIDTH     (16),
     .FIFO_DEPTH     (8192)  // ✓ 修改为8192以匹配FFT点数
 ) u_ch1_fifo (
-    // 写端口 (ADC时钟域 1MHz)
+    // 写端口 (ADC时钟域 35MHz)
     .wr_clk         (clk_adc),
     .wr_rst_n       (wr_rst_n),
     .wr_en          (ch1_fifo_wr_en),
@@ -754,7 +754,7 @@ fifo_async #(
     .DATA_WIDTH     (16),
     .FIFO_DEPTH     (8192)  // ✓ 修改为8192以匹配FFT点数
 ) u_ch2_fifo (
-    // 写端口 (ADC时钟域 1MHz)
+    // 写端口 (ADC时钟域 35MHz)
     .wr_clk         (clk_adc),
     .wr_rst_n       (wr_rst_n),
     .wr_en          (ch2_fifo_wr_en),
@@ -1403,9 +1403,9 @@ signal_parameter_measure u_ch1_param_measure (
     .clk            (clk_100m),
     .rst_n          (rst_n),
     
-    // 时域数据输入
+    // 时域数据输入 - 【修改】使用完整10位数据
     .sample_clk     (clk_adc),
-    .sample_data    (ch1_data_sync[9:2]),
+    .sample_data    (ch1_data_sync),
     .sample_valid   (dual_data_valid || test_mode),
     
     // 频域数据输入
@@ -1429,9 +1429,9 @@ signal_parameter_measure u_ch2_param_measure (
     .clk            (clk_100m),
     .rst_n          (rst_n),
     
-    // 时域数据输入
+    // 时域数据输入 - 【修改】使用完整10位数据
     .sample_clk     (clk_adc),
-    .sample_data    (ch2_data_sync[9:2]),
+    .sample_data    (ch2_data_sync),
     .sample_valid   (dual_data_valid || test_mode),
     
     // 频域数据输入

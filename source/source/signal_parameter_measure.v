@@ -14,7 +14,7 @@ module signal_parameter_measure (
     
     // 时域数据输入 (用于频率、幅度、占空比测量)
     input  wire         sample_clk,         // 采样时钟 35MHz
-    input  wire [7:0]   sample_data,        // 采样数据
+    input  wire [9:0]   sample_data,        // 采样数据 (10位ADC)
     input  wire         sample_valid,       // 采样有效
     
     // 频域数据输入 (用于THD测量)
@@ -48,7 +48,7 @@ reg [31:0]  time_cnt;                       // 基于100MHz的时间计数
 reg         measure_done;                   // 测量周期结束标志
 
 // 频率测量
-reg [7:0]   data_d1, data_d2;
+reg [9:0]   data_d1, data_d2;               // 【修改】10位数据延迟
 reg         zero_cross;                     // 过零标志
 reg [31:0]  zero_cross_cnt;                 // 过零计数
 reg [31:0]  sample_cnt;                     // 采样计数
@@ -69,9 +69,9 @@ reg [1:0]   freq_hist_ptr;                  // 历史值指针
 reg [17:0]  freq_sum;                       // 累加和
 reg [15:0]  freq_filtered;                  // 滤波后的结果
 
-// 幅度测量
-reg [7:0]   max_val;
-reg [7:0]   min_val;
+// 幅度测量 - 【修改】10位精度
+reg [9:0]   max_val;
+reg [9:0]   min_val;
 reg [15:0]  amplitude_calc;
 
 // Duty cycle measurement
@@ -115,8 +115,8 @@ reg [2:0]   thd_pipe_valid;                 // THD流水线有效标志
 //=============================================================================
 always @(posedge clk or negedge rst_n) begin
     if (!rst_n) begin
-        data_d1 <= 8'd0;
-        data_d2 <= 8'd0;
+        data_d1 <= 10'd0;
+        data_d2 <= 10'd0;
     end else if (sample_valid) begin
         data_d1 <= sample_data;
         data_d2 <= data_d1;
@@ -148,12 +148,12 @@ end
 //=============================================================================
 // 2. 频率测量 - 过零检测
 //=============================================================================
-// 检测过零点（从低到高）
+// 检测过零点（从低到高）- 【修改】10位中间值512
 always @(posedge clk or negedge rst_n) begin
     if (!rst_n)
         zero_cross <= 1'b0;
     else if (sample_valid)
-        zero_cross <= (data_d2 < 8'd128) && (data_d1 >= 8'd128);
+        zero_cross <= (data_d2 < 10'd512) && (data_d1 >= 10'd512);
     else
         zero_cross <= 1'b0;
 end
@@ -330,17 +330,17 @@ always @(posedge clk or negedge rst_n) begin
 end
 
 //=============================================================================
-// 3. 幅度测量 - 峰峰值检测
+// 3. 幅度测量 - 峰峰值检测 (10位精度)
 //=============================================================================
 always @(posedge clk or negedge rst_n) begin
     if (!rst_n) begin
-        max_val <= 8'd0;
-        min_val <= 8'd255;
+        max_val <= 10'd0;
+        min_val <= 10'd1023;
     end else if (measure_en) begin
         if (measure_done) begin
-            // 【修复】测量周期结束（1秒固定时间），重新开始
-            max_val <= 8'd0;
-            min_val <= 8'd255;
+            // 【修复】测量周期结束（100ms固定时间），重新开始
+            max_val <= 10'd0;
+            min_val <= 10'd1023;
         end else if (sample_valid) begin
             if (sample_data > max_val)
                 max_val <= sample_data;
@@ -348,17 +348,17 @@ always @(posedge clk or negedge rst_n) begin
                 min_val <= sample_data;
         end
     end else begin
-        max_val <= 8'd0;
-        min_val <= 8'd255;
+        max_val <= 10'd0;
+        min_val <= 10'd1023;
     end
 end
 
-// 幅度计算（峰峰值）
+// 幅度计算（峰峰值）- 【修改】扩展到10位
 always @(posedge clk or negedge rst_n) begin
     if (!rst_n)
         amplitude_calc <= 16'd0;
     else if (measure_done)
-        amplitude_calc <= {8'd0, max_val} - {8'd0, min_val};
+        amplitude_calc <= {6'd0, max_val} - {6'd0, min_val};
 end
 
 //=============================================================================
@@ -373,7 +373,7 @@ always @(posedge clk or negedge rst_n) begin
         duty_calc_trigger <= 1'b0;
     end else if (measure_en) begin
         if (measure_done) begin
-            // 【修复】测量周期结束（1秒固定时间），锁存并清零
+            // 【修复】测量周期结束（100ms固定时间），锁存并清零
             high_cnt_latch <= high_cnt;
             total_cnt_latch <= total_cnt;
             high_cnt <= 32'd0;
@@ -383,10 +383,9 @@ always @(posedge clk or negedge rst_n) begin
             duty_calc_trigger <= 1'b0;
             if (sample_valid) begin
                 total_cnt <= total_cnt + 1'b1;
-                // 【修复】改用 > 127 使高低电平判断更对称
-                // 0-127: 低电平 (128个值)
-                // 128-255: 高电平 (128个值)
-                if (sample_data > 8'd127)
+                // 【修改】10位中间值：511 (0-511低电平, 512-1023高电平)
+                // 使用 > 511 使高低电平判断对称
+                if (sample_data > 10'd511)
                     high_cnt <= high_cnt + 1'b1;
             end
         end
