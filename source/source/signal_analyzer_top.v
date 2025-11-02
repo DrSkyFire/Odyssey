@@ -1894,16 +1894,25 @@ always @(posedge clk_100m or negedge rst_n) begin
     end
 end
 
+// 【诊断用】spectrum_valid活动检测
+reg ch1_spectrum_active;
+always @(posedge clk_100m or negedge rst_n) begin
+    if (!rst_n)
+        ch1_spectrum_active <= 1'b0;
+    else if (ch1_spectrum_valid)
+        ch1_spectrum_active <= 1'b1;  // 锁存，检测到FFT输出就保持
+end
+
 always @(posedge clk_100m or negedge rst_n) begin
     if (!rst_n)
         user_led_reg <= 8'h00;
     else begin
         user_led_reg[0] <= run_flag;                // 运行状态
-        user_led_reg[1] <= adc_ch1_otr_sync_100m;   // 通道1 ADC溢出警告
-        user_led_reg[2] <= adc_ch2_otr_sync_100m;   // 通道2 ADC溢出警告
-        user_led_reg[3] <= current_fft_channel;     // 当前处理的通道
-        user_led_reg[4] <= display_channel;         // 当前显示的通道
-        user_led_reg[5] <= test_mode;               // 测试模式
+        user_led_reg[1] <= ch1_spectrum_active;     // 【诊断】FFT是否有输出（锁存）
+        user_led_reg[2] <= fft_start;               // 【诊断】FFT启动信号
+        user_led_reg[3] <= work_mode[0];            // 工作模式 bit0
+        user_led_reg[4] <= work_mode[1];            // 工作模式 bit1 (00=时域 01=频域 10=测量)
+        user_led_reg[5] <= test_mode;               // 测试模式（必须为0才测量外部信号）
         user_led_reg[6] <= pll1_lock;               // PLL1锁定
         user_led_reg[7] <= pll2_lock;               // PLL2锁定
     end
