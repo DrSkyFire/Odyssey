@@ -753,7 +753,7 @@ always @(posedge clk_pixel or negedge rst_n) begin
         if (pixel_x >= 8 && pixel_x < AXIS_LEFT_MARGIN - TICK_LENGTH - 4) begin
             // 100% (Y: 75-107)
             if (pixel_y >= 50 && pixel_y < 66) begin
-                y_axis_char_row <= (pixel_y - 12'd50) << 1;
+                y_axis_char_row <= pixel_y - 12'd50;  // 0-15
                 y_axis_char_valid <= 1'b1;
                 if (pixel_x >= 8 && pixel_x < 24) begin
                     y_axis_char_code <= 8'd49;  // '1'
@@ -777,7 +777,7 @@ always @(posedge clk_pixel or negedge rst_n) begin
             end
             // 75% (Y: 262-294)
             else if (pixel_y >= 175 && pixel_y < 191) begin
-                y_axis_char_row <= (pixel_y - 12'd175) << 1;
+                y_axis_char_row <= pixel_y - 12'd175;  // 0-15
                 y_axis_char_valid <= 1'b1;
                 if (pixel_x >= 24 && pixel_x < 40) begin
                     y_axis_char_code <= 8'd55;  // '7'
@@ -797,7 +797,7 @@ always @(posedge clk_pixel or negedge rst_n) begin
             end
             // 50% (Y: 450-482)
             else if (pixel_y >= 300 && pixel_y < 316) begin
-                y_axis_char_row <= (pixel_y - 12'd300) << 1;
+                y_axis_char_row <= pixel_y - 12'd300;  // 0-15
                 y_axis_char_valid <= 1'b1;
                 if (pixel_x >= 24 && pixel_x < 40) begin
                     y_axis_char_code <= 8'd53;  // '5'
@@ -817,7 +817,7 @@ always @(posedge clk_pixel or negedge rst_n) begin
             end
             // 25% (Y: 637-669)
             else if (pixel_y >= 425 && pixel_y < 441) begin
-                y_axis_char_row <= (pixel_y - 12'd425) << 1;
+                y_axis_char_row <= pixel_y - 12'd425;  // 0-15
                 y_axis_char_valid <= 1'b1;
                 if (pixel_x >= 24 && pixel_x < 40) begin
                     y_axis_char_code <= 8'd50;  // '2'
@@ -837,7 +837,7 @@ always @(posedge clk_pixel or negedge rst_n) begin
             end
             // 0% (Y: 793-825)
             else if (pixel_y >= 532 && pixel_y < 548) begin
-                y_axis_char_row <= (pixel_y - 12'd532) << 1;
+                y_axis_char_row <= pixel_y - 12'd532;  // 0-15
                 y_axis_char_valid <= 1'b1;
                 if (pixel_x >= 40 && pixel_x < 56) begin
                     y_axis_char_code <= 8'd48;  // '0'
@@ -985,7 +985,7 @@ always @(posedge clk_pixel or negedge rst_n) begin
     // 频域模式�?, 3.5, 7.0, 10.5, 14.0, 17.5 MHz
     // 时域模式�?, 47, 93, 140, 186, 234 us (8192�?@ 35MHz = 234us)
     else if (pixel_y_d1 >= SPECTRUM_Y_END && pixel_y_d1 < SPECTRUM_Y_END + 16) begin
-        char_row <= (pixel_y_d1 - SPECTRUM_Y_END) << 1;
+        char_row <= pixel_y_d1 - SPECTRUM_Y_END;  // 0-15
         
         // X = 80: "0"
         if (pixel_x_d1 >= 80 && pixel_x_d1 < 96) begin
@@ -1099,7 +1099,7 @@ always @(posedge clk_pixel or negedge rst_n) begin
         // 表头行 (Y: 580-600, 20px高)
         //=====================================================================
         if (pixel_y_d1 >= TABLE_Y_HEADER && pixel_y_d1 < TABLE_Y_HEADER + 20) begin
-            char_row <= (pixel_y_d1 - TABLE_Y_HEADER) << 1;
+            char_row <= pixel_y_d1 - TABLE_Y_HEADER;  // 0-19
             
             // 列1: "CH"
             if (pixel_x_d1 >= COL_CH_X + 4 && pixel_x_d1 < COL_CH_X + 20) begin
@@ -1228,7 +1228,7 @@ always @(posedge clk_pixel or negedge rst_n) begin
         else if (pixel_y_d1 >= TABLE_Y_CH1 && pixel_y_d1 < TABLE_Y_CH1 + ROW_HEIGHT) begin
             // 只在行内前32px显示字符（40px行高，字符32px，底部8px留空）
             if (pixel_y_d1 < TABLE_Y_CH1 + 32) begin
-                char_row <= (pixel_y_d1 - TABLE_Y_CH1) << 1;
+                char_row <= pixel_y_d1 - TABLE_Y_CH1;  // 0-31，不需要左移
             
                 // 列1: 通道号 "1"
                 if (pixel_x_d1 >= COL_CH_X + 12 && pixel_x_d1 < COL_CH_X + 28) begin
@@ -1572,7 +1572,7 @@ always @(posedge clk_pixel or negedge rst_n) begin
         else if (pixel_y_d1 >= TABLE_Y_CH2 && pixel_y_d1 < TABLE_Y_CH2 + ROW_HEIGHT) begin
             // 只在行内前32px显示字符（40px行高，字符32px，底部8px留空）
             if (pixel_y_d1 < TABLE_Y_CH2 + 32) begin
-                char_row <= (pixel_y_d1 - TABLE_Y_CH2) << 1;
+                char_row <= pixel_y_d1 - TABLE_Y_CH2;  // 0-31，不需要左移
             
                 // 列1: 通道号 "2"
                 if (pixel_x_d1 >= COL_CH_X + 12 && pixel_x_d1 < COL_CH_X + 28) begin
@@ -1905,7 +1905,7 @@ always @(posedge clk_pixel or negedge rst_n) begin
         else if (pixel_y_d1 >= TABLE_Y_PHASE && pixel_y_d1 < PARAM_Y_END) begin
             // 只在行内前32px显示字符（40px行高，字符32px，底部8px留空）
             if (pixel_y_d1 < TABLE_Y_PHASE + 32) begin
-                char_row <= (pixel_y_d1 - TABLE_Y_PHASE) << 1;
+                char_row <= pixel_y_d1 - TABLE_Y_PHASE;  // 0-31，不需要左移
             
                 // 居中显示：屏幕宽度1280，文本约13个字符(208px)，起始X=(1280-208)/2=536
                 // "Phase Diff: XXX.X°"
