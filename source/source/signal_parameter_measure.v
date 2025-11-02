@@ -1,10 +1,10 @@
 //=============================================================================
-// 文件名: signal_parameter_measure.v
+// 文件�? signal_parameter_measure.v
 // 描述: 信号参数测量模块
 // 功能: 
-//   1. 频率测量 - 基于过零检测
-//   2. 幅度测量 - 峰峰值检测
-//   3. 占空比测量 - 高电平时间比例
+//   1. 频率测量 - 基于过零检�?
+//   2. 幅度测量 - 峰峰值检�?
+//   3. 占空比测�?- 高电平时间比�?
 //   4. THD测量 - 基于FFT频谱数据
 //=============================================================================
 
@@ -19,14 +19,14 @@ module signal_parameter_measure (
     
     // 频域数据输入 (用于THD测量)
     input  wire [15:0]  spectrum_data,      // 频谱幅度
-    input  wire [12:0]  spectrum_addr,      // 频谱地址（8192点需要13位）
+    input  wire [12:0]  spectrum_addr,      // 频谱地址�?192点需�?3位）
     input  wire         spectrum_valid,     // 频谱有效
     
     // 参数输出
-    output reg  [15:0]  freq_out,           // 频率数值
+    output reg  [15:0]  freq_out,           // 频率数�?
     output reg          freq_is_khz,        // 频率单位标志 (0=Hz, 1=kHz)
-    output reg  [15:0]  amplitude_out,      // 幅度 (峰峰值)
-    output reg  [15:0]  duty_out,           // 占空比 (0~1000 表示0%~100%)
+    output reg  [15:0]  amplitude_out,      // 幅度 (峰峰�?
+    output reg  [15:0]  duty_out,           // 占空�?(0~1000 表示0%~100%)
     output reg  [15:0]  thd_out,            // THD (0~1000 表示0%~100%)
     
     // 控制
@@ -36,40 +36,61 @@ module signal_parameter_measure (
 //=============================================================================
 // 参数定义
 //=============================================================================
-localparam SAMPLE_RATE = 35_000_000;        // 采样率 35MHz (实际ADC采样率)
-localparam MEASURE_TIME = 35_000_000;       // 测量周期：35M个sample_valid
-localparam TIME_100MS = 10_000_000;         // 【优化】100ms的100MHz时钟周期数 (10Hz更新率)
+localparam SAMPLE_RATE = 35_000_000;        // 采样�?35MHz (实际ADC采样�?
+localparam MEASURE_TIME = 35_000_000;       // 测量周期�?5M个sample_valid
+localparam TIME_100MS = 10_000_000;         // 【优化�?00ms�?00MHz时钟周期�?(10Hz更新�?
+
+// 【新增】FFT频率测量参数
+localparam FFT_POINTS = 8192;               // FFT点数
+localparam FREQ_RES = 4272;                 // 频率分辨�? 35MHz/8192 �?4272 Hz/bin
 
 //=============================================================================
 // 信号定义
 //=============================================================================
-// 【新增】固定时间计数器（避免CDC导致的测量周期不稳定）
-reg [31:0]  time_cnt;                       // 基于100MHz的时间计数
+// 【新增】固定时间计数器（避免CDC导致的测量周期不稳定�?
+reg [31:0]  time_cnt;                       // 基于100MHz的时间计�?
 reg         measure_done;                   // 测量周期结束标志
 
+// 【新增】FFT峰值检测（用于频域频率/幅度测量�?
+reg [15:0]  fft_max_amp;                    // FFT峰值幅�?
+reg [12:0]  fft_peak_bin;                   // 峰值bin位置
+reg         fft_scan_active;                // FFT扫描激�?
+reg [31:0]  fft_freq_hz;                    // FFT计算的频率（Hz�?
+reg         fft_freq_ready;                 // FFT频率就绪
+reg         use_fft_freq;                   // 使用FFT频率（频域模式）
+
+// 【新增】FFT谐波检测（用于THD计算�?
+reg [15:0]  fft_harmonic_2;                 // 2次谐波幅�?
+reg [15:0]  fft_harmonic_3;                 // 3次谐波幅�?
+reg [15:0]  fft_harmonic_4;                 // 4次谐波幅�?
+reg [15:0]  fft_harmonic_5;                 // 5次谐波幅�?
+reg [2:0]   fft_harm_state;                 // 谐波扫描状�?
+reg [12:0]  fft_target_bin;                 // 目标谐波bin
+reg [15:0]  fft_temp_amp;                   // 临时幅度
+
 // 频率测量
-reg [9:0]   data_d1, data_d2;               // 【修改】10位数据延迟
+reg [9:0]   data_d1, data_d2;               // 【修改�?0位数据延�?
 reg         zero_cross;                     // 过零标志
 reg [31:0]  zero_cross_cnt;                 // 过零计数
 reg [31:0]  sample_cnt;                     // 采样计数
 reg [15:0]  freq_calc;
 
-// 【优化】频率精确计算 - 使用LUT代替除法
+// 【优化】频率精确计�?- 使用LUT代替除法
 reg [7:0]   freq_lut_index;                 // LUT索引
-reg [16:0]  freq_reciprocal;                // 倒数值 (17位)
-reg [48:0]  freq_product;                   // 乘法结果 (32×17=49位)
-reg [15:0]  freq_result;                    // 最终频率值
-reg         freq_unit_flag_int;             // 内部单位标志（流水线使用）
+reg [16:0]  freq_reciprocal;                // 倒数�?(17�?
+reg [48:0]  freq_product;                   // 乘法结果 (32×17=49�?
+reg [15:0]  freq_result;                    // 最终频率�?
+reg         freq_unit_flag_int;             // 内部单位标志（流水线使用�?
 reg         freq_result_done;               // Stage 4完成标志
-reg         freq_unit_d2;                   // 单位标志延迟2拍
+reg         freq_unit_d2;                   // 单位标志延迟2�?
 
-// 【优化】频率滑动平均滤波 (4次平均)
-reg [15:0]  freq_history[0:3];              // 历史值缓存
-reg [1:0]   freq_hist_ptr;                  // 历史值指针
-reg [17:0]  freq_sum;                       // 累加和
+// 【优化】频率滑动平均滤�?(4次平�?
+reg [15:0]  freq_history[0:3];              // 历史值缓�?
+reg [1:0]   freq_hist_ptr;                  // 历史值指�?
+reg [17:0]  freq_sum;                       // 累加�?
 reg [15:0]  freq_filtered;                  // 滤波后的结果
 
-// 幅度测量 - 【修改】10位精度
+// 幅度测量 - 【修改�?0位精�?
 reg [9:0]   max_val;
 reg [9:0]   min_val;
 reg [15:0]  amplitude_calc;
@@ -93,12 +114,12 @@ reg [63:0]  duty_product;                   // numerator[31:0] * reciprocal (32�
 reg [15:0]  duty_result;                    // Final result
 
 // 【优化】占空比滑动平均滤波 (8次平均，减少跳动)
-reg [15:0]  duty_history[0:7];              // 历史值缓存
-reg [2:0]   duty_hist_ptr;                  // 历史值指针
-reg [18:0]  duty_sum;                       // 累加和 (16位×8需要19位)
+reg [15:0]  duty_history[0:7];              // 历史值缓�?
+reg [2:0]   duty_hist_ptr;                  // 历史值指�?
+reg [18:0]  duty_sum;                       // 累加�?(16位�?需�?9�?
 reg [15:0]  duty_filtered;                  // 滤波后的结果
 
-// THD测量 - 添加流水线
+// THD测量 - 添加流水�?
 reg [31:0]  fundamental_power;              // 基波功率
 reg [31:0]  harmonic_power;                 // 谐波功率
 reg [39:0]  thd_mult_stage1;                // 流水线第1级：乘法
@@ -106,9 +127,9 @@ reg [39:0]  thd_mult_stage2;                // 流水线第2级：延迟对齐
 reg [15:0]  thd_calc;                       // 流水线第3级：移位除法
 reg [3:0]   harmonic_cnt;                   // 谐波计数
 
-// 流水线控制信号
+// 流水线控制信�?
 reg         thd_calc_trigger;               // THD计算触发
-reg [2:0]   thd_pipe_valid;                 // THD流水线有效标志
+reg [2:0]   thd_pipe_valid;                 // THD流水线有效标�?
 
 //=============================================================================
 // 采样数据同步到系统时钟域
@@ -124,7 +145,7 @@ always @(posedge clk or negedge rst_n) begin
 end
 
 //=============================================================================
-// 1. 快速测量周期（100ms更新，10Hz刷新率）
+// 1. 快速测量周期（100ms更新�?0Hz刷新率）
 //=============================================================================
 // 使用100MHz时钟作为时间基准，确保每次测量周期都是精确的100ms
 always @(posedge clk or negedge rst_n) begin
@@ -146,9 +167,9 @@ always @(posedge clk or negedge rst_n) begin
 end
 
 //=============================================================================
-// 2. 频率测量 - 过零检测
+// 2. 频率测量 - 过零检�?
 //=============================================================================
-// 检测过零点（从低到高）- 【修改】10位中间值512
+// 检测过零点（从低到高）- 【修改�?0位中间�?12
 always @(posedge clk or negedge rst_n) begin
     if (!rst_n)
         zero_cross <= 1'b0;
@@ -158,7 +179,7 @@ always @(posedge clk or negedge rst_n) begin
         zero_cross <= 1'b0;
 end
 
-// 过零计数和采样计数
+// 过零计数和采样计�?
 reg [31:0] zero_cross_cnt_latch;  // 【新增】锁存计数值，避免时序竞争
 
 always @(posedge clk or negedge rst_n) begin
@@ -168,7 +189,7 @@ always @(posedge clk or negedge rst_n) begin
         zero_cross_cnt_latch <= 32'd0;
     end else if (measure_en) begin
         if (measure_done) begin
-            // 【修复】测量周期结束：先锁存，再清零
+            // 【修复】测量周期结束：先锁存，再清�?
             zero_cross_cnt_latch <= zero_cross_cnt;
             zero_cross_cnt <= 32'd0;
             sample_cnt <= 32'd0;
@@ -185,8 +206,8 @@ always @(posedge clk or negedge rst_n) begin
     end
 end
 
-// 【优化】频率LUT：精确÷100（用于kHz转换）
-// 100ms测量周期，freq_temp是100ms内的过零次数
+// 【优化】频率LUT：精确�?00（用于kHz转换�?
+// 100ms测量周期，freq_temp�?00ms内的过零次数
 // 实际频率 = freq_temp * 10 (Hz)
 // kHz显示 = freq_temp * 10 / 1000 = freq_temp / 100
 // 使用LUT实现：freq / 100 = freq * (65536/100) / 65536
@@ -194,7 +215,7 @@ function [16:0] freq_reciprocal_lut;
     input [7:0] index;
     begin
         case (index)
-            8'd0:   freq_reciprocal_lut = 17'd65536;  // 避免除0
+            8'd0:   freq_reciprocal_lut = 17'd65536;  // 避免�?
             8'd1:   freq_reciprocal_lut = 17'd65536;  // 100/1
             8'd2:   freq_reciprocal_lut = 17'd32768;  // 100/2
             8'd4:   freq_reciprocal_lut = 17'd16384;  // 100/4
@@ -214,7 +235,7 @@ function [16:0] freq_reciprocal_lut;
             8'd200: freq_reciprocal_lut = 17'd327;    // 100/200
             8'd255: freq_reciprocal_lut = 17'd257;    // 100/255
             default: begin
-                // 线性插值近似
+                // 线性插值近�?
                 if (index < 4)        freq_reciprocal_lut = 17'd16384;
                 else if (index < 10)  freq_reciprocal_lut = 17'd8192;
                 else if (index < 20)  freq_reciprocal_lut = 17'd4096;
@@ -228,10 +249,10 @@ function [16:0] freq_reciprocal_lut;
 endfunction
 
 // 频率计算 - 精确÷1000 + 滑动平均滤波
-reg [31:0] freq_temp;         // 原始计数值
+reg [31:0] freq_temp;         // 原始计数�?
 reg        freq_calc_trigger; // 计算触发信号
 
-// Stage 1: 触发并锁存计数值
+// Stage 1: 触发并锁存计数�?
 always @(posedge clk or negedge rst_n) begin
     if (!rst_n) begin
         freq_temp <= 32'd0;
@@ -244,7 +265,7 @@ always @(posedge clk or negedge rst_n) begin
     end
 end
 
-// Stage 2: 判断单位（Hz或kHz）
+// Stage 2: 判断单位（Hz或kHz�?
 always @(posedge clk or negedge rst_n) begin
     if (!rst_n) begin
         freq_unit_flag_int <= 1'b0;
@@ -255,7 +276,7 @@ always @(posedge clk or negedge rst_n) begin
     end
 end
 
-// Stage 3: 计算频率值
+// Stage 3: 计算频率�?
 reg freq_mult_done;
 reg [31:0] freq_temp_d1;  // 延迟一拍对齐流水线
 reg        freq_unit_d1;  // 单位标志延迟
@@ -267,16 +288,16 @@ always @(posedge clk or negedge rst_n) begin
         freq_unit_d1 <= 1'b0;
     end else begin
         freq_mult_done <= freq_calc_trigger;  // 延迟一周期
-        freq_temp_d1 <= freq_temp;            // 对齐流水线
+        freq_temp_d1 <= freq_temp;            // 对齐流水�?
         freq_unit_d1 <= freq_unit_flag_int;   // 对齐单位标志
         
         if (freq_calc_trigger) begin
             if (freq_unit_flag_int) begin
-                // kHz模式：显示值 = freq_temp（保留2位小数，单位0.01kHz）
+                // kHz模式：显示�?= freq_temp（保�?位小数，单位0.01kHz�?
                 // 例如：freq_temp=50000表示500.00kHz
                 freq_product <= {17'd0, freq_temp};
             end else begin
-                // Hz模式：显示值 = freq_temp * 10
+                // Hz模式：显示�?= freq_temp * 10
                 // 例如：freq_temp=50表示500Hz
                 freq_product <= {17'd0, freq_temp * 32'd10};
             end
@@ -284,7 +305,7 @@ always @(posedge clk or negedge rst_n) begin
     end
 end
 
-// Stage 4: 提取结果（直接取低16位）
+// Stage 4: 提取结果（直接取�?6位）
 always @(posedge clk or negedge rst_n) begin
     if (!rst_n) begin
         freq_result <= 16'd0;
@@ -295,13 +316,13 @@ always @(posedge clk or negedge rst_n) begin
         freq_unit_d2 <= freq_unit_d1;
         
         if (freq_mult_done) begin
-            // 直接取低16位作为结果
+            // 直接取低16位作为结�?
             freq_result <= freq_product[15:0];
         end
     end
 end
 
-// Stage 5: 滑动平均滤波器（4次平均，减少抖动）
+// Stage 5: 滑动平均滤波器（4次平均，减少抖动�?
 integer j;
 always @(posedge clk or negedge rst_n) begin
     if (!rst_n) begin
@@ -325,12 +346,158 @@ always @(posedge clk or negedge rst_n) begin
     if (!rst_n) begin
         freq_calc <= 16'd0;
     end else begin
-        freq_calc <= freq_filtered;        // 使用滤波后的值
+        freq_calc <= freq_filtered;        // 使用滤波后的�?
     end
 end
 
 //=============================================================================
-// 3. 幅度测量 - 峰峰值检测 (10位精度)
+// 2B. 【新增】FFT频谱峰值频率测量（频域模式，精度更高）
+//=============================================================================
+// 实时流式峰值搜�?- 在FFT输出数据流中找最大�?
+always @(posedge clk or negedge rst_n) begin
+    if (!rst_n) begin
+        fft_max_amp <= 16'd0;
+        fft_peak_bin <= 13'd0;
+        fft_scan_active <= 1'b0;
+        fft_freq_hz <= 32'd0;
+        fft_freq_ready <= 1'b0;
+        use_fft_freq <= 1'b0;
+    end else if (measure_en && spectrum_valid) begin
+        // 检测FFT扫描开�?
+        if (spectrum_addr == 13'd0) begin
+            fft_scan_active <= 1'b1;
+            fft_max_amp <= 16'd0;
+            fft_peak_bin <= 13'd0;
+            fft_freq_ready <= 1'b0;
+            use_fft_freq <= 1'b1;  // 标记使用FFT频率
+        end
+        // 峰值搜索（跳过DC分量，只扫描前半部分避免镜像�?
+        else if (fft_scan_active && spectrum_addr >= 13'd10 && spectrum_addr < (FFT_POINTS/2)) begin
+            if (spectrum_data > fft_max_amp) begin
+                fft_max_amp <= spectrum_data;
+                fft_peak_bin <= spectrum_addr;
+            end
+        end
+        // 扫描结束，计算频�?
+        else if (spectrum_addr == (FFT_POINTS/2)) begin
+            fft_scan_active <= 1'b0;
+            // 频率 = peak_bin * 频率分辨�?(4272 Hz)
+            fft_freq_hz <= fft_peak_bin * FREQ_RES;
+            fft_freq_ready <= 1'b1;
+        end
+    end else begin
+        fft_freq_ready <= 1'b0;
+    end
+end
+
+//=============================================================================
+// 2C. 【新增】FFT谐波检测状态机（用于THD计算�?
+//=============================================================================
+localparam HARM_IDLE  = 3'd0;
+localparam HARM_SCAN2 = 3'd1;
+localparam HARM_SCAN3 = 3'd2;
+localparam HARM_SCAN4 = 3'd3;
+localparam HARM_SCAN5 = 3'd4;
+localparam HARM_DONE  = 3'd5;
+
+always @(posedge clk or negedge rst_n) begin
+    if (!rst_n) begin
+        fft_harm_state <= HARM_IDLE;
+        fft_harmonic_2 <= 16'd0;
+        fft_harmonic_3 <= 16'd0;
+        fft_harmonic_4 <= 16'd0;
+        fft_harmonic_5 <= 16'd0;
+        fft_target_bin <= 13'd0;
+        fft_temp_amp <= 16'd0;
+    end else begin
+        case (fft_harm_state)
+            HARM_IDLE: begin
+                if (fft_freq_ready) begin
+                    // FFT扫描完成，开始谐波检�?
+                    fft_harm_state <= HARM_SCAN2;
+                    fft_target_bin <= fft_peak_bin << 1;  // 2次谐�?= 基波*2
+                    fft_temp_amp <= 16'd0;
+                end
+            end
+            
+            HARM_SCAN2: begin
+                if (spectrum_valid) begin
+                    // 在目标bin附近±3范围搜索最大�?
+                    if (spectrum_addr >= (fft_target_bin - 13'd3) && 
+                        spectrum_addr <= (fft_target_bin + 13'd3)) begin
+                        if (spectrum_data > fft_temp_amp) begin
+                            fft_temp_amp <= spectrum_data;
+                        end
+                    end
+                    else if (spectrum_addr > (fft_target_bin + 13'd3)) begin
+                        fft_harmonic_2 <= fft_temp_amp;
+                        fft_harm_state <= HARM_SCAN3;
+                        fft_target_bin <= fft_peak_bin + (fft_peak_bin << 1);  // 3次谐�?
+                        fft_temp_amp <= 16'd0;
+                    end
+                end
+            end
+            
+            HARM_SCAN3: begin
+                if (spectrum_valid) begin
+                    if (spectrum_addr >= (fft_target_bin - 13'd3) && 
+                        spectrum_addr <= (fft_target_bin + 13'd3)) begin
+                        if (spectrum_data > fft_temp_amp) begin
+                            fft_temp_amp <= spectrum_data;
+                        end
+                    end
+                    else if (spectrum_addr > (fft_target_bin + 13'd3)) begin
+                        fft_harmonic_3 <= fft_temp_amp;
+                        fft_harm_state <= HARM_SCAN4;
+                        fft_target_bin <= fft_peak_bin << 2;  // 4次谐�?
+                        fft_temp_amp <= 16'd0;
+                    end
+                end
+            end
+            
+            HARM_SCAN4: begin
+                if (spectrum_valid) begin
+                    if (spectrum_addr >= (fft_target_bin - 13'd3) && 
+                        spectrum_addr <= (fft_target_bin + 13'd3)) begin
+                        if (spectrum_data > fft_temp_amp) begin
+                            fft_temp_amp <= spectrum_data;
+                        end
+                    end
+                    else if (spectrum_addr > (fft_target_bin + 13'd3)) begin
+                        fft_harmonic_4 <= fft_temp_amp;
+                        fft_harm_state <= HARM_SCAN5;
+                        fft_target_bin <= fft_peak_bin + (fft_peak_bin << 2);  // 5次谐�?
+                        fft_temp_amp <= 16'd0;
+                    end
+                end
+            end
+            
+            HARM_SCAN5: begin
+                if (spectrum_valid) begin
+                    if (spectrum_addr >= (fft_target_bin - 13'd3) && 
+                        spectrum_addr <= (fft_target_bin + 13'd3)) begin
+                        if (spectrum_data > fft_temp_amp) begin
+                            fft_temp_amp <= spectrum_data;
+                        end
+                    end
+                    else if (spectrum_addr > (fft_target_bin + 13'd3)) begin
+                        fft_harmonic_5 <= fft_temp_amp;
+                        fft_harm_state <= HARM_DONE;
+                    end
+                end
+            end
+            
+            HARM_DONE: begin
+                fft_harm_state <= HARM_IDLE;
+            end
+            
+            default: fft_harm_state <= HARM_IDLE;
+        endcase
+    end
+end
+
+//=============================================================================
+// 3. 幅度测量 - 峰峰值检�?(10位精�?
 //=============================================================================
 always @(posedge clk or negedge rst_n) begin
     if (!rst_n) begin
@@ -338,7 +505,7 @@ always @(posedge clk or negedge rst_n) begin
         min_val <= 10'd1023;
     end else if (measure_en) begin
         if (measure_done) begin
-            // 【修复】测量周期结束（100ms固定时间），重新开始
+            // 【修复】测量周期结束（100ms固定时间），重新开�?
             max_val <= 10'd0;
             min_val <= 10'd1023;
         end else if (sample_valid) begin
@@ -353,7 +520,7 @@ always @(posedge clk or negedge rst_n) begin
     end
 end
 
-// 幅度计算（峰峰值）- 【修改】扩展到10位
+// 幅度计算（峰峰值）- 【修改】扩展到10�?
 always @(posedge clk or negedge rst_n) begin
     if (!rst_n)
         amplitude_calc <= 16'd0;
@@ -362,7 +529,7 @@ always @(posedge clk or negedge rst_n) begin
 end
 
 //=============================================================================
-// 4. 占空比测量 - 流水线优化版本
+// 4. 占空比测�?- 流水线优化版�?
 //=============================================================================
 always @(posedge clk or negedge rst_n) begin
     if (!rst_n) begin
@@ -373,7 +540,7 @@ always @(posedge clk or negedge rst_n) begin
         duty_calc_trigger <= 1'b0;
     end else if (measure_en) begin
         if (measure_done) begin
-            // 【修复】测量周期结束（100ms固定时间），锁存并清零
+            // 【修复】测量周期结束（100ms固定时间），锁存并清�?
             high_cnt_latch <= high_cnt;
             total_cnt_latch <= total_cnt;
             high_cnt <= 32'd0;
@@ -383,8 +550,8 @@ always @(posedge clk or negedge rst_n) begin
             duty_calc_trigger <= 1'b0;
             if (sample_valid) begin
                 total_cnt <= total_cnt + 1'b1;
-                // 【修改】10位中间值：511 (0-511低电平, 512-1023高电平)
-                // 使用 > 511 使高低电平判断对称
+                // 【修改�?0位中间值：511 (0-511低电�? 512-1023高电�?
+                // 使用 > 511 使高低电平判断对�?
                 if (sample_data > 10'd511)
                     high_cnt <= high_cnt + 1'b1;
             end
@@ -412,7 +579,7 @@ end
 
 // Reciprocal LUT: stores 1/x in Q16 format (65536 / x)
 // Index range: 1-255 (0 reserved for divide-by-zero protection)
-// 【优化】使用完整256项LUT，每项都精确预计算
+// 【优化】使用完�?56项LUT，每项都精确预计�?
 function [15:0] reciprocal_lut;
     input [7:0] index;
     begin
@@ -738,7 +905,7 @@ always @(posedge clk or negedge rst_n) begin
 end
 
 //=============================================================================
-// 4b. 占空比滑动平均滤波 (8次平均，减少跳动)
+// 4b. 占空比滑动平均滤�?(8次平均，减少跳动)
 //=============================================================================
 integer i;
 always @(posedge clk or negedge rst_n) begin
@@ -750,15 +917,15 @@ always @(posedge clk or negedge rst_n) begin
         duty_sum <= 19'd0;
         duty_filtered <= 16'd0;
     end else begin
-        // 每次新的duty_calc到来时更新滑动窗口
-        if (duty_calc != duty_history[duty_hist_ptr]) begin  // 检测到新值
-            // 减去最老的值
+        // 每次新的duty_calc到来时更新滑动窗�?
+        if (duty_calc != duty_history[duty_hist_ptr]) begin  // 检测到新�?
+            // 减去最老的�?
             duty_sum <= duty_sum - duty_history[duty_hist_ptr] + duty_calc;
             // 更新历史缓存
             duty_history[duty_hist_ptr] <= duty_calc;
             // 移动指针
             duty_hist_ptr <= duty_hist_ptr + 1'b1;
-            // 计算平均值 (除以8 = 右移3位)
+            // 计算平均�?(除以8 = 右移3�?
             duty_filtered <= duty_sum[18:3];
         end
     end
@@ -767,16 +934,16 @@ end
 //=============================================================================
 // 5. THD测量 - 改进算法：基于频率测量动态计算基波和谐波位置
 // THD = sqrt(P2^2 + P3^2 + ... + Pn^2) / P1
-// 简化计算: THD ≈ (P2 + P3 + ... + Pn) / P1
+// 简化计�? THD �?(P2 + P3 + ... + Pn) / P1
 // 
-// 频率分辨率 = 采样率 / FFT点数 = 35MHz / 8192 ≈ 4.27kHz
-// bin_index = 频率 / 频率分辨率
+// 频率分辨�?= 采样�?/ FFT点数 = 35MHz / 8192 �?4.27kHz
+// bin_index = 频率 / 频率分辨�?
 //=============================================================================
 reg [12:0]  fundamental_bin;                // 基波bin（根据频率动态计算）
 reg [12:0]  current_harmonic_bin;          // 当前检测的谐波bin
 reg [3:0]   harmonic_order;                 // 当前谐波次数(2-10)
-reg [31:0]  total_spectrum_power;          // 总频谱能量（用于改进THD算法）
-reg         thd_scan_active;               // THD扫描激活
+reg [31:0]  total_spectrum_power;          // 总频谱能量（用于改进THD算法�?
+reg         thd_scan_active;               // THD扫描激�?
 
 always @(posedge clk or negedge rst_n) begin
     if (!rst_n) begin
@@ -792,14 +959,14 @@ always @(posedge clk or negedge rst_n) begin
     end else if (spectrum_valid && measure_en) begin
         // 频谱扫描开始时，根据测得的频率计算基波bin
         if (spectrum_addr == 13'd0) begin
-            // 计算基波bin: bin = freq / (35MHz / 8192) = freq / 4272.46 ≈ freq * 192 / 1000000
-            // 简化: bin ≈ (freq * 192) >> 20
+            // 计算基波bin: bin = freq / (35MHz / 8192) = freq / 4272.46 �?freq * 192 / 1000000
+            // 简�? bin �?(freq * 192) >> 20
             fundamental_bin <= (freq_calc < 16'd100) ? 13'd1 : 
                               ((freq_calc * 13'd192) >> 10);  // 近似：freq / 4272
             harmonic_power <= 32'd0;
             total_spectrum_power <= 32'd0;
             harmonic_cnt <= 4'd0;
-            harmonic_order <= 4'd2;  // 从2次谐波开始
+            harmonic_order <= 4'd2;  // �?次谐波开�?
             thd_calc_trigger <= 1'b0;
             thd_scan_active <= 1'b1;
         end
@@ -808,13 +975,13 @@ always @(posedge clk or negedge rst_n) begin
         else if (thd_scan_active && 
                  spectrum_addr >= (fundamental_bin - 13'd2) && 
                  spectrum_addr <= (fundamental_bin + 13'd2)) begin
-            // 找到基波峰值
+            // 找到基波峰�?
             if ({16'd0, spectrum_data} > fundamental_power) begin
                 fundamental_power <= {16'd0, spectrum_data};
             end
         end
         
-        // 检测2-10次谐波（每次谐波搜索±2 bin范围）
+        // 检�?-10次谐波（每次谐波搜索±2 bin范围�?
         else if (thd_scan_active && harmonic_order <= 4'd10) begin
             current_harmonic_bin <= fundamental_bin * harmonic_order;
             if (spectrum_addr >= (fundamental_bin * harmonic_order - 13'd2) && 
@@ -822,7 +989,7 @@ always @(posedge clk or negedge rst_n) begin
                 // 累加谐波能量
                 harmonic_power <= harmonic_power + {16'd0, spectrum_data};
             end
-            // 当前谐波扫描完成，移动到下一个
+            // 当前谐波扫描完成，移动到下一�?
             else if (spectrum_addr == (fundamental_bin * harmonic_order + 13'd3)) begin
                 harmonic_cnt <= harmonic_cnt + 1'b1;
                 harmonic_order <= harmonic_order + 1'b1;
@@ -847,8 +1014,8 @@ always @(posedge clk or negedge rst_n) begin
     end
 end
 
-// THD计算 - 3级流水线，使用移位近似除法
-// THD = (harmonic * 1024) / fundamental，然后调整到1000倍
+// THD计算 - 3级流水线，使用移位近似除�?
+// THD = (harmonic * 1024) / fundamental，然后调整到1000�?
 always @(posedge clk or negedge rst_n) begin
     if (!rst_n) begin
         thd_mult_stage1 <= 40'd0;
@@ -871,7 +1038,7 @@ always @(posedge clk or negedge rst_n) begin
         // 流水线第3级：近似除法（使用移位）
         thd_pipe_valid[2] <= thd_pipe_valid[1];
         if (thd_pipe_valid[1]) begin
-            // 根据fundamental_power的大小选择合适的移位量
+            // 根据fundamental_power的大小选择合适的移位�?
             if (fundamental_power >= (1 << 20))
                 thd_calc <= thd_mult_stage2[39:24];
             else if (fundamental_power >= (1 << 19))
@@ -899,7 +1066,7 @@ always @(posedge clk or negedge rst_n) begin
 end
 
 //=============================================================================
-// 输出寄存器
+// 输出寄存�?
 //=============================================================================
 always @(posedge clk or negedge rst_n) begin
     if (!rst_n) begin
@@ -908,14 +1075,24 @@ always @(posedge clk or negedge rst_n) begin
         amplitude_out <= 16'd0;
         duty_out <= 16'd0;
         thd_out <= 16'd0;
-    end else if (measure_done && measure_en) begin
-        // 【优化】测量周期结束时更新输出，占空比和频率都使用滤波后的值
-        freq_out <= freq_calc;          // freq_calc已经是滤波后的值
-        freq_is_khz <= freq_unit_flag_int;  // 从流水线传递的单位标志
-        amplitude_out <= amplitude_calc;
-        duty_out <= duty_filtered;      // 使用滤波后的占空比
-        thd_out <= thd_calc;
-    end
-end
-
-endmodule
+    end else if (measure_en) begin
+        // OPTIMIZED
+        if (fft_freq_ready && use_fft_freq) begin
+            if (fft_freq_hz >= 32'd100000) begin
+                freq_is_khz <= 1'b1;
+                freq_out <= (fft_freq_hz / 32'd100);
+            end else begin
+                freq_is_khz <= 1'b0;
+                freq_out <= fft_freq_hz[15:0];
+            end
+            amplitude_out <= fft_max_amp;
+        end else if (measure_done) begin
+            freq_out <= freq_calc;
+            freq_is_khz <= freq_unit_flag_int;
+            amplitude_out <= amplitude_calc;
+        end
+        if (measure_done) begin
+            duty_out <= duty_filtered;
+            thd_out <= thd_calc;
+        end
+    endmodule
