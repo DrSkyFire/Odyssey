@@ -394,8 +394,8 @@ always @(posedge clk or negedge rst_n) begin
             fft_freq_ready <= 1'b0;
             use_fft_freq <= 1'b1;  // 标记使用FFT频率
         end
-        // 峰值搜索（跳过DC分量，只扫描前半部分避免镜像�?
-        else if (fft_scan_active && spectrum_addr >= 13'd10 && spectrum_addr < (FFT_POINTS/2)) begin
+        // 【修复】峰值搜索从bin 1开始（跳过DC），扫描前半部分避免镜像
+        else if (fft_scan_active && spectrum_addr >= 13'd1 && spectrum_addr < (FFT_POINTS/2)) begin
             if (spectrum_data > fft_max_amp) begin
                 fft_max_amp <= spectrum_data;
                 fft_peak_bin <= spectrum_addr;
@@ -1108,22 +1108,26 @@ always @(posedge clk or negedge rst_n) begin
         duty_out <= 16'd0;
         thd_out <= 16'd0;
     end else if (measure_en) begin
-        // OPTIMIZED
-        if (fft_freq_ready && use_fft_freq) begin
-            if (fft_freq_hz >= 32'd100000) begin
-                freq_is_khz <= 1'b1;
-                freq_out <= (fft_freq_hz / 32'd100);
-            end else begin
-                freq_is_khz <= 1'b0;
-                freq_out <= fft_freq_hz[15:0];
-            end
-            amplitude_out <= fft_max_amp;
-        end else if (measure_done) begin
-            freq_out <= freq_calc;
-            freq_is_khz <= freq_unit_flag_int;
-            amplitude_out <= amplitude_calc;
-        end
+        // 【修复】优先使用FFT数据，只在FFT未就绪时回退到时域测量
         if (measure_done) begin
+            // 每100ms更新一次
+            if (use_fft_freq && fft_freq_ready) begin
+                // FFT频率和幅度（频域模式优先）
+                if (fft_freq_hz >= 32'd100000) begin
+                    freq_is_khz <= 1'b1;
+                    freq_out <= (fft_freq_hz / 32'd100);
+                end else begin
+                    freq_is_khz <= 1'b0;
+                    freq_out <= fft_freq_hz[15:0];
+                end
+                amplitude_out <= fft_max_amp;
+            end else begin
+                // 时域测量（回退模式）
+                freq_out <= freq_calc;
+                freq_is_khz <= freq_unit_flag_int;
+                amplitude_out <= amplitude_calc;
+            end
+            // 占空比和THD（始终更新）
             duty_out <= duty_filtered;
             thd_out <= thd_calc;
         end
