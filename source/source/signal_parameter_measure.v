@@ -406,11 +406,11 @@ always @(posedge clk or negedge rst_n) begin
             fft_scan_active <= 1'b0;
             // 频率 = peak_bin * 频率分辨�?(4272 Hz)
             fft_freq_hz <= fft_peak_bin * FREQ_RES;
-            fft_freq_ready <= 1'b1;
+            fft_freq_ready <= 1'b1;  // 锁存，保持有效直到下次扫描开始
         end
-    end else begin
-        fft_freq_ready <= 1'b0;
-    end
+    end 
+    // 【修复】删除 else 分支，让 fft_freq_ready 保持锁存
+    // 只在下次FFT扫描开始时清零
 end
 
 //=============================================================================
