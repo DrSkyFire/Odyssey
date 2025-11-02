@@ -751,9 +751,9 @@ always @(posedge clk_pixel or negedge rst_n) begin
         
         // 只在Y轴标度区域预计算字符
         if (pixel_x >= 8 && pixel_x < AXIS_LEFT_MARGIN - TICK_LENGTH - 4) begin
-            // 100% (Y: 75-107)
-            if (pixel_y >= 50 && pixel_y < 66) begin
-                y_axis_char_row <= pixel_y - 12'd50;  // 0-15
+            // 100% (Y: 50-82, 32px高)
+            if (pixel_y >= 50 && pixel_y < 82) begin
+                y_axis_char_row <= pixel_y - 12'd50;  // 0-31
                 y_axis_char_valid <= 1'b1;
                 if (pixel_x >= 8 && pixel_x < 24) begin
                     y_axis_char_code <= 8'd49;  // '1'
@@ -776,8 +776,8 @@ always @(posedge clk_pixel or negedge rst_n) begin
                 end
             end
             // 75% (Y: 262-294)
-            else if (pixel_y >= 175 && pixel_y < 191) begin
-                y_axis_char_row <= pixel_y - 12'd175;  // 0-15
+            else if (pixel_y >= 175 && pixel_y < 207) begin
+                y_axis_char_row <= pixel_y - 12'd175;  // 0-31，32px高
                 y_axis_char_valid <= 1'b1;
                 if (pixel_x >= 24 && pixel_x < 40) begin
                     y_axis_char_code <= 8'd55;  // '7'
@@ -796,8 +796,8 @@ always @(posedge clk_pixel or negedge rst_n) begin
                 end
             end
             // 50% (Y: 450-482)
-            else if (pixel_y >= 300 && pixel_y < 316) begin
-                y_axis_char_row <= pixel_y - 12'd300;  // 0-15
+            else if (pixel_y >= 300 && pixel_y < 332) begin
+                y_axis_char_row <= pixel_y - 12'd300;  // 0-31，32px高
                 y_axis_char_valid <= 1'b1;
                 if (pixel_x >= 24 && pixel_x < 40) begin
                     y_axis_char_code <= 8'd53;  // '5'
@@ -816,8 +816,8 @@ always @(posedge clk_pixel or negedge rst_n) begin
                 end
             end
             // 25% (Y: 637-669)
-            else if (pixel_y >= 425 && pixel_y < 441) begin
-                y_axis_char_row <= pixel_y - 12'd425;  // 0-15
+            else if (pixel_y >= 425 && pixel_y < 457) begin
+                y_axis_char_row <= pixel_y - 12'd425;  // 0-31，32px高
                 y_axis_char_valid <= 1'b1;
                 if (pixel_x >= 24 && pixel_x < 40) begin
                     y_axis_char_code <= 8'd50;  // '2'
@@ -836,8 +836,8 @@ always @(posedge clk_pixel or negedge rst_n) begin
                 end
             end
             // 0% (Y: 793-825)
-            else if (pixel_y >= 532 && pixel_y < 548) begin
-                y_axis_char_row <= pixel_y - 12'd532;  // 0-15
+            else if (pixel_y >= 532 && pixel_y < 564) begin
+                y_axis_char_row <= pixel_y - 12'd532;  // 0-31，32px高
                 y_axis_char_valid <= 1'b1;
                 if (pixel_x >= 40 && pixel_x < 56) begin
                     y_axis_char_code <= 8'd48;  // '0'
@@ -984,13 +984,29 @@ always @(posedge clk_pixel or negedge rst_n) begin
     // �?有效频谱�? �?Fs/2 = 17.5MHz（前4096个bin�?
     // 频域模式�?, 3.5, 7.0, 10.5, 14.0, 17.5 MHz
     // 时域模式�?, 47, 93, 140, 186, 234 us (8192�?@ 35MHz = 234us)
-    else if (pixel_y_d1 >= SPECTRUM_Y_END && pixel_y_d1 < SPECTRUM_Y_END + 16) begin
-        char_row <= pixel_y_d1 - SPECTRUM_Y_END;  // 0-15
+    else if (pixel_y_d1 >= SPECTRUM_Y_END && pixel_y_d1 < SPECTRUM_Y_END + 32) begin
+        char_row <= pixel_y_d1 - SPECTRUM_Y_END;  // 0-31，32px高
         
         // X = 80: "0"
         if (pixel_x_d1 >= 80 && pixel_x_d1 < 96) begin
             char_code <= 8'd48;  // '0'
             char_col <= pixel_x_d1 - 12'd80;
+            in_char_area <= 1'b1;
+        end
+        // X = 254: "1.8" (频域MHz) �?"23" (时域us) - 新增标记点
+        else if (pixel_x_d1 >= 238 && pixel_x_d1 < 254 && work_mode_d1[0]) begin
+            char_code <= 8'd49;  // '1'
+            char_col <= pixel_x_d1 - 12'd238;
+            in_char_area <= 1'b1;
+        end
+        else if (pixel_x_d1 >= 254 && pixel_x_d1 < 270) begin
+            char_code <= work_mode_d1[0] ? 8'd46 : 8'd50;  // '.' or '2'
+            char_col <= pixel_x_d1 - 12'd254;
+            in_char_area <= 1'b1;
+        end
+        else if (pixel_x_d1 >= 270 && pixel_x_d1 < 286) begin
+            char_code <= work_mode_d1[0] ? 8'd56 : 8'd51;  // '8' or '3'
+            char_col <= pixel_x_d1 - 12'd270;
             in_char_area <= 1'b1;
         end
         // X = 444: "3.5" (频域MHz) �?"47" (时域us)
@@ -1023,6 +1039,22 @@ always @(posedge clk_pixel or negedge rst_n) begin
         else if (pixel_x_d1 >= 840 && pixel_x_d1 < 856 && work_mode_d1[0]) begin
             char_code <= 8'd48;  // '0' (频域的小数位)
             char_col <= pixel_x_d1 - 12'd840;
+            in_char_area <= 1'b1;
+        end
+        // X = 998: "8.8" (频域MHz) �?"117" (时域us) - 新增标记点
+        else if (pixel_x_d1 >= 982 && pixel_x_d1 < 998) begin
+            char_code <= work_mode_d1[0] ? 8'd56 : 8'd49;  // '8' or '1'
+            char_col <= pixel_x_d1 - 12'd982;
+            in_char_area <= 1'b1;
+        end
+        else if (pixel_x_d1 >= 998 && pixel_x_d1 < 1014) begin
+            char_code <= work_mode_d1[0] ? 8'd46 : 8'd49;  // '.' or '1'
+            char_col <= pixel_x_d1 - 12'd998;
+            in_char_area <= 1'b1;
+        end
+        else if (pixel_x_d1 >= 1014 && pixel_x_d1 < 1030) begin
+            char_code <= work_mode_d1[0] ? 8'd56 : 8'd55;  // '8' or '7'
+            char_col <= pixel_x_d1 - 12'd1014;
             in_char_area <= 1'b1;
         end
         // X = 1172: "10.5" (频域) �?"140" (时域)
@@ -1065,6 +1097,27 @@ always @(posedge clk_pixel or negedge rst_n) begin
         else if (pixel_x_d1 >= 1568 && pixel_x_d1 < 1584 && work_mode_d1[0]) begin
             char_code <= 8'd48;  // '0' (频域的小数位)
             char_col <= pixel_x_d1 - 12'd1568;
+            in_char_area <= 1'b1;
+        end
+        // X = 1678: "15.8" (频域MHz) �?"210" (时域us) - 新增标记点
+        else if (pixel_x_d1 >= 1662 && pixel_x_d1 < 1678) begin
+            char_code <= work_mode_d1[0] ? 8'd49 : 8'd50;  // '1' or '2'
+            char_col <= pixel_x_d1 - 12'd1662;
+            in_char_area <= 1'b1;
+        end
+        else if (pixel_x_d1 >= 1678 && pixel_x_d1 < 1694) begin
+            char_code <= work_mode_d1[0] ? 8'd53 : 8'd49;  // '5' or '1'
+            char_col <= pixel_x_d1 - 12'd1678;
+            in_char_area <= 1'b1;
+        end
+        else if (pixel_x_d1 >= 1694 && pixel_x_d1 < 1710) begin
+            char_code <= work_mode_d1[0] ? 8'd46 : 8'd48;  // '.' or '0'
+            char_col <= pixel_x_d1 - 12'd1694;
+            in_char_area <= 1'b1;
+        end
+        else if (pixel_x_d1 >= 1710 && pixel_x_d1 < 1726 && work_mode_d1[0]) begin
+            char_code <= 8'd56;  // '8' (频域的小数位)
+            char_col <= pixel_x_d1 - 12'd1710;
             in_char_area <= 1'b1;
         end
         // X = 1840: "17.5" (频域) �?"234" (时域)
