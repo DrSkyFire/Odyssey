@@ -95,6 +95,11 @@ reg [9:0]   max_val;
 reg [9:0]   min_val;
 reg [15:0]  amplitude_calc;
 
+// 【新增】自适应占空比阈值
+reg [9:0]   adaptive_threshold;             // 动态阈值 = (max+min)/2
+reg [9:0]   threshold_hyst_high;            // 迟滞上限
+reg [9:0]   threshold_hyst_low;             // 迟滞下限
+
 // Duty cycle measurement
 reg [31:0]  high_cnt;                       // High level counter
 reg [31:0]  total_cnt;                      // Total counter
@@ -520,7 +525,7 @@ always @(posedge clk or negedge rst_n) begin
     end
 end
 
-// 幅度计算（峰峰值）- 【修改】扩展到10�?
+// 幅度计算（峰峰值）- 【修改】扩展到10位
 always @(posedge clk or negedge rst_n) begin
     if (!rst_n)
         amplitude_calc <= 16'd0;
@@ -529,8 +534,46 @@ always @(posedge clk or negedge rst_n) begin
 end
 
 //=============================================================================
-// 4. 占空比测�?- 流水线优化版�?
+// 3B. 【新增】自适应占空比阈值计算
+// 动态阈值 = (max_val + min_val) / 2
+// 迟滞比较器：上限 = threshold + 滞环，下限 = threshold - 滞环
+// 滞环量 = 幅度的5% ≈ (max-min) / 20
 //=============================================================================
+reg [9:0] threshold_hysteresis;             // 迟滞量
+
+always @(posedge clk or negedge rst_n) begin
+    if (!rst_n) begin
+        adaptive_threshold <= 10'd512;      // 默认中间值
+        threshold_hyst_high <= 10'd520;
+        threshold_hyst_low <= 10'd504;
+        threshold_hysteresis <= 10'd8;
+    end else if (measure_en && sample_valid) begin
+        // 计算自适应阈值（中点）
+        adaptive_threshold <= (max_val + min_val) >> 1;
+        
+        // 计算迟滞量 = (max - min) / 20，最小为8
+        if ((max_val - min_val) > 10'd160)
+            threshold_hysteresis <= (max_val - min_val) >> 5;  // ÷32 ≈ 3%
+        else
+            threshold_hysteresis <= 10'd8;  // 最小迟滞量
+        
+        // 计算迟滞上下限（防止溢出）
+        if (adaptive_threshold + threshold_hysteresis > 10'd1023)
+            threshold_hyst_high <= 10'd1023;
+        else
+            threshold_hyst_high <= adaptive_threshold + threshold_hysteresis;
+            
+        if (adaptive_threshold < threshold_hysteresis)
+            threshold_hyst_low <= 10'd0;
+        else
+            threshold_hyst_low <= adaptive_threshold - threshold_hysteresis;
+    end
+end
+
+//=============================================================================
+// 4. 占空比测量 - 使用自适应阈值 + 迟滞比较器
+//=============================================================================
+reg duty_state;  // 0=低电平, 1=高电平（用于迟滞比较）
 always @(posedge clk or negedge rst_n) begin
     if (!rst_n) begin
         high_cnt <= 32'd0;
@@ -538,9 +581,10 @@ always @(posedge clk or negedge rst_n) begin
         high_cnt_latch <= 32'd0;
         total_cnt_latch <= 32'd0;
         duty_calc_trigger <= 1'b0;
+        duty_state <= 1'b0;
     end else if (measure_en) begin
         if (measure_done) begin
-            // 【修复】测量周期结束（100ms固定时间），锁存并清�?
+            // 【修复】测量周期结束（100ms固定时间），锁存并清零
             high_cnt_latch <= high_cnt;
             total_cnt_latch <= total_cnt;
             high_cnt <= 32'd0;
@@ -550,10 +594,23 @@ always @(posedge clk or negedge rst_n) begin
             duty_calc_trigger <= 1'b0;
             if (sample_valid) begin
                 total_cnt <= total_cnt + 1'b1;
-                // 【修改�?0位中间值：511 (0-511低电�? 512-1023高电�?
-                // 使用 > 511 使高低电平判断对�?
-                if (sample_data > 10'd511)
-                    high_cnt <= high_cnt + 1'b1;
+                
+                // 【优化】自适应阈值 + 迟滞比较器
+                // 状态机：低电平→检测上升沿，高电平→检测下降沿
+                if (duty_state == 1'b0) begin
+                    // 当前低电平状态，检测是否超过上限阈值
+                    if (sample_data > threshold_hyst_high) begin
+                        duty_state <= 1'b1;
+                        high_cnt <= high_cnt + 1'b1;
+                    end
+                end else begin
+                    // 当前高电平状态，检测是否低于下限阈值
+                    if (sample_data < threshold_hyst_low) begin
+                        duty_state <= 1'b0;
+                    end else begin
+                        high_cnt <= high_cnt + 1'b1;
+                    end
+                end
             end
         end
     end else begin
@@ -562,11 +619,12 @@ always @(posedge clk or negedge rst_n) begin
         high_cnt_latch <= 32'd0;
         total_cnt_latch <= 32'd0;
         duty_calc_trigger <= 1'b0;
+        duty_state <= 1'b0;
     end
 end
 
 //=============================================================================
-// 4. Duty Cycle Calculation - LUT-based Reciprocal Multiplication
+// 4B. Duty Cycle Calculation - LUT-based Reciprocal Multiplication
 // Replace division with LUT lookup + multiplication to eliminate timing violation
 // duty% = (high_cnt * 1000) / total_cnt
 //       = (high_cnt * 1000) * (1 / total_cnt)
@@ -575,6 +633,8 @@ end
 // LUT stores 256 reciprocal values in Q16 fixed-point format
 // Index = denominator[31:24] (upper 8 bits)
 // Timing: 3-stage pipeline, each stage <3ns
+//
+// 【优化】使用自适应阈值 + 迟滞比较器防抖动
 //=============================================================================
 
 // Reciprocal LUT: stores 1/x in Q16 format (65536 / x)
