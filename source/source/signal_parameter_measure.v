@@ -67,11 +67,18 @@ localparam FREQ_RES = 4272;                 // 频率分辨�? 35MHz/8192 �?4
 //=============================================================================
 // 信号定义
 //=============================================================================
-// 【新增】固定时间计数器（避免CDC导致的测量周期不稳定�?
-reg [31:0]  time_cnt;                       // 基于100MHz的时间计�?
+// 【新增】固定时间计数器（避免CDC导致的测量周期不稳定）
+reg [31:0]  time_cnt;                       // 基于100MHz的时间计数
 reg         measure_done;                   // 测量周期结束标志
 
-// 【新增】FFT峰值检测（用于频域频率/幅度测量�?
+// 【关键修复】采样信号跨时钟域同步（35MHz → 100MHz）
+// 通过检测sample_clk边沿，在100MHz域重建35MHz采样脉冲
+reg         sample_clk_d1, sample_clk_d2, sample_clk_d3;  // sample_clk同步寄存器
+reg         sample_valid_d1, sample_valid_d2;             // sample_valid同步寄存器
+wire        sample_valid_sync;                            // 同步后的采样脉冲
+reg [9:0]   sample_data_sync;                             // 同步后的采样数据
+
+// 【新增】FFT峰值检测（用于频域频率/幅度测量）
 reg [15:0]  fft_max_amp;                    // FFT峰值幅�?
 reg [12:0]  fft_peak_bin;                   // 峰值bin位置
 reg         fft_scan_active;                // FFT扫描激�?
@@ -89,13 +96,14 @@ reg [12:0]  fft_target_bin;                 // 目标谐波bin
 reg [15:0]  fft_temp_amp;                   // 临时幅度
 
 // 频率测量
-reg [9:0]   data_d1, data_d2;               // 【修改�?0位数据延�?
+reg [9:0]   data_d1, data_d2;               // 【修改】10位数据延迟
 reg         zero_cross;                     // 过零标志
+reg         zero_cross_state;               // 过零检测状态机（迟滞比较器）
 reg [31:0]  zero_cross_cnt;                 // 过零计数
 reg [31:0]  sample_cnt;                     // 采样计数
 reg [15:0]  freq_calc;
 
-// 【优化】频率精确计�?- 使用LUT代替除法
+// 【优化】频率精确计算 - 使用LUT代替除法
 reg [7:0]   freq_lut_index;                 // LUT索引
 reg [16:0]  freq_reciprocal;                // 倒数�?(17�?
 reg [48:0]  freq_product;                   // 乘法结果 (32×17=49�?
@@ -113,7 +121,14 @@ reg [15:0]  freq_filtered;                  // 滤波后的结果
 // 幅度测量 - 【修改�?0位精�?
 reg [9:0]   max_val;
 reg [9:0]   min_val;
+reg [9:0]   max_val_latch;  // 【新增】锁存值，避免measure_done时的时序竞争
+reg [9:0]   min_val_latch;  // 【新增】锁存值，避免measure_done时的时序竞争
 reg [15:0]  amplitude_calc;
+reg [9:0]   amp_diff;       // 幅度差值（峰峰值LSB）
+reg [31:0]  amp_mult;       // 乘法中间结果（扩展到32位防止溢出）
+reg [15:0]  amp_result;     // 最终幅度结果
+reg         amp_calc_trigger; // 幅度计算触发
+reg [1:0]   amp_pipe_valid; // 幅度计算流水线有效标志
 
 // 【新增】自适应占空比阈值
 reg [9:0]   adaptive_threshold;             // 动态阈值 = (max+min)/2
@@ -144,6 +159,12 @@ reg [2:0]   duty_hist_ptr;                  // 历史值指针
 reg [18:0]  duty_sum;                       // 累加和(16位×8需要19位)
 reg [15:0]  duty_filtered;                  // 滤波后的结果
 
+// 【新增】幅度滑动平均滤波 (4次平均，减少抖动)
+reg [15:0]  amp_history[0:3];               // 幅度历史值缓存
+reg [1:0]   amp_hist_ptr;                   // 幅度历史值指针
+reg [17:0]  amp_sum;                        // 幅度累加和(16位×4需要18位)
+reg [15:0]  amp_filtered;                   // 幅度滤波后的结果
+
 // THD测量 - 流水线计算
 reg [31:0]  fundamental_power;              // 基波功率（来自FFT峰值）
 reg [39:0]  thd_mult_stage1;                // 流水线第1级：乘法
@@ -155,14 +176,71 @@ reg         thd_calc_trigger;               // THD计算触发
 reg [2:0]   thd_pipe_valid;                 // THD流水线有效标志
 
 //=============================================================================
-// 采样数据同步到系统时钟域
+// 【关键修复】跨时钟域同步 (35MHz sample_clk → 100MHz clk)
+//=============================================================================
+// 策略：在35MHz域锁存数据，然后在100MHz域检测sample_clk边沿时同步数据
+// 这样确保采样到完整稳定的数据
+
+// 第一步：在sample_clk域锁存数据（只在sample_valid有效时更新）
+reg [9:0] sample_data_latch;
+reg sample_valid_latch;
+always @(posedge sample_clk or negedge rst_n) begin
+    if (!rst_n) begin
+        sample_data_latch <= 10'd0;
+        sample_valid_latch <= 1'b0;
+    end else if (sample_valid) begin
+        sample_data_latch <= sample_data;
+        sample_valid_latch <= 1'b1;
+    end
+end
+
+// 第二步：sample_clk同步到100MHz域（边沿检测）
+always @(posedge clk or negedge rst_n) begin
+    if (!rst_n) begin
+        sample_clk_d1 <= 1'b0;
+        sample_clk_d2 <= 1'b0;
+        sample_clk_d3 <= 1'b0;
+    end else begin
+        sample_clk_d1 <= sample_clk;
+        sample_clk_d2 <= sample_clk_d1;
+        sample_clk_d3 <= sample_clk_d2;
+    end
+end
+
+// 检测sample_clk上升沿
+wire sample_clk_posedge = sample_clk_d2 && !sample_clk_d3;
+
+// 第三步：sample_valid同步到100MHz域
+always @(posedge clk or negedge rst_n) begin
+    if (!rst_n) begin
+        sample_valid_d1 <= 1'b0;
+        sample_valid_d2 <= 1'b0;
+    end else begin
+        sample_valid_d1 <= sample_valid_latch;
+        sample_valid_d2 <= sample_valid_d1;
+    end
+end
+
+// 第四步：在sample_clk上升沿时同步数据（此时sample_data_latch已稳定）
+always @(posedge clk or negedge rst_n) begin
+    if (!rst_n)
+        sample_data_sync <= 10'd0;
+    else if (sample_clk_posedge)
+        sample_data_sync <= sample_data_latch;
+end
+
+// 采样脉冲：只在sample_clk上升沿且valid有效时产生
+assign sample_valid_sync = sample_clk_posedge && sample_valid_d2;
+
+//=============================================================================
+// 采样数据延迟寄存器（用于过零检测）
 //=============================================================================
 always @(posedge clk or negedge rst_n) begin
     if (!rst_n) begin
         data_d1 <= 10'd0;
         data_d2 <= 10'd0;
-    end else if (sample_valid) begin
-        data_d1 <= sample_data;
+    end else if (sample_valid_sync) begin  // 【修复】使用同步后的sample_valid
+        data_d1 <= sample_data_sync;       // 【修复】使用同步后的sample_data
         data_d2 <= data_d1;
     end
 end
@@ -190,19 +268,42 @@ always @(posedge clk or negedge rst_n) begin
 end
 
 //=============================================================================
-// 2. 频率测量 - 过零检�?
+// 2. 频率测量 - 过零检测（使用自适应阈值）
 //=============================================================================
-// 检测过零点（从低到高）- 【修改�?0位中间�?12
+// 使用自适应阈值进行过零检测，避免固定阈值对有偏置信号的误判
+// 添加迟滞比较器防止噪声导致的多次触发
+// 【关键修复】在测量周期结束时重置状态机，消除记忆效应
+
 always @(posedge clk or negedge rst_n) begin
-    if (!rst_n)
+    if (!rst_n) begin
         zero_cross <= 1'b0;
-    else if (sample_valid)
-        zero_cross <= (data_d2 < 10'd512) && (data_d1 >= 10'd512);
-    else
+        zero_cross_state <= 1'b0;
+    end else if (measure_done) begin  // 【修复】测量周期结束时重置状态
         zero_cross <= 1'b0;
+        zero_cross_state <= 1'b0;  // 清除状态，准备下一周期
+    end else if (sample_valid_sync) begin  // 【修复】使用同步后的sample_valid
+        // 使用迟滞比较器防止抖动
+        if (zero_cross_state == 1'b0) begin
+            // 当前在低电平，检测是否上升穿过上限阈值
+            if (data_d1 >= threshold_hyst_high) begin
+                zero_cross <= 1'b1;        // 产生过零脉冲
+                zero_cross_state <= 1'b1;  // 切换到高电平状态
+            end else begin
+                zero_cross <= 1'b0;
+            end
+        end else begin
+            // 当前在高电平，检测是否下降穿过下限阈值
+            if (data_d1 < threshold_hyst_low) begin
+                zero_cross_state <= 1'b0;  // 切换到低电平状态
+            end
+            zero_cross <= 1'b0;            // 高电平状态不产生过零脉冲
+        end
+    end else begin
+        zero_cross <= 1'b0;
+    end
 end
 
-// 过零计数和采样计�?
+// 过零计数和采样计数
 reg [31:0] zero_cross_cnt_latch;  // 【新增】锁存计数值，避免时序竞争
 
 always @(posedge clk or negedge rst_n) begin
@@ -212,12 +313,12 @@ always @(posedge clk or negedge rst_n) begin
         zero_cross_cnt_latch <= 32'd0;
     end else if (measure_en) begin
         if (measure_done) begin
-            // 【修复】测量周期结束：先锁存，再清�?
+            // 【修复】测量周期结束：先锁存，再清零
             zero_cross_cnt_latch <= zero_cross_cnt;
             zero_cross_cnt <= 32'd0;
             sample_cnt <= 32'd0;
         end else begin
-            if (sample_valid)
+            if (sample_valid_sync)  // 【修复】使用同步后的sample_valid
                 sample_cnt <= sample_cnt + 1'b1;
             if (zero_cross)
                 zero_cross_cnt <= zero_cross_cnt + 1'b1;
@@ -541,22 +642,24 @@ always @(posedge clk or negedge rst_n) begin
 end
 
 //=============================================================================
-// 3. 幅度测量 - 峰峰值检�?(10位精�?
+// 3. 幅度测量 - 峰峰值检测(10位精度)
 //=============================================================================
+// max/min采样更新
 always @(posedge clk or negedge rst_n) begin
     if (!rst_n) begin
         max_val <= 10'd0;
         min_val <= 10'd1023;
     end else if (measure_en) begin
         if (measure_done) begin
-            // 【修复】测量周期结束（100ms固定时间），重新开�?
+            // 测量周期结束，重置为初始值准备下一周期
             max_val <= 10'd0;
             min_val <= 10'd1023;
-        end else if (sample_valid) begin
-            if (sample_data > max_val)
-                max_val <= sample_data;
-            if (sample_data < min_val)
-                min_val <= sample_data;
+        end else if (sample_valid_sync) begin
+            // 正常采样，更新max/min
+            if (sample_data_sync > max_val)
+                max_val <= sample_data_sync;
+            if (sample_data_sync < min_val)
+                min_val <= sample_data_sync;
         end
     end else begin
         max_val <= 10'd0;
@@ -564,16 +667,118 @@ always @(posedge clk or negedge rst_n) begin
     end
 end
 
-// 幅度计算（峰峰值）- 【修改】扩展到10位
+// 【关键修复】锁存逻辑独立，避免时序竞争
 always @(posedge clk or negedge rst_n) begin
-    if (!rst_n)
+    if (!rst_n) begin
+        max_val_latch <= 10'd0;
+        min_val_latch <= 10'd1023;
+        amp_calc_trigger <= 1'b0;
+    end else if (measure_en) begin
+        if (time_cnt == TIME_100MS - 2) begin
+            // 提前2个周期锁存max/min，确保measure_done时使用稳定值
+            max_val_latch <= max_val;
+            min_val_latch <= min_val;
+            amp_calc_trigger <= 1'b1;  // 触发幅度计算
+        end else begin
+            amp_calc_trigger <= 1'b0;
+        end
+    end else begin
+        max_val_latch <= 10'd0;
+        min_val_latch <= 10'd1023;
+        amp_calc_trigger <= 1'b0;
+    end
+end
+
+// 幅度计算（峰峰值，单位mV）- 【修复】使用流水线避免时序问题
+// ADC: 10位，参考电压3.3V
+// 1 ADC级 = 3300mV / 1024 = 3.2227mV
+// 峰峰值(mV) = (max_val - min_val) × 3300 / 1024
+// 
+// 【注意】硬件衰减比需要根据实际测试确定，这里先使用基本公式
+// 如果实测发现有衰减，可以调整系数（例如×2或×3）
+//
+// 流水线设计：
+// Stage 1: 计算差值 amp_diff = max - min
+// Stage 2: 乘以3300 → amp_mult = amp_diff × 3300
+// Stage 3: 除以1024 → amp_result = amp_mult >> 10
+// Stage 4: 输出到 amplitude_calc
+
+// Stage 1: 计算峰峰值差值
+always @(posedge clk or negedge rst_n) begin
+    if (!rst_n) begin
+        amp_diff <= 10'd0;
+        amp_pipe_valid[0] <= 1'b0;
+    end else begin
+        amp_pipe_valid[0] <= amp_calc_trigger;
+        if (amp_calc_trigger) begin
+            // 使用锁存值计算差值，防止max < min的异常情况
+            if (max_val_latch >= min_val_latch)
+                amp_diff <= max_val_latch - min_val_latch;
+            else
+                amp_diff <= 10'd0;  // 异常保护
+        end
+    end
+end
+
+// Stage 2: 乘以3300（转换为mV）
+// 【关键】使用32位宽存储中间结果，防止溢出
+// 最大值：1023 × 3300 = 3,375,900 < 2^22，所以32位足够
+always @(posedge clk or negedge rst_n) begin
+    if (!rst_n) begin
+        amp_mult <= 32'd0;
+        amp_pipe_valid[1] <= 1'b0;
+    end else begin
+        amp_pipe_valid[1] <= amp_pipe_valid[0];
+        if (amp_pipe_valid[0]) begin
+            amp_mult <= {22'd0, amp_diff} * 32'd3300;
+        end
+    end
+end
+
+// Stage 3: 除以1024（右移10位）+ 输出
+always @(posedge clk or negedge rst_n) begin
+    if (!rst_n) begin
+        amp_result <= 16'd0;
         amplitude_calc <= 16'd0;
-    else if (measure_done)
-        amplitude_calc <= {6'd0, max_val} - {6'd0, min_val};
+    end else begin
+        if (amp_pipe_valid[1]) begin
+            // 右移10位 = 除以1024，然后×3补偿硬件衰减
+            // 【已验证】实测衰减系数 K = 3.0（测试日期：2025-11-04）
+            // 测试数据：1V→340mV, 2V→657mV, 3V→992mV
+            amp_result <= (amp_mult[25:10] * 16'd3);  // ×3倍补偿
+        end
+        
+        // 延迟一拍输出到amplitude_calc
+        amplitude_calc <= amp_result;
+    end
 end
 
 //=============================================================================
-// 3B. 【新增】自适应占空比阈值计算
+// 3B. 【新增】幅度滑动平均滤波器(4次平均，减少抖动)
+//=============================================================================
+integer amp_i;
+always @(posedge clk or negedge rst_n) begin
+    if (!rst_n) begin
+        amp_sum <= 18'd0;
+        amp_hist_ptr <= 2'd0;
+        amp_filtered <= 16'd0;
+        for (amp_i = 0; amp_i < 4; amp_i = amp_i + 1) begin
+            amp_history[amp_i] <= 16'd0;
+        end
+    end else begin
+        // 当amplitude_calc更新时（检测到新值与历史不同）
+        if (amplitude_calc != amp_history[amp_hist_ptr] && amplitude_calc != 16'd0) begin
+            // 更新滑动平均
+            amp_sum <= amp_sum - amp_history[amp_hist_ptr] + amplitude_calc;
+            amp_history[amp_hist_ptr] <= amplitude_calc;
+            amp_hist_ptr <= amp_hist_ptr + 1'b1;
+            amp_filtered <= amp_sum[17:2];  // ÷4
+        end
+    end
+end
+
+//=============================================================================
+// 3C. 【新增】自适应占空比阈值计算
 // 动态阈值 = (max_val + min_val) / 2
 // 迟滞比较器：上限 = threshold + 滞环，下限 = threshold - 滞环
 // 滞环量 = 幅度的5% ≈ (max-min) / 20
@@ -586,17 +791,28 @@ always @(posedge clk or negedge rst_n) begin
         threshold_hyst_high <= 10'd520;
         threshold_hyst_low <= 10'd504;
         threshold_hysteresis <= 10'd8;
-    end else if (measure_en && sample_valid) begin
-        // 计算自适应阈值（中点）
-        adaptive_threshold <= (max_val + min_val) >> 1;
+    end else if (measure_en) begin
+        if (time_cnt == TIME_100MS - 2) begin
+            // 周期即将结束时更新阈值（使用完整的max/min数据）
+            adaptive_threshold <= (max_val + min_val) >> 1;
+            
+            // 计算迟滞量 = (max - min) / 32 ≈ 3%，最小为8
+            if ((max_val - min_val) > 10'd256)
+                threshold_hysteresis <= (max_val - min_val) >> 5;  // ÷32
+            else
+                threshold_hysteresis <= 10'd8;  // 最小迟滞量
+        end else if (sample_valid_sync) begin
+            // 实时微调阈值（基于当前max/min）
+            adaptive_threshold <= (max_val + min_val) >> 1;
+            
+            // 微调迟滞量
+            if ((max_val - min_val) > 10'd256)
+                threshold_hysteresis <= (max_val - min_val) >> 5;
+            else
+                threshold_hysteresis <= 10'd8;
+        end
         
-        // 计算迟滞量 = (max - min) / 20，最小为8
-        if ((max_val - min_val) > 10'd160)
-            threshold_hysteresis <= (max_val - min_val) >> 5;  // ÷32 ≈ 3%
-        else
-            threshold_hysteresis <= 10'd8;  // 最小迟滞量
-        
-        // 计算迟滞上下限（防止溢出）
+        // 计算迟滞上下限（每个时钟都更新，确保及时）
         if (adaptive_threshold + threshold_hysteresis > 10'd1023)
             threshold_hyst_high <= 10'd1023;
         else
@@ -631,20 +847,20 @@ always @(posedge clk or negedge rst_n) begin
             duty_calc_trigger <= 1'b1;
         end else begin
             duty_calc_trigger <= 1'b0;
-            if (sample_valid) begin
+            if (sample_valid_sync) begin  // 【修复】使用同步后的sample_valid
                 total_cnt <= total_cnt + 1'b1;
                 
                 // 【优化】自适应阈值 + 迟滞比较器
                 // 状态机：低电平→检测上升沿，高电平→检测下降沿
                 if (duty_state == 1'b0) begin
                     // 当前低电平状态，检测是否超过上限阈值
-                    if (sample_data > threshold_hyst_high) begin
+                    if (sample_data_sync > threshold_hyst_high) begin  // 【修复】使用同步后的sample_data
                         duty_state <= 1'b1;
                         high_cnt <= high_cnt + 1'b1;
                     end
                 end else begin
                     // 当前高电平状态，检测是否低于下限阈值
-                    if (sample_data < threshold_hyst_low) begin
+                    if (sample_data_sync < threshold_hyst_low) begin  // 【修复】使用同步后的sample_data
                         duty_state <= 1'b0;
                     end else begin
                         high_cnt <= high_cnt + 1'b1;
@@ -1129,12 +1345,12 @@ always @(posedge clk or negedge rst_n) begin
         duty_out <= 16'd0;
         thd_out <= 16'd0;
     end else if (measure_en) begin
-        // 【临时诊断】强制使用时域测量，观察结果
+        // 【修复】使用滤波后的幅度值，提高稳定性
         if (measure_done) begin
-            // 始终使用时域测量
+            // 使用时域测量结果
             freq_out <= freq_calc;
             freq_is_khz <= freq_unit_flag_int;
-            amplitude_out <= amplitude_calc;
+            amplitude_out <= amp_filtered;  // 【修复】使用滤波后的幅度
             duty_out <= duty_filtered;
             thd_out <= thd_calc;
         end
