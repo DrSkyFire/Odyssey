@@ -645,7 +645,7 @@ always @(posedge clk or negedge rst_n) begin
             harm3_amp <= 16'd0;
             harm4_amp <= 16'd0;
             harm5_amp <= 16'd0;
-            thd_ready <= 1'b0;
+            thd_ready <= 1'b0;  // 新扫描开始，清除上次的就绪信号
         end
         // 扫描过程中，检测各谐波位置附近的最大值
         else if (spectrum_addr >= 13'd1 && spectrum_addr < (FFT_POINTS/2)) begin
@@ -693,11 +693,12 @@ always @(posedge clk or negedge rst_n) begin
             fft_harmonic_3 <= harm3_amp;
             fft_harmonic_4 <= harm4_amp;
             fft_harmonic_5 <= harm5_amp;
-            thd_ready <= 1'b1;  // THD数据就绪
+            thd_ready <= 1'b1;  // THD数据就绪，保持到下次扫描开始
         end
     end
-    else begin
-        thd_ready <= 1'b0;  // 非扫描期间清除就绪信号
+    else if (!measure_en) begin
+        // measure_en关闭时清除
+        thd_ready <= 1'b0;
     end
 end
 
@@ -1316,17 +1317,22 @@ end
 //=============================================================================
 reg [31:0]  thd_harmonic_sum;               // 谐波幅度总和（2-5次）
 reg         thd_fft_trigger;                // FFT THD触发信号
+reg         thd_ready_d1;                   // thd_ready延迟1周期（用于边沿检测）
 
-// THD检测：当FFT扫描完成且谐波数据就绪时触发
+// THD检测：边沿检测thd_ready信号
 always @(posedge clk or negedge rst_n) begin
     if (!rst_n) begin
         thd_harmonic_sum <= 32'd0;
         thd_calc_trigger <= 1'b0;
         thd_fft_trigger <= 1'b0;
         fundamental_power <= 32'd0;
+        thd_ready_d1 <= 1'b0;
     end else begin
-        // 【修复】使用thd_ready信号触发，而不是状态机
-        if (thd_ready && !thd_fft_trigger) begin
+        // 延迟thd_ready用于边沿检测
+        thd_ready_d1 <= thd_ready;
+        
+        // 检测thd_ready上升沿（从0到1）
+        if (thd_ready && !thd_ready_d1 && !thd_fft_trigger) begin
             // 计算谐波总和（2-5次）
             thd_harmonic_sum <= {16'd0, fft_harmonic_2} + 
                                {16'd0, fft_harmonic_3} + 
@@ -1340,7 +1346,8 @@ always @(posedge clk or negedge rst_n) begin
             thd_calc_trigger <= 1'b1;
         end else begin
             thd_calc_trigger <= 1'b0;
-            if (!thd_ready)
+            // 当thd_ready变为0时，清除触发标志
+            if (!thd_ready && thd_ready_d1)
                 thd_fft_trigger <= 1'b0;
         end
     end
