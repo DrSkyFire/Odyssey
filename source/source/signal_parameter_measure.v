@@ -684,14 +684,15 @@ always @(posedge clk or negedge rst_n) begin
                 end
             end
         end
-        // 扫描结束，锁存谐波幅度（临时禁用噪声门限以调试）
+        // 扫描结束，锁存谐波幅度（添加自适应噪声门限）
         else if (spectrum_addr == (FFT_POINTS/2)) begin
-            // 【调试】先不过滤，看THD是否能计算出来
-            // 后续可以根据实际信号质量调整门限
-            fft_harmonic_2 <= harm2_amp;
-            fft_harmonic_3 <= harm3_amp;
-            fft_harmonic_4 <= harm4_amp;
-            fft_harmonic_5 <= harm5_amp;
+            // 【关键修复】自适应噪声门限：只有谐波幅度 > 基波/256 才有效
+            // 这可以自动适应不同幅度的信号
+            // 1% = /100, 0.5% = /200, 0.39% = /256 (使用移位实现)
+            fft_harmonic_2 <= (harm2_amp > (fft_max_amp >> 8)) ? harm2_amp : 16'd0;  // >基波/256
+            fft_harmonic_3 <= (harm3_amp > (fft_max_amp >> 8)) ? harm3_amp : 16'd0;  // >基波/256
+            fft_harmonic_4 <= (harm4_amp > (fft_max_amp >> 9)) ? harm4_amp : 16'd0;  // >基波/512
+            fft_harmonic_5 <= (harm5_amp > (fft_max_amp >> 9)) ? harm5_amp : 16'd0;  // >基波/512
             thd_ready <= 1'b1;  // THD数据就绪，保持到下次扫描开始
         end
     end
@@ -1342,7 +1343,14 @@ always @(posedge clk or negedge rst_n) begin
             fundamental_power <= {16'd0, fft_max_amp};
             
             thd_fft_trigger <= 1'b1;
-            thd_calc_trigger <= 1'b1;
+            
+            // 【优化】只有谐波总和>0且基波足够大时才触发计算
+            // 避免无效计算和除零风险
+            if ((fft_harmonic_2 + fft_harmonic_3 + fft_harmonic_4 + fft_harmonic_5) > 16'd0 
+                && fft_max_amp > 16'd200)
+                thd_calc_trigger <= 1'b1;
+            else
+                thd_calc_trigger <= 1'b0;  // 谐波全为0，THD=0，不计算
         end else begin
             thd_calc_trigger <= 1'b0;
             // 当thd_ready变为0时，清除触发标志
