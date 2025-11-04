@@ -394,9 +394,11 @@ always @(posedge clk or negedge rst_n) begin
     if (!rst_n) begin
         freq_unit_flag_int <= 1'b0;
     end else if (freq_calc_trigger) begin
-        // 100ms测量周期：freq_temp = 实际频率 / 10
-        // 如果 freq_temp >= 10000，则实际频率 >= 100kHz，使用kHz显示
-        freq_unit_flag_int <= (freq_temp >= 32'd10000);
+        // 100ms测量周期：freq_temp = 过零次数
+        // 实际频率(Hz) = freq_temp * 10
+        // 【修复】切换点改回10kHz（freq_temp >= 1000）
+        // 10kHz以上用kHz显示，避免Hz模式65kHz溢出问题
+        freq_unit_flag_int <= (freq_temp >= 32'd1000);
     end
 end
 
@@ -417,19 +419,29 @@ always @(posedge clk or negedge rst_n) begin
         
         if (freq_calc_trigger) begin
             if (freq_unit_flag_int) begin
-                // kHz模式：显示�?= freq_temp（保�?位小数，单位0.01kHz�?
-                // 例如：freq_temp=50000表示500.00kHz
-                freq_product <= {17'd0, freq_temp};
+                // 【修复】kHz模式（保留1位小数）：
+                // 实际频率(Hz) = freq_temp * 10
+                // kHz显示值(含1位小数) = (freq_temp * 10) / 1000 * 10 = freq_temp / 10
+                // 
+                // 例如：freq_temp=1000  → 10kHz   → 显示100（即10.0kHz）
+                //      freq_temp=10000 → 100kHz  → 显示1000（即100.0kHz）
+                //      freq_temp=10050 → 100.5kHz → 显示1005（即100.5kHz）
+                //
+                // 使用定点乘法实现 freq_temp / 10：
+                // (freq_temp * 6554) >> 16 ≈ freq_temp / 10
+                // 其中 6554 = 65536 / 10.0015 ≈ 65536/10
+                freq_product <= (freq_temp * 32'd6554);  // Stage 4会右移16位
             end else begin
                 // Hz模式：显示�?= freq_temp * 10
-                // 例如：freq_temp=50表示500Hz
+                // 例如：freq_temp=50 → 显示�?=500（即500Hz�?
+                // Hz模式最大支持到9999Hz（freq_temp=999），不会溢�?
                 freq_product <= {17'd0, freq_temp * 32'd10};
             end
         end
     end
 end
 
-// Stage 4: 提取结果（直接取�?6位）
+// Stage 4: 提取结果
 always @(posedge clk or negedge rst_n) begin
     if (!rst_n) begin
         freq_result <= 16'd0;
@@ -440,28 +452,50 @@ always @(posedge clk or negedge rst_n) begin
         freq_unit_d2 <= freq_unit_d1;
         
         if (freq_mult_done) begin
-            // 直接取低16位作为结�?
-            freq_result <= freq_product[15:0];
+            if (freq_unit_d1) begin
+                // 【修复】kHz模式：右移16位完成除法（freq_temp * 655 >> 16 = freq_temp / 100�?
+                freq_result <= freq_product[31:16];
+            end else begin
+                // Hz模式：直接取低16�?
+                freq_result <= freq_product[15:0];
+            end
         end
     end
 end
 
-// Stage 5: 滑动平均滤波器（4次平均，减少抖动�?
+// Stage 5: 滑动平均滤波器（4次平均，减少抖动）
+// 【修复】单位切换时清空滤波器，避免Hz/kHz模式数值混淆
 integer j;
+reg freq_unit_d3;  // 再延迟一拍用于检测切换
 always @(posedge clk or negedge rst_n) begin
     if (!rst_n) begin
         freq_sum <= 18'd0;
         freq_hist_ptr <= 2'd0;
         freq_filtered <= 16'd0;
+        freq_unit_d3 <= 1'b0;
         for (j = 0; j < 4; j = j + 1) begin
             freq_history[j] <= 16'd0;
         end
-    end else if (freq_result_done && freq_result != freq_history[freq_hist_ptr]) begin
-        // 更新滑动平均（当新值与历史不同时）
-        freq_sum <= freq_sum - freq_history[freq_hist_ptr] + freq_result;
-        freq_history[freq_hist_ptr] <= freq_result;
-        freq_hist_ptr <= freq_hist_ptr + 1'b1;
-        freq_filtered <= freq_sum[17:2];  // ÷4
+    end else begin
+        freq_unit_d3 <= freq_unit_d2;  // 延迟单位标志
+        
+        // 【关键修复】检测单位切换，清空滤波器
+        if (freq_unit_d2 != freq_unit_d3) begin
+            // 单位发生切换（Hz↔kHz），清空历史数据
+            freq_sum <= 18'd0;
+            freq_hist_ptr <= 2'd0;
+            freq_filtered <= 16'd0;
+            for (j = 0; j < 4; j = j + 1) begin
+                freq_history[j] <= 16'd0;
+            end
+        end
+        else if (freq_result_done && freq_result != freq_history[freq_hist_ptr]) begin
+            // 更新滑动平均（当新值与历史不同时）
+            freq_sum <= freq_sum - freq_history[freq_hist_ptr] + freq_result;
+            freq_history[freq_hist_ptr] <= freq_result;
+            freq_hist_ptr <= freq_hist_ptr + 1'b1;
+            freq_filtered <= freq_sum[17:2];  // ÷4
+        end
     end
 end
 

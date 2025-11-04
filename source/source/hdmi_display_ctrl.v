@@ -1331,21 +1331,25 @@ always @(posedge clk_pixel or negedge rst_n) begin
                         in_char_area <= 1'b0;
                     end
                 end else begin
-                    // kHz/MHz模式：显示 "65.43kHz" (前导零抑制)
+                    // kHz/MHz模式：显示 "100.5kHz" (1位小数)
+                    // 输入格式：ch1_freq = 1005 表示 100.5kHz
+                    // d0=个位（小数部分）, d1=十位（整数个位）, d2=百位（整数十位）, d3=千位（整数百位）
+                    
                     if (pixel_x_d1 >= COL_FREQ_X + 8 && pixel_x_d1 < COL_FREQ_X + 24) begin
-                        // 百位：前导零抑制
-                        char_code <= (ch1_freq_d2 == 4'd0) ? 8'd32 : digit_to_ascii(ch1_freq_d2);
+                        // 整数百位（d3）：前导零抑制
+                        char_code <= (ch1_freq_d3 == 4'd0) ? 8'd32 : digit_to_ascii(ch1_freq_d3);
                         char_col <= pixel_x_d1 - COL_FREQ_X - 12'd8;
                         in_char_area <= ch1_enable;
                     end
                     else if (pixel_x_d1 >= COL_FREQ_X + 24 && pixel_x_d1 < COL_FREQ_X + 40) begin
-                        char_code <= digit_to_ascii(ch1_freq_d1);  // 十位：始终显示
+                        // 整数十位（d2）：当百位为0且十位为0时抑制
+                        char_code <= ((ch1_freq_d3 == 4'd0) && (ch1_freq_d2 == 4'd0)) ? 8'd32 : digit_to_ascii(ch1_freq_d2);
                         char_col <= pixel_x_d1 - COL_FREQ_X - 12'd24;
                         in_char_area <= ch1_enable;
                     end
                     else if (pixel_x_d1 >= COL_FREQ_X + 40 && pixel_x_d1 < COL_FREQ_X + 56) begin
-                        // 第3位：个位
-                        char_code <= digit_to_ascii(ch1_freq_d0);
+                        // 整数个位（d1）：始终显示
+                        char_code <= digit_to_ascii(ch1_freq_d1);
                         char_col <= pixel_x_d1 - COL_FREQ_X - 12'd40;
                         in_char_area <= ch1_enable;
                     end
@@ -1355,18 +1359,12 @@ always @(posedge clk_pixel or negedge rst_n) begin
                         in_char_area <= ch1_enable;
                     end
                     else if (pixel_x_d1 >= COL_FREQ_X + 72 && pixel_x_d1 < COL_FREQ_X + 88) begin
-                        // 小数第1位
-                        char_code <= digit_to_ascii(ch1_freq_d4);
+                        // 小数第1位（d0）
+                        char_code <= digit_to_ascii(ch1_freq_d0);
                         char_col <= pixel_x_d1 - COL_FREQ_X - 12'd72;
                         in_char_area <= ch1_enable;
                     end
                     else if (pixel_x_d1 >= COL_FREQ_X + 88 && pixel_x_d1 < COL_FREQ_X + 104) begin
-                        // 小数第2位
-                        char_code <= digit_to_ascii(ch1_freq_d3);
-                        char_col <= pixel_x_d1 - COL_FREQ_X - 12'd88;
-                        in_char_area <= ch1_enable;
-                    end
-                    else if (pixel_x_d1 >= COL_FREQ_X + 104 && pixel_x_d1 < COL_FREQ_X + 120) begin
                         char_code <= 8'd107; // 'k'
                         char_col <= pixel_x_d1 - COL_FREQ_X - 12'd104;
                         in_char_area <= ch1_enable;
@@ -1668,20 +1666,25 @@ always @(posedge clk_pixel or negedge rst_n) begin
                         in_char_area <= 1'b0;
                     end
                 end else begin
-                    // kHz/MHz模式：显示 "65.43kHz" (前导零抑制)
+                    // kHz/MHz模式：显示 "100.5kHz" (1位小数)
+                    // 输入格式：ch2_freq = 1005 表示 100.5kHz
+                    // d0=个位（小数部分）, d1=十位（整数个位）, d2=百位（整数十位）, d3=千位（整数百位）
+                    
                     if (pixel_x_d1 >= COL_FREQ_X + 8 && pixel_x_d1 < COL_FREQ_X + 24) begin
-                        // 百位：前导零抑制
-                        char_code <= (ch2_freq_d2 == 4'd0) ? 8'd32 : digit_to_ascii(ch2_freq_d2);
+                        // 整数百位（d3）：前导零抑制
+                        char_code <= (ch2_freq_d3 == 4'd0) ? 8'd32 : digit_to_ascii(ch2_freq_d3);
                         char_col <= pixel_x_d1 - COL_FREQ_X - 12'd8;
                         in_char_area <= ch2_enable;
                     end
                     else if (pixel_x_d1 >= COL_FREQ_X + 24 && pixel_x_d1 < COL_FREQ_X + 40) begin
-                        char_code <= digit_to_ascii(ch2_freq_d1);  // 十位：始终显示
+                        // 整数十位（d2）：当百位为0且十位为0时抑制
+                        char_code <= ((ch2_freq_d3 == 4'd0) && (ch2_freq_d2 == 4'd0)) ? 8'd32 : digit_to_ascii(ch2_freq_d2);
                         char_col <= pixel_x_d1 - COL_FREQ_X - 12'd24;
                         in_char_area <= ch2_enable;
                     end
                     else if (pixel_x_d1 >= COL_FREQ_X + 40 && pixel_x_d1 < COL_FREQ_X + 56) begin
-                        char_code <= digit_to_ascii(ch2_freq_d0);
+                        // 整数个位（d1）：始终显示
+                        char_code <= digit_to_ascii(ch2_freq_d1);
                         char_col <= pixel_x_d1 - COL_FREQ_X - 12'd40;
                         in_char_area <= ch2_enable;
                     end
@@ -1691,16 +1694,12 @@ always @(posedge clk_pixel or negedge rst_n) begin
                         in_char_area <= ch2_enable;
                     end
                     else if (pixel_x_d1 >= COL_FREQ_X + 72 && pixel_x_d1 < COL_FREQ_X + 88) begin
-                        char_code <= digit_to_ascii(ch2_freq_d4);
+                        // 小数第1位（d0）
+                        char_code <= digit_to_ascii(ch2_freq_d0);
                         char_col <= pixel_x_d1 - COL_FREQ_X - 12'd72;
                         in_char_area <= ch2_enable;
                     end
                     else if (pixel_x_d1 >= COL_FREQ_X + 88 && pixel_x_d1 < COL_FREQ_X + 104) begin
-                        char_code <= digit_to_ascii(ch2_freq_d3);
-                        char_col <= pixel_x_d1 - COL_FREQ_X - 12'd88;
-                        in_char_area <= ch2_enable;
-                    end
-                    else if (pixel_x_d1 >= COL_FREQ_X + 104 && pixel_x_d1 < COL_FREQ_X + 120) begin
                         char_code <= 8'd107; // 'k'
                         char_col <= pixel_x_d1 - COL_FREQ_X - 12'd104;
                         in_char_area <= ch2_enable;
