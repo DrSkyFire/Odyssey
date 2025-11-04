@@ -1418,30 +1418,34 @@ always @(posedge clk or negedge rst_n) begin
         duty_out <= 16'd0;
         thd_out <= 16'd0;
     end else if (measure_en) begin
-        // 【修复】使用滤波后的幅度值，提高稳定性
+        // 【智能混合模式】时域+频域结合
+        // 1. 频率：优先使用时域过零检测（稳定可靠）
+        // 2. 幅度：优先使用FFT峰值（抗噪声强）
+        // 3. THD：使用FFT谐波检测（唯一方式）
+        
         if (measure_done) begin
-            // 使用时域测量结果
+            // 频率：使用时域过零检测结果（10Hz-17.5MHz全频段）
             freq_out <= freq_calc;
             
             // 单位标志：00=Hz, 01=kHz, 10=MHz
             freq_is_mhz <= (freq_unit_flag_int == 2'd2);
             freq_is_khz <= (freq_unit_flag_int == 2'd1);
             
-            amplitude_out <= amp_filtered;  // 【修复】使用滤波后的幅度
+            // 占空比：时域测量
             duty_out <= duty_filtered;
-            thd_out <= thd_calc;
         end
-        // FFT测量暂时注释掉用于诊断
-        // if (use_fft_freq && fft_freq_ready) begin
-        //     if (fft_freq_hz >= 32'd100000) begin
-        //         freq_is_khz <= 1'b1;
-        //         freq_out <= (fft_freq_hz / 32'd100);
-        //     end else begin
-        //         freq_is_khz <= 1'b0;
-        //         freq_out <= fft_freq_hz[15:0];
-        //     end
-        //     amplitude_out <= fft_max_amp;
-        // end
+        
+        // 幅度和THD：使用FFT结果（当FFT有效时更新）
+        if (fft_freq_ready) begin
+            // 幅度：使用FFT峰值幅度（比时域峰峰值更准确，抗噪声+5-10dB）
+            amplitude_out <= fft_max_amp;
+            
+            // THD：使用FFT谐波检测结果（在HARM_DONE状态更新）
+            thd_out <= thd_calc;
+        end else if (measure_done) begin
+            // FFT未就绪时，使用时域幅度作为备用
+            amplitude_out <= amp_filtered;
+        end
     end
 end
 
