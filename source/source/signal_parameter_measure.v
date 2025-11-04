@@ -453,22 +453,16 @@ always @(posedge clk or negedge rst_n) begin
                 2'd2: begin  // MHz模式
                     // MHz模式（保留2位小数）：
                     // 实际频率(Hz) = freq_temp * 10
-                    // MHz显示值(含2位小数) = (freq_temp * 10) / 1000000 * 100 = freq_temp / 10000
+                    // MHz显示值(含2位小数) = (freq_temp * 10) / 1000000 * 100 = freq_temp / 1000
                     // 
                     // 例如：freq_temp=100000  → 1MHz    → 显示100（即1.00MHz）
                     //      freq_temp=1000000 → 10MHz   → 显示1000（即10.00MHz）
                     //      freq_temp=1750000 → 17.5MHz → 显示1750（即17.50MHz）
                     //
-                    // 使用定点乘法实现 freq_temp / 10000：
-                    // (freq_temp * 6554) >> 16 ≈ freq_temp / 10
-                    // 再除以1000： (result * 65536) >> 16 / 1000 = (result * 66) >> 16
-                    // 合并：freq_temp * 6554 / 65536 / 1000 = freq_temp * 6554 / 65536000
-                    //     ≈ (freq_temp * 6554 * 66) >> 32
-                    // 简化：直接 freq_temp / 10000 = (freq_temp * 6554) >> 16 / 1000
-                    //                              = ((freq_temp * 6554) >> 16 * 66) >> 16
-                    // 更简单方法：freq_temp / 10000 ≈ (freq_temp * 655) >> 26
-                    // 其中 655 ≈ 67108864 / 102400 (2^26 / 10000 的近似)
-                    freq_product <= (freq_temp * 32'd655);  // Stage 4会右移26位
+                    // 使用定点乘法实现 freq_temp / 1000：
+                    // (freq_temp * 65536) >> 16 / 1000 = (freq_temp * 66) >> 16
+                    // 其中 66 = 65536 / 1000 ≈ 65.536
+                    freq_product <= (freq_temp * 32'd66);  // Stage 4会右移16位
                 end
                 
                 default: freq_product <= 49'd0;
@@ -497,8 +491,8 @@ always @(posedge clk or negedge rst_n) begin
                     freq_result <= freq_product[31:16];
                 end
                 
-                2'd2: begin  // MHz模式：右移26位完成÷10000
-                    freq_result <= freq_product[41:26];
+                2'd2: begin  // MHz模式：右移16位完成÷1000
+                    freq_result <= freq_product[31:16];
                 end
                 
                 default: freq_result <= 16'd0;
