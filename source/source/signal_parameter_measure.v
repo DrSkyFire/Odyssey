@@ -648,69 +648,67 @@ always @(posedge clk or negedge rst_n) begin
             harm4_bin <= (fft_peak_bin << 2);           // 4次谐波 = 基波×4
             harm5_bin <= (fft_peak_bin << 2) + fft_peak_bin;  // 5次谐波 = 基波×5
             
-            // 2次谐波检测（目标bin ±3，且在有效范围内）
-            if (harm2_bin < (FFT_POINTS/2 - 13'd3) &&
-                spectrum_addr >= (harm2_bin - 13'd3) && 
-                spectrum_addr <= (harm2_bin + 13'd3)) begin
+            // 2次谐波检测（目标bin ±2，减少旁瓣噪声）
+            if (harm2_bin < (FFT_POINTS/2 - 13'd2) &&
+                spectrum_addr >= (harm2_bin - 13'd2) && 
+                spectrum_addr <= (harm2_bin + 13'd2)) begin
                 if (spectrum_data > harm2_amp) begin
                     harm2_amp <= spectrum_data;
                 end
             end
             
-            // 3次谐波检测（目标bin ±3，且在有效范围内）
-            if (harm3_bin < (FFT_POINTS/2 - 13'd3) &&
-                spectrum_addr >= (harm3_bin - 13'd3) && 
-                spectrum_addr <= (harm3_bin + 13'd3)) begin
+            // 3次谐波检测（目标bin ±2）
+            if (harm3_bin < (FFT_POINTS/2 - 13'd2) &&
+                spectrum_addr >= (harm3_bin - 13'd2) && 
+                spectrum_addr <= (harm3_bin + 13'd2)) begin
                 if (spectrum_data > harm3_amp) begin
                     harm3_amp <= spectrum_data;
                 end
             end
             
-            // 4次谐波检测（目标bin ±3，且在有效范围内）
-            if (harm4_bin < (FFT_POINTS/2 - 13'd3) &&
-                spectrum_addr >= (harm4_bin - 13'd3) && 
-                spectrum_addr <= (harm4_bin + 13'd3)) begin
+            // 4次谐波检测（目标bin ±2）
+            if (harm4_bin < (FFT_POINTS/2 - 13'd2) &&
+                spectrum_addr >= (harm4_bin - 13'd2) && 
+                spectrum_addr <= (harm4_bin + 13'd2)) begin
                 if (spectrum_data > harm4_amp) begin
                     harm4_amp <= spectrum_data;
                 end
             end
             
-            // 5次谐波检测（目标bin ±3，且在有效范围内）
-            if (harm5_bin < (FFT_POINTS/2 - 13'd3) &&
-                spectrum_addr >= (harm5_bin - 13'd3) && 
-                spectrum_addr <= (harm5_bin + 13'd3)) begin
+            // 5次谐波检测（目标bin ±2）
+            if (harm5_bin < (FFT_POINTS/2 - 13'd2) &&
+                spectrum_addr >= (harm5_bin - 13'd2) && 
+                spectrum_addr <= (harm5_bin + 13'd2)) begin
                 if (spectrum_data > harm5_amp) begin
                     harm5_amp <= spectrum_data;
                 end
             end
         end
-        // 扫描结束，锁存谐波幅度（添加混合噪声门限）
+        // 扫描结束，锁存谐波幅度（优化门限，减少噪声影响）
         else if (spectrum_addr == (FFT_POINTS/2)) begin
-            // 【关键修复】混合门限策略：
-            // 1. 自适应：谐波 > 基波/32 (≈3.1%)
-            // 2. 绝对门限：谐波 > 100（滤除FFT噪声底）
-            // 两者取较大值，确保过滤噪声同时保留真实谐波
+            // 【优化】提高绝对门限，减少噪声和旁瓣影响
+            // 混合门限策略：MAX(基波/N, 绝对值)
             
-            // 2次谐波：通常最强，用较严格门限
-            if (harm2_amp > ((fft_max_amp >> 5) > 16'd100 ? (fft_max_amp >> 5) : 16'd100))
+            // 2次谐波：方波理论为0，检测到的是噪声/失真，用高门限
+            if (harm2_amp > ((fft_max_amp >> 5) > 16'd150 ? (fft_max_amp >> 5) : 16'd150))
                 fft_harmonic_2 <= harm2_amp;
             else
                 fft_harmonic_2 <= 16'd0;
             
-            // 3次谐波：方波的主要谐波，用中等门限
-            if (harm3_amp > ((fft_max_amp >> 6) > 16'd80 ? (fft_max_amp >> 6) : 16'd80))
+            // 3次谐波：方波的主要谐波(理论33%)，用中等门限
+            if (harm3_amp > ((fft_max_amp >> 6) > 16'd120 ? (fft_max_amp >> 6) : 16'd120))
                 fft_harmonic_3 <= harm3_amp;
             else
                 fft_harmonic_3 <= 16'd0;
             
-            // 4次谐波：偶次谐波，可能较弱
-            if (harm4_amp > ((fft_max_amp >> 7) > 16'd60 ? (fft_max_amp >> 7) : 16'd60))
+            // 4次谐波：偶次谐波，理论为0，用高门限过滤
+            if (harm4_amp > ((fft_max_amp >> 7) > 16'd100 ? (fft_max_amp >> 7) : 16'd100))
                 fft_harmonic_4 <= harm4_amp;
             else
                 fft_harmonic_4 <= 16'd0;
             
-            // 5次谐波：高次谐波，最弱
-            if (harm5_amp > ((fft_max_amp >> 7) > 16'd60 ? (fft_max_amp >> 7) : 16'd60))
+            // 5次谐波：方波次要谐波(理论20%)，用中等门限
+            if (harm5_amp > ((fft_max_amp >> 7) > 16'd80 ? (fft_max_amp >> 7) : 16'd80))
                 fft_harmonic_5 <= harm5_amp;
             else
                 fft_harmonic_5 <= 16'd0;
