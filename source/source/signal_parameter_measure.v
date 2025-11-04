@@ -684,15 +684,37 @@ always @(posedge clk or negedge rst_n) begin
                 end
             end
         end
-        // 扫描结束，锁存谐波幅度（添加自适应噪声门限）
+        // 扫描结束，锁存谐波幅度（添加混合噪声门限）
         else if (spectrum_addr == (FFT_POINTS/2)) begin
-            // 【关键修复】自适应噪声门限：只有谐波幅度 > 基波/256 才有效
-            // 这可以自动适应不同幅度的信号
-            // 1% = /100, 0.5% = /200, 0.39% = /256 (使用移位实现)
-            fft_harmonic_2 <= (harm2_amp > (fft_max_amp >> 8)) ? harm2_amp : 16'd0;  // >基波/256
-            fft_harmonic_3 <= (harm3_amp > (fft_max_amp >> 8)) ? harm3_amp : 16'd0;  // >基波/256
-            fft_harmonic_4 <= (harm4_amp > (fft_max_amp >> 9)) ? harm4_amp : 16'd0;  // >基波/512
-            fft_harmonic_5 <= (harm5_amp > (fft_max_amp >> 9)) ? harm5_amp : 16'd0;  // >基波/512
+            // 【关键修复】混合门限策略：
+            // 1. 自适应：谐波 > 基波/32 (≈3.1%)
+            // 2. 绝对门限：谐波 > 100（滤除FFT噪声底）
+            // 两者取较大值，确保过滤噪声同时保留真实谐波
+            
+            // 2次谐波：通常最强，用较严格门限
+            if (harm2_amp > ((fft_max_amp >> 5) > 16'd100 ? (fft_max_amp >> 5) : 16'd100))
+                fft_harmonic_2 <= harm2_amp;
+            else
+                fft_harmonic_2 <= 16'd0;
+            
+            // 3次谐波：方波的主要谐波，用中等门限
+            if (harm3_amp > ((fft_max_amp >> 6) > 16'd80 ? (fft_max_amp >> 6) : 16'd80))
+                fft_harmonic_3 <= harm3_amp;
+            else
+                fft_harmonic_3 <= 16'd0;
+            
+            // 4次谐波：偶次谐波，可能较弱
+            if (harm4_amp > ((fft_max_amp >> 7) > 16'd60 ? (fft_max_amp >> 7) : 16'd60))
+                fft_harmonic_4 <= harm4_amp;
+            else
+                fft_harmonic_4 <= 16'd0;
+            
+            // 5次谐波：高次谐波，最弱
+            if (harm5_amp > ((fft_max_amp >> 7) > 16'd60 ? (fft_max_amp >> 7) : 16'd60))
+                fft_harmonic_5 <= harm5_amp;
+            else
+                fft_harmonic_5 <= 16'd0;
+            
             thd_ready <= 1'b1;  // THD数据就绪，保持到下次扫描开始
         end
     end
