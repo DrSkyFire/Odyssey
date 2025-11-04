@@ -685,14 +685,14 @@ always @(posedge clk or negedge rst_n) begin
                 end
             end
         end
-        // 扫描结束，锁存谐波幅度（添加噪声门限过滤）
+        // 扫描结束，锁存谐波幅度（临时禁用噪声门限以调试）
         else if (spectrum_addr == (FFT_POINTS/2)) begin
-            // 【关键优化】只有当谐波幅度 > 基波幅度/100时才认为有效
-            // 这可以过滤掉正弦波中的噪声谐波
-            fft_harmonic_2 <= (harm2_amp > (fft_max_amp >> 6)) ? harm2_amp : 16'd0;  // 基波/64门限
-            fft_harmonic_3 <= (harm3_amp > (fft_max_amp >> 7)) ? harm3_amp : 16'd0;  // 基波/128门限
-            fft_harmonic_4 <= (harm4_amp > (fft_max_amp >> 7)) ? harm4_amp : 16'd0;
-            fft_harmonic_5 <= (harm5_amp > (fft_max_amp >> 7)) ? harm5_amp : 16'd0;
+            // 【调试】先不过滤，看THD是否能计算出来
+            // 后续可以根据实际信号质量调整门限
+            fft_harmonic_2 <= harm2_amp;
+            fft_harmonic_3 <= harm3_amp;
+            fft_harmonic_4 <= harm4_amp;
+            fft_harmonic_5 <= harm5_amp;
             thd_ready <= 1'b1;  // THD数据就绪
         end
     end
@@ -1357,7 +1357,7 @@ always @(posedge clk or negedge rst_n) begin
         thd_calc <= 16'd0;
         thd_pipe_valid <= 3'd0;
     end else begin
-        // 流水线第1级：基波幅度归一化到8位索引（256级）
+        // 流水线第0级：基波幅度归一化到8位索引（256级）
         if (thd_calc_trigger && fundamental_power > 32'd100) begin
             // 将16位基波幅度映射到0-255
             // index = (fundamental_power >> 8) 确保不超过255
@@ -1373,7 +1373,7 @@ always @(posedge clk or negedge rst_n) begin
             thd_pipe_valid[0] <= 1'b0;
         end
         
-        // 流水线第2级：查找倒数表 (1024000 / 基波)
+        // 流水线第1级：查找倒数表 (1024000 / 基波)
         thd_pipe_valid[1] <= thd_pipe_valid[0];
         if (thd_pipe_valid[0]) begin
             case (thd_lut_index)
@@ -1411,21 +1411,22 @@ always @(posedge clk or negedge rst_n) begin
             endcase
         end
         
-        // 流水线第3级：乘法 (谐波和 × 倒数)
+        // 流水线第2级：乘法 (谐波和 × 倒数)
         thd_pipe_valid[2] <= thd_pipe_valid[1];
         if (thd_pipe_valid[1]) begin
-            // thd_product = thd_harmonic_sum × thd_reciprocal
+            // thd_product = thd_harmonic_sum[32] × thd_reciprocal[20] = 52位
             thd_product <= thd_harmonic_sum * thd_reciprocal;
         end
         
-        // 流水线第4级：右移归一化并限幅
+        // 流水线第3级：右移归一化并限幅（关键修复：添加valid控制）
         if (thd_pipe_valid[2]) begin
             // 结果右移10位 (除以1024，因为倒数是1024000/基波)
+            // thd_product是52位，右移10位后取低16位
             // 限制THD最大值为1000 (100.0%)
-            if (thd_product[31:10] > 22'd1000)
+            if (thd_product[41:10] > 32'd1000)  // 修复：检查正确的位范围
                 thd_calc <= 16'd1000;
             else
-                thd_calc <= thd_product[25:10];  // [25:10] = 16位结果
+                thd_calc <= thd_product[25:10];  // 取[25:10]共16位
         end
     end
 end
