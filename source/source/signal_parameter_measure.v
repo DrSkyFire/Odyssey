@@ -610,10 +610,9 @@ always @(posedge clk or negedge rst_n) begin
 end
 
 //=============================================================================
-// 2C. 【修复】FFT谐波检测 - 单次扫描检测所有谐波（增强版）
-// 原问题：状态机切换需要多次FFT扫描，导致谐波检测失败
-// 新方案：在一次FFT扫描中同时检测基波和所有谐波
-// 优化：添加谐波有效性检查，过滤噪声，提高THD准确性
+// 2C. 【修复】FFT谐波检测 - 单次扫描检测所有谐波（修复bin计算时序）
+// 原问题：谐波bin在扫描开始时基于上次的fft_peak_bin计算，存在时序错位
+// 新方案：在扫描过程中实时计算谐波bin位置并检测
 //=============================================================================
 always @(posedge clk or negedge rst_n) begin
     if (!rst_n) begin
@@ -631,24 +630,24 @@ always @(posedge clk or negedge rst_n) begin
         harm5_amp <= 16'd0;
         thd_ready <= 1'b0;
     end else if (measure_en && spectrum_valid) begin
-        // 检测FFT扫描开始，计算谐波bin位置
+        // 检测FFT扫描开始
         if (spectrum_addr == 13'd0) begin
-            // 基于上次的fft_peak_bin计算本次应该搜索的谐波位置
-            // 添加范围检查，避免溢出到Nyquist频率以上
-            harm2_bin <= (fft_peak_bin << 1);           // 2次谐波 = 基波×2
-            harm3_bin <= (fft_peak_bin << 1) + fft_peak_bin;  // 3次谐波 = 基波×3
-            harm4_bin <= (fft_peak_bin << 2);           // 4次谐波 = 基波×4
-            harm5_bin <= (fft_peak_bin << 2) + fft_peak_bin;  // 5次谐波 = 基波×5
-            
-            // 清空临时幅度
+            // 清空临时幅度（准备新扫描）
             harm2_amp <= 16'd0;
             harm3_amp <= 16'd0;
             harm4_amp <= 16'd0;
             harm5_amp <= 16'd0;
             thd_ready <= 1'b0;  // 新扫描开始，清除上次的就绪信号
         end
-        // 扫描过程中，检测各谐波位置附近的最大值
+        // 扫描过程中，实时计算谐波bin并检测
         else if (spectrum_addr >= 13'd1 && spectrum_addr < (FFT_POINTS/2)) begin
+            // 【关键修复】使用当前最新的fft_peak_bin实时计算谐波位置
+            // 因为fft_peak_bin在扫描过程中动态更新
+            harm2_bin <= (fft_peak_bin << 1);           // 2次谐波 = 基波×2
+            harm3_bin <= (fft_peak_bin << 1) + fft_peak_bin;  // 3次谐波 = 基波×3
+            harm4_bin <= (fft_peak_bin << 2);           // 4次谐波 = 基波×4
+            harm5_bin <= (fft_peak_bin << 2) + fft_peak_bin;  // 5次谐波 = 基波×5
+            
             // 2次谐波检测（目标bin ±3，且在有效范围内）
             if (harm2_bin < (FFT_POINTS/2 - 13'd3) &&
                 spectrum_addr >= (harm2_bin - 13'd3) && 
