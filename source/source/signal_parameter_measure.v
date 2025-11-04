@@ -44,7 +44,8 @@ module signal_parameter_measure (
     
     // 参数输出
     output reg  [15:0]  freq_out,           // 频率数值
-    output reg          freq_is_khz,        // 频率单位标志 (0=Hz, 1=kHz)
+    output reg          freq_is_khz,        // 频率单位标志 (0=Hz, 1=kHz, 与freq_is_mhz组合判断)
+    output reg          freq_is_mhz,        // MHz单位标志 (1=MHz, 0=非MHz)
     output reg  [15:0]  amplitude_out,      // 幅度 (峰峰值)
     output reg  [15:0]  duty_out,           // 占空比(0~1000 表示0%~100%)
     output reg  [15:0]  thd_out,            // THD (0~1000 表示0%~100%)
@@ -108,9 +109,9 @@ reg [7:0]   freq_lut_index;                 // LUT索引
 reg [16:0]  freq_reciprocal;                // 倒数�?(17�?
 reg [48:0]  freq_product;                   // 乘法结果 (32×17=49�?
 reg [15:0]  freq_result;                    // 最终频率�?
-reg         freq_unit_flag_int;             // 内部单位标志（流水线使用�?
+reg [1:0]   freq_unit_flag_int;             // 内部单位标志：0=Hz, 1=kHz, 2=MHz
 reg         freq_result_done;               // Stage 4完成标志
-reg         freq_unit_d2;                   // 单位标志延迟2�?
+reg [1:0]   freq_unit_d2;                   // 单位标志延迟2�?
 
 // 【优化】频率滑动平均滤波器(4次平均，减少抖动)
 reg [15:0]  freq_history[0:3];              // 历史值缓存
@@ -389,54 +390,89 @@ always @(posedge clk or negedge rst_n) begin
     end
 end
 
-// Stage 2: 判断单位（Hz或kHz�?
+// Stage 2: 判断单位（Hz / kHz / MHz）
 always @(posedge clk or negedge rst_n) begin
     if (!rst_n) begin
-        freq_unit_flag_int <= 1'b0;
+        freq_unit_flag_int <= 2'd0;
     end else if (freq_calc_trigger) begin
         // 100ms测量周期：freq_temp = 过零次数
         // 实际频率(Hz) = freq_temp * 10
-        // 【修复】切换点改回10kHz（freq_temp >= 1000）
-        // 10kHz以上用kHz显示，避免Hz模式65kHz溢出问题
-        freq_unit_flag_int <= (freq_temp >= 32'd1000);
+        // 
+        // 单位切换点：
+        // - freq_temp < 1000      → Hz模式  (< 10kHz)
+        // - 1000 <= freq_temp < 100000 → kHz模式 (10kHz ~ 1MHz)
+        // - freq_temp >= 100000   → MHz模式 (>= 1MHz)
+        if (freq_temp >= 32'd100000)
+            freq_unit_flag_int <= 2'd2;  // MHz
+        else if (freq_temp >= 32'd1000)
+            freq_unit_flag_int <= 2'd1;  // kHz
+        else
+            freq_unit_flag_int <= 2'd0;  // Hz
     end
 end
 
 // Stage 3: 计算频率�?
 reg freq_mult_done;
 reg [31:0] freq_temp_d1;  // 延迟一拍对齐流水线
-reg        freq_unit_d1;  // 单位标志延迟
+reg [1:0]  freq_unit_d1;  // 单位标志延迟
 always @(posedge clk or negedge rst_n) begin
     if (!rst_n) begin
         freq_product <= 49'd0;
         freq_mult_done <= 1'b0;
         freq_temp_d1 <= 32'd0;
-        freq_unit_d1 <= 1'b0;
+        freq_unit_d1 <= 2'd0;
     end else begin
         freq_mult_done <= freq_calc_trigger;  // 延迟一周期
         freq_temp_d1 <= freq_temp;            // 对齐流水�?
         freq_unit_d1 <= freq_unit_flag_int;   // 对齐单位标志
         
         if (freq_calc_trigger) begin
-            if (freq_unit_flag_int) begin
-                // 【修复】kHz模式（保留1位小数）：
-                // 实际频率(Hz) = freq_temp * 10
-                // kHz显示值(含1位小数) = (freq_temp * 10) / 1000 * 10 = freq_temp / 10
-                // 
-                // 例如：freq_temp=1000  → 10kHz   → 显示100（即10.0kHz）
-                //      freq_temp=10000 → 100kHz  → 显示1000（即100.0kHz）
-                //      freq_temp=10050 → 100.5kHz → 显示1005（即100.5kHz）
-                //
-                // 使用定点乘法实现 freq_temp / 10：
-                // (freq_temp * 6554) >> 16 ≈ freq_temp / 10
-                // 其中 6554 = 65536 / 10.0015 ≈ 65536/10
-                freq_product <= (freq_temp * 32'd6554);  // Stage 4会右移16位
-            end else begin
-                // Hz模式：显示�?= freq_temp * 10
-                // 例如：freq_temp=50 → 显示�?=500（即500Hz�?
-                // Hz模式最大支持到9999Hz（freq_temp=999），不会溢�?
-                freq_product <= {17'd0, freq_temp * 32'd10};
-            end
+            case (freq_unit_flag_int)
+                2'd0: begin  // Hz模式
+                    // Hz模式：显示�?= freq_temp * 10
+                    // 例如：freq_temp=50 → 显示�?=500（即500Hz�?
+                    // Hz模式最大支持到9999Hz（freq_temp=999），不会溢�?
+                    freq_product <= {17'd0, freq_temp * 32'd10};
+                end
+                
+                2'd1: begin  // kHz模式
+                    // 【修复】kHz模式（保留1位小数）：
+                    // 实际频率(Hz) = freq_temp * 10
+                    // kHz显示值(含1位小数) = (freq_temp * 10) / 1000 * 10 = freq_temp / 10
+                    // 
+                    // 例如：freq_temp=1000  → 10kHz   → 显示100（即10.0kHz）
+                    //      freq_temp=10000 → 100kHz  → 显示1000（即100.0kHz）
+                    //      freq_temp=99999 → 999.99kHz → 显示9999（即999.9kHz）
+                    //
+                    // 使用定点乘法实现 freq_temp / 10：
+                    // (freq_temp * 6554) >> 16 ≈ freq_temp / 10
+                    // 其中 6554 = 65536 / 10.0015 ≈ 65536/10
+                    freq_product <= (freq_temp * 32'd6554);  // Stage 4会右移16位
+                end
+                
+                2'd2: begin  // MHz模式
+                    // MHz模式（保留2位小数）：
+                    // 实际频率(Hz) = freq_temp * 10
+                    // MHz显示值(含2位小数) = (freq_temp * 10) / 1000000 * 100 = freq_temp / 10000
+                    // 
+                    // 例如：freq_temp=100000  → 1MHz    → 显示100（即1.00MHz）
+                    //      freq_temp=1000000 → 10MHz   → 显示1000（即10.00MHz）
+                    //      freq_temp=1750000 → 17.5MHz → 显示1750（即17.50MHz）
+                    //
+                    // 使用定点乘法实现 freq_temp / 10000：
+                    // (freq_temp * 6554) >> 16 ≈ freq_temp / 10
+                    // 再除以1000： (result * 65536) >> 16 / 1000 = (result * 66) >> 16
+                    // 合并：freq_temp * 6554 / 65536 / 1000 = freq_temp * 6554 / 65536000
+                    //     ≈ (freq_temp * 6554 * 66) >> 32
+                    // 简化：直接 freq_temp / 10000 = (freq_temp * 6554) >> 16 / 1000
+                    //                              = ((freq_temp * 6554) >> 16 * 66) >> 16
+                    // 更简单方法：freq_temp / 10000 ≈ (freq_temp * 655) >> 26
+                    // 其中 655 ≈ 67108864 / 102400 (2^26 / 10000 的近似)
+                    freq_product <= (freq_temp * 32'd655);  // Stage 4会右移26位
+                end
+                
+                default: freq_product <= 49'd0;
+            endcase
         end
     end
 end
@@ -446,33 +482,41 @@ always @(posedge clk or negedge rst_n) begin
     if (!rst_n) begin
         freq_result <= 16'd0;
         freq_result_done <= 1'b0;
-        freq_unit_d2 <= 1'b0;
+        freq_unit_d2 <= 2'd0;
     end else begin
         freq_result_done <= freq_mult_done;
         freq_unit_d2 <= freq_unit_d1;
         
         if (freq_mult_done) begin
-            if (freq_unit_d1) begin
-                // 【修复】kHz模式：右移16位完成除法（freq_temp * 655 >> 16 = freq_temp / 100�?
-                freq_result <= freq_product[31:16];
-            end else begin
-                // Hz模式：直接取低16�?
-                freq_result <= freq_product[15:0];
-            end
+            case (freq_unit_d1)
+                2'd0: begin  // Hz模式：直接取低16�?
+                    freq_result <= freq_product[15:0];
+                end
+                
+                2'd1: begin  // kHz模式：右移16位完成÷10
+                    freq_result <= freq_product[31:16];
+                end
+                
+                2'd2: begin  // MHz模式：右移26位完成÷10000
+                    freq_result <= freq_product[41:26];
+                end
+                
+                default: freq_result <= 16'd0;
+            endcase
         end
     end
 end
 
 // Stage 5: 滑动平均滤波器（4次平均，减少抖动）
-// 【修复】单位切换时清空滤波器，避免Hz/kHz模式数值混淆
+// 【修复】单位切换时清空滤波器，避免Hz/kHz/MHz模式数值混淆
 integer j;
-reg freq_unit_d3;  // 再延迟一拍用于检测切换
+reg [1:0] freq_unit_d3;  // 再延迟一拍用于检测切换
 always @(posedge clk or negedge rst_n) begin
     if (!rst_n) begin
         freq_sum <= 18'd0;
         freq_hist_ptr <= 2'd0;
         freq_filtered <= 16'd0;
-        freq_unit_d3 <= 1'b0;
+        freq_unit_d3 <= 2'd0;
         for (j = 0; j < 4; j = j + 1) begin
             freq_history[j] <= 16'd0;
         end
@@ -481,7 +525,7 @@ always @(posedge clk or negedge rst_n) begin
         
         // 【关键修复】检测单位切换，清空滤波器
         if (freq_unit_d2 != freq_unit_d3) begin
-            // 单位发生切换（Hz↔kHz），清空历史数据
+            // 单位发生切换（Hz↔kHz↔MHz），清空历史数据
             freq_sum <= 18'd0;
             freq_hist_ptr <= 2'd0;
             freq_filtered <= 16'd0;
@@ -1375,6 +1419,7 @@ always @(posedge clk or negedge rst_n) begin
     if (!rst_n) begin
         freq_out <= 16'd0;
         freq_is_khz <= 1'b0;
+        freq_is_mhz <= 1'b0;
         amplitude_out <= 16'd0;
         duty_out <= 16'd0;
         thd_out <= 16'd0;
@@ -1383,7 +1428,11 @@ always @(posedge clk or negedge rst_n) begin
         if (measure_done) begin
             // 使用时域测量结果
             freq_out <= freq_calc;
-            freq_is_khz <= freq_unit_flag_int;
+            
+            // 单位标志：00=Hz, 01=kHz, 10=MHz
+            freq_is_mhz <= (freq_unit_flag_int == 2'd2);
+            freq_is_khz <= (freq_unit_flag_int == 2'd1);
+            
             amplitude_out <= amp_filtered;  // 【修复】使用滤波后的幅度
             duty_out <= duty_filtered;
             thd_out <= thd_calc;

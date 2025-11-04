@@ -20,11 +20,13 @@ module hdmi_display_ctrl (
     // 双通道参数输入
     input  wire [15:0]  ch1_freq,           // CH1频率数值
     input  wire         ch1_freq_is_khz,    // CH1频率单位 (0=Hz, 1=kHz)
+    input  wire         ch1_freq_is_mhz,    // CH1 MHz单位 (1=MHz)
     input  wire [15:0]  ch1_amplitude,      // CH1幅度
     input  wire [15:0]  ch1_duty,           // CH1占空�?(0-1000 = 0-100%)
     input  wire [15:0]  ch1_thd,            // CH1 THD (0-1000 = 0-100%)
     input  wire [15:0]  ch2_freq,           // CH2频率数值
     input  wire         ch2_freq_is_khz,    // CH2频率单位 (0=Hz, 1=kHz)
+    input  wire         ch2_freq_is_mhz,    // CH2 MHz单位 (1=MHz)
     input  wire [15:0]  ch2_amplitude,      // CH2幅度
     input  wire [15:0]  ch2_duty,           // CH2占空�?(0-1000 = 0-100%)
     input  wire [15:0]  ch2_thd,            // CH2 THD (0-1000 = 0-100%)
@@ -454,23 +456,23 @@ always @(posedge clk_pixel or negedge rst_n) begin
     end else begin
         // 在场消隐期间更新（v_cnt == 0），分散到多个时钟周期避免时序违例
         if (v_cnt == 12'd0 && h_cnt == 12'd0) begin
-            // 【修复】CH1频率显示逻辑 - 使用单位标志位准确判断
-            // ch1_freq_is_khz明确指示单位：0=Hz, 1=kHz
+            // 【修复】CH1频率显示逻辑 - 支持Hz/kHz/MHz三档单位
+            // ch1_freq_is_mhz和ch1_freq_is_khz组合判断：
+            // MHz: ch1_freq_is_mhz=1
+            // kHz: ch1_freq_is_mhz=0, ch1_freq_is_khz=1
+            // Hz:  ch1_freq_is_mhz=0, ch1_freq_is_khz=0
             
-            if (ch1_freq_is_khz) begin
-                // kHz单位
-                if (ch1_freq >= 16'd10000) begin
-                    // >=10000kHz = 10MHz，转为MHz显示
-                    ch1_freq_unit <= 2'd2;              // MHz
-                    ch1_freq_display <= ch1_freq / 16'd1000;
-                end else begin
-                    // <10000kHz，显示为kHz
-                    ch1_freq_unit <= 2'd1;              // kHz
-                    ch1_freq_display <= ch1_freq;
-                end
+            if (ch1_freq_is_mhz) begin
+                // MHz单位，直接显示（已经是2位小数格式）
+                ch1_freq_unit <= 2'd2;              // MHz
+                ch1_freq_display <= ch1_freq;
+            end else if (ch1_freq_is_khz) begin
+                // kHz单位，直接显示（已经是1位小数格式）
+                ch1_freq_unit <= 2'd1;              // kHz
+                ch1_freq_display <= ch1_freq;
             end else begin
                 // Hz单位，直接显示
-                ch1_freq_unit <= 2'd0;                  // Hz
+                ch1_freq_unit <= 2'd0;              // Hz
                 ch1_freq_display <= ch1_freq;
             end
         end
@@ -530,23 +532,23 @@ always @(posedge clk_pixel or negedge rst_n) begin
         
         // CH2处理（从h_cnt=100开始）
         if (v_cnt == 12'd0 && h_cnt == 12'd100) begin
-            // 【修复】CH2频率显示逻辑 - 使用单位标志位准确判断
-            // ch2_freq_is_khz明确指示单位：0=Hz, 1=kHz
+            // 【修复】CH2频率显示逻辑 - 支持Hz/kHz/MHz三档单位
+            // ch2_freq_is_mhz和ch2_freq_is_khz组合判断：
+            // MHz: ch2_freq_is_mhz=1
+            // kHz: ch2_freq_is_mhz=0, ch2_freq_is_khz=1
+            // Hz:  ch2_freq_is_mhz=0, ch2_freq_is_khz=0
             
-            if (ch2_freq_is_khz) begin
-                // kHz单位
-                if (ch2_freq >= 16'd10000) begin
-                    // >=10000kHz = 10MHz，转为MHz显示
-                    ch2_freq_unit <= 2'd2;              // MHz
-                    ch2_freq_display <= ch2_freq / 16'd1000;
-                end else begin
-                    // <10000kHz，显示为kHz
-                    ch2_freq_unit <= 2'd1;              // kHz
-                    ch2_freq_display <= ch2_freq;
-                end
+            if (ch2_freq_is_mhz) begin
+                // MHz单位，直接显示（已经是2位小数格式）
+                ch2_freq_unit <= 2'd2;              // MHz
+                ch2_freq_display <= ch2_freq;
+            end else if (ch2_freq_is_khz) begin
+                // kHz单位，直接显示（已经是1位小数格式）
+                ch2_freq_unit <= 2'd1;              // kHz
+                ch2_freq_display <= ch2_freq;
             end else begin
                 // Hz单位，直接显示
-                ch2_freq_unit <= 2'd0;                  // Hz
+                ch2_freq_unit <= 2'd0;              // Hz
                 ch2_freq_display <= ch2_freq;
             end
         end
@@ -1330,8 +1332,8 @@ always @(posedge clk_pixel or negedge rst_n) begin
                     else begin
                         in_char_area <= 1'b0;
                     end
-                end else begin
-                    // kHz/MHz模式：显示 "100.5kHz" (1位小数)
+                end else if (ch1_freq_unit == 2'd1) begin
+                    // kHz模式：显示 "100.5kHz" (1位小数)
                     // 输入格式：ch1_freq = 1005 表示 100.5kHz
                     // d0=个位（小数部分）, d1=十位（整数个位）, d2=百位（整数十位）, d3=千位（整数百位）
                     
@@ -1366,17 +1368,69 @@ always @(posedge clk_pixel or negedge rst_n) begin
                     end
                     else if (pixel_x_d1 >= COL_FREQ_X + 88 && pixel_x_d1 < COL_FREQ_X + 104) begin
                         char_code <= 8'd107; // 'k'
+                        char_col <= pixel_x_d1 - COL_FREQ_X - 12'd88;
+                        in_char_area <= ch1_enable;
+                    end
+                    else if (pixel_x_d1 >= COL_FREQ_X + 104 && pixel_x_d1 < COL_FREQ_X + 120) begin
+                        char_code <= 8'd72;  // 'H'
                         char_col <= pixel_x_d1 - COL_FREQ_X - 12'd104;
                         in_char_area <= ch1_enable;
                     end
                     else if (pixel_x_d1 >= COL_FREQ_X + 120 && pixel_x_d1 < COL_FREQ_X + 136) begin
-                        char_code <= 8'd72;  // 'H'
+                        char_code <= 8'd122; // 'z'
                         char_col <= pixel_x_d1 - COL_FREQ_X - 12'd120;
                         in_char_area <= ch1_enable;
                     end
-                    else if (pixel_x_d1 >= COL_FREQ_X + 136 && pixel_x_d1 < COL_FREQ_X + 152) begin
+                    else begin
+                        in_char_area <= 1'b0;
+                    end
+                end else begin
+                    // MHz模式：显示 "17.50MHz" (2位小数)
+                    // 输入格式：ch1_freq = 1750 表示 17.50MHz
+                    // d0=个位（小数第2位）, d1=十位（小数第1位）, d2=百位（整数个位）, d3=千位（整数十位）
+                    
+                    if (pixel_x_d1 >= COL_FREQ_X + 8 && pixel_x_d1 < COL_FREQ_X + 24) begin
+                        // 整数十位（d3）：前导零抑制
+                        char_code <= (ch1_freq_d3 == 4'd0) ? 8'd32 : digit_to_ascii(ch1_freq_d3);
+                        char_col <= pixel_x_d1 - COL_FREQ_X - 12'd8;
+                        in_char_area <= ch1_enable;
+                    end
+                    else if (pixel_x_d1 >= COL_FREQ_X + 24 && pixel_x_d1 < COL_FREQ_X + 40) begin
+                        // 整数个位（d2）：始终显示
+                        char_code <= digit_to_ascii(ch1_freq_d2);
+                        char_col <= pixel_x_d1 - COL_FREQ_X - 12'd24;
+                        in_char_area <= ch1_enable;
+                    end
+                    else if (pixel_x_d1 >= COL_FREQ_X + 40 && pixel_x_d1 < COL_FREQ_X + 56) begin
+                        char_code <= 8'd46;  // '.'
+                        char_col <= pixel_x_d1 - COL_FREQ_X - 12'd40;
+                        in_char_area <= ch1_enable;
+                    end
+                    else if (pixel_x_d1 >= COL_FREQ_X + 56 && pixel_x_d1 < COL_FREQ_X + 72) begin
+                        // 小数第1位（d1）
+                        char_code <= digit_to_ascii(ch1_freq_d1);
+                        char_col <= pixel_x_d1 - COL_FREQ_X - 12'd56;
+                        in_char_area <= ch1_enable;
+                    end
+                    else if (pixel_x_d1 >= COL_FREQ_X + 72 && pixel_x_d1 < COL_FREQ_X + 88) begin
+                        // 小数第2位（d0）
+                        char_code <= digit_to_ascii(ch1_freq_d0);
+                        char_col <= pixel_x_d1 - COL_FREQ_X - 12'd72;
+                        in_char_area <= ch1_enable;
+                    end
+                    else if (pixel_x_d1 >= COL_FREQ_X + 88 && pixel_x_d1 < COL_FREQ_X + 104) begin
+                        char_code <= 8'd77;  // 'M'
+                        char_col <= pixel_x_d1 - COL_FREQ_X - 12'd88;
+                        in_char_area <= ch1_enable;
+                    end
+                    else if (pixel_x_d1 >= COL_FREQ_X + 104 && pixel_x_d1 < COL_FREQ_X + 120) begin
+                        char_code <= 8'd72;  // 'H'
+                        char_col <= pixel_x_d1 - COL_FREQ_X - 12'd104;
+                        in_char_area <= ch1_enable;
+                    end
+                    else if (pixel_x_d1 >= COL_FREQ_X + 120 && pixel_x_d1 < COL_FREQ_X + 136) begin
                         char_code <= 8'd122; // 'z'
-                        char_col <= pixel_x_d1 - COL_FREQ_X - 12'd136;
+                        char_col <= pixel_x_d1 - COL_FREQ_X - 12'd120;
                         in_char_area <= ch1_enable;
                     end
                     else begin
@@ -1665,8 +1719,8 @@ always @(posedge clk_pixel or negedge rst_n) begin
                     else begin
                         in_char_area <= 1'b0;
                     end
-                end else begin
-                    // kHz/MHz模式：显示 "100.5kHz" (1位小数)
+                end else if (ch2_freq_unit == 2'd1) begin
+                    // kHz模式：显示 "100.5kHz" (1位小数)
                     // 输入格式：ch2_freq = 1005 表示 100.5kHz
                     // d0=个位（小数部分）, d1=十位（整数个位）, d2=百位（整数十位）, d3=千位（整数百位）
                     
@@ -1701,17 +1755,69 @@ always @(posedge clk_pixel or negedge rst_n) begin
                     end
                     else if (pixel_x_d1 >= COL_FREQ_X + 88 && pixel_x_d1 < COL_FREQ_X + 104) begin
                         char_code <= 8'd107; // 'k'
+                        char_col <= pixel_x_d1 - COL_FREQ_X - 12'd88;
+                        in_char_area <= ch2_enable;
+                    end
+                    else if (pixel_x_d1 >= COL_FREQ_X + 104 && pixel_x_d1 < COL_FREQ_X + 120) begin
+                        char_code <= 8'd72;  // 'H'
                         char_col <= pixel_x_d1 - COL_FREQ_X - 12'd104;
                         in_char_area <= ch2_enable;
                     end
                     else if (pixel_x_d1 >= COL_FREQ_X + 120 && pixel_x_d1 < COL_FREQ_X + 136) begin
-                        char_code <= 8'd72;  // 'H'
+                        char_code <= 8'd122; // 'z'
                         char_col <= pixel_x_d1 - COL_FREQ_X - 12'd120;
                         in_char_area <= ch2_enable;
                     end
-                    else if (pixel_x_d1 >= COL_FREQ_X + 136 && pixel_x_d1 < COL_FREQ_X + 152) begin
+                    else begin
+                        in_char_area <= 1'b0;
+                    end
+                end else begin
+                    // MHz模式：显示 "17.50MHz" (2位小数)
+                    // 输入格式：ch2_freq = 1750 表示 17.50MHz
+                    // d0=个位（小数第2位）, d1=十位（小数第1位）, d2=百位（整数个位）, d3=千位（整数十位）
+                    
+                    if (pixel_x_d1 >= COL_FREQ_X + 8 && pixel_x_d1 < COL_FREQ_X + 24) begin
+                        // 整数十位（d3）：前导零抑制
+                        char_code <= (ch2_freq_d3 == 4'd0) ? 8'd32 : digit_to_ascii(ch2_freq_d3);
+                        char_col <= pixel_x_d1 - COL_FREQ_X - 12'd8;
+                        in_char_area <= ch2_enable;
+                    end
+                    else if (pixel_x_d1 >= COL_FREQ_X + 24 && pixel_x_d1 < COL_FREQ_X + 40) begin
+                        // 整数个位（d2）：始终显示
+                        char_code <= digit_to_ascii(ch2_freq_d2);
+                        char_col <= pixel_x_d1 - COL_FREQ_X - 12'd24;
+                        in_char_area <= ch2_enable;
+                    end
+                    else if (pixel_x_d1 >= COL_FREQ_X + 40 && pixel_x_d1 < COL_FREQ_X + 56) begin
+                        char_code <= 8'd46;  // '.'
+                        char_col <= pixel_x_d1 - COL_FREQ_X - 12'd40;
+                        in_char_area <= ch2_enable;
+                    end
+                    else if (pixel_x_d1 >= COL_FREQ_X + 56 && pixel_x_d1 < COL_FREQ_X + 72) begin
+                        // 小数第1位（d1）
+                        char_code <= digit_to_ascii(ch2_freq_d1);
+                        char_col <= pixel_x_d1 - COL_FREQ_X - 12'd56;
+                        in_char_area <= ch2_enable;
+                    end
+                    else if (pixel_x_d1 >= COL_FREQ_X + 72 && pixel_x_d1 < COL_FREQ_X + 88) begin
+                        // 小数第2位（d0）
+                        char_code <= digit_to_ascii(ch2_freq_d0);
+                        char_col <= pixel_x_d1 - COL_FREQ_X - 12'd72;
+                        in_char_area <= ch2_enable;
+                    end
+                    else if (pixel_x_d1 >= COL_FREQ_X + 88 && pixel_x_d1 < COL_FREQ_X + 104) begin
+                        char_code <= 8'd77;  // 'M'
+                        char_col <= pixel_x_d1 - COL_FREQ_X - 12'd88;
+                        in_char_area <= ch2_enable;
+                    end
+                    else if (pixel_x_d1 >= COL_FREQ_X + 104 && pixel_x_d1 < COL_FREQ_X + 120) begin
+                        char_code <= 8'd72;  // 'H'
+                        char_col <= pixel_x_d1 - COL_FREQ_X - 12'd104;
+                        in_char_area <= ch2_enable;
+                    end
+                    else if (pixel_x_d1 >= COL_FREQ_X + 120 && pixel_x_d1 < COL_FREQ_X + 136) begin
                         char_code <= 8'd122; // 'z'
-                        char_col <= pixel_x_d1 - COL_FREQ_X - 12'd136;
+                        char_col <= pixel_x_d1 - COL_FREQ_X - 12'd120;
                         in_char_area <= ch2_enable;
                     end
                     else begin

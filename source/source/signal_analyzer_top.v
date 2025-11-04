@@ -233,14 +233,16 @@ localparam  AUTO_TRIG_TIMEOUT = 24'd10_000_000;  // 100ms超时
 //=============================================================================
 // 通道1参数
 wire [15:0] ch1_freq;                       // CH1信号频率
-wire        ch1_freq_is_khz;                // CH1频率单位标志 (0=Hz, 1=kHz)
+wire        ch1_freq_is_khz;                // CH1频率单位标志 (0=Hz, 1=kHz, 与ch1_freq_is_mhz组合)
+wire        ch1_freq_is_mhz;                // CH1 MHz单位标志 (1=MHz)
 wire [15:0] ch1_amplitude;                  // CH1信号幅度
 wire [15:0] ch1_duty;                       // CH1占空比
 wire [15:0] ch1_thd;                        // CH1总谐波失真
 
 // 通道2参数
 wire [15:0] ch2_freq;                       // CH2信号频率
-wire        ch2_freq_is_khz;                // CH2频率单位标志 (0=Hz, 1=kHz)
+wire        ch2_freq_is_khz;                // CH2频率单位标志 (0=Hz, 1=kHz, 与ch2_freq_is_mhz组合)
+wire        ch2_freq_is_mhz;                // CH2 MHz单位标志 (1=MHz)
 wire [15:0] ch2_amplitude;                  // CH2信号幅度
 wire [15:0] ch2_duty;                       // CH2占空比
 wire [15:0] ch2_thd;                        // CH2总谐波失真
@@ -1416,6 +1418,7 @@ signal_parameter_measure u_ch1_param_measure (
     // 参数输出
     .freq_out       (ch1_freq),
     .freq_is_khz    (ch1_freq_is_khz),
+    .freq_is_mhz    (ch1_freq_is_mhz),
     .amplitude_out  (ch1_amplitude),
     .duty_out       (ch1_duty),
     .thd_out        (ch1_thd),
@@ -1442,6 +1445,7 @@ signal_parameter_measure u_ch2_param_measure (
     // 参数输出
     .freq_out       (ch2_freq),
     .freq_is_khz    (ch2_freq_is_khz),
+    .freq_is_mhz    (ch2_freq_is_mhz),
     .amplitude_out  (ch2_amplitude),
     .duty_out       (ch2_duty),
     .thd_out        (ch2_thd),
@@ -1670,11 +1674,13 @@ hdmi_display_ctrl u_hdmi_ctrl (
     // 双通道参数显示
     .ch1_freq           (ch1_freq),
     .ch1_freq_is_khz    (ch1_freq_is_khz),
+    .ch1_freq_is_mhz    (ch1_freq_is_mhz),
     .ch1_amplitude      (ch1_amplitude),
     .ch1_duty           (ch1_duty),
     .ch1_thd            (ch1_thd),
     .ch2_freq           (ch2_freq),
     .ch2_freq_is_khz    (ch2_freq_is_khz),
+    .ch2_freq_is_mhz    (ch2_freq_is_mhz),
     .ch2_amplitude      (ch2_amplitude),
     .ch2_duty           (ch2_duty),
     .ch2_thd            (ch2_thd),
