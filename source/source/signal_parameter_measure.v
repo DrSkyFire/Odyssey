@@ -166,15 +166,16 @@ reg [1:0]   amp_hist_ptr;                   // 幅度历史值指针
 reg [17:0]  amp_sum;                        // 幅度累加和(16位×4需要18位)
 reg [15:0]  amp_filtered;                   // 幅度滤波后的结果
 
-// THD测量 - 流水线计算
+// THD测量 - LUT流水线计算（避免除法时序违例）
 reg [31:0]  fundamental_power;              // 基波功率（来自FFT峰值）
-reg [39:0]  thd_mult_stage1;                // 流水线第1级：乘法
-reg [39:0]  thd_mult_stage2;                // 流水线第2级：延迟对齐
-reg [15:0]  thd_calc;                       // 流水线第3级：移位除法
+reg [7:0]   thd_lut_index;                  // LUT索引（归一化基波幅度）
+reg [19:0]  thd_reciprocal;                 // 倒数值 (1024000/基波) 20位
+reg [51:0]  thd_product;                    // 乘法结果 (32×20=52位)
+reg [15:0]  thd_calc;                       // THD计算结果
 
 // 流水线控制信号
 reg         thd_calc_trigger;               // THD计算触发
-reg [2:0]   thd_pipe_valid;                 // THD流水线有效标志
+reg [2:0]   thd_pipe_valid;                 // THD流水线有效标志（扩展到4级）
 
 //=============================================================================
 // 【关键修复】跨时钟域同步 (35MHz sample_clk → 100MHz clk)
@@ -1345,39 +1346,86 @@ always @(posedge clk or negedge rst_n) begin
     end
 end
 
-// THD计算 - 优化流水线：THD = (谐波和 × 1000) / 基波幅度
-// 使用真实除法而非移位近似，提高精度
+// THD计算 - 使用LUT替代除法，避免时序违例
+// 原理：THD = (谐波和 × 1000) / 基波 = 谐波和 × (1000/基波)
+//       预计算倒数表，用乘法替代除法
 always @(posedge clk or negedge rst_n) begin
     if (!rst_n) begin
-        thd_mult_stage1 <= 40'd0;
-        thd_mult_stage2 <= 40'd0;
+        thd_lut_index <= 8'd0;
+        thd_reciprocal <= 20'd0;
+        thd_product <= 52'd0;
         thd_calc <= 16'd0;
         thd_pipe_valid <= 3'd0;
     end else begin
-        // 流水线第1级：乘法 (thd_harmonic_sum * 1000)
-        if (thd_calc_trigger && fundamental_power > 32'd100) begin  // 基波幅度门限
-            thd_mult_stage1 <= thd_harmonic_sum * 32'd1000;
+        // 流水线第1级：基波幅度归一化到8位索引（256级）
+        if (thd_calc_trigger && fundamental_power > 32'd100) begin
+            // 将16位基波幅度映射到0-255
+            // index = (fundamental_power >> 8) 确保不超过255
+            if (fundamental_power[31:16] != 16'd0)
+                thd_lut_index <= 8'd255;  // 饱和到最大
+            else if (fundamental_power[15:8] != 8'd0)
+                thd_lut_index <= fundamental_power[15:8];  // 高8位作为索引
+            else
+                thd_lut_index <= 8'd1;    // 最小值，避免除以0
+            
             thd_pipe_valid[0] <= 1'b1;
         end else begin
             thd_pipe_valid[0] <= 1'b0;
         end
         
-        // 流水线第2级：除法 (numerator / fundamental_power)
+        // 流水线第2级：查找倒数表 (1024000 / 基波)
         thd_pipe_valid[1] <= thd_pipe_valid[0];
         if (thd_pipe_valid[0]) begin
-            // 使用除法IP或综合工具的除法
-            // result = (谐波和 × 1000) / 基波幅度
-            thd_mult_stage2 <= thd_mult_stage1 / fundamental_power;
+            case (thd_lut_index)
+                // 倒数 = 1024000 / (index * 256)
+                // 为了节省资源，只存储关键点，中间用线性插值
+                8'd0:   thd_reciprocal <= 20'd1048575;  // 最大值
+                8'd1:   thd_reciprocal <= 20'd4000;     // 1024000/256
+                8'd2:   thd_reciprocal <= 20'd2000;     // 1024000/512
+                8'd4:   thd_reciprocal <= 20'd1000;     // 1024000/1024
+                8'd8:   thd_reciprocal <= 20'd500;      // 1024000/2048
+                8'd16:  thd_reciprocal <= 20'd250;      // 1024000/4096
+                8'd32:  thd_reciprocal <= 20'd125;      // 1024000/8192
+                8'd64:  thd_reciprocal <= 20'd62;       // 1024000/16384
+                8'd128: thd_reciprocal <= 20'd31;       // 1024000/32768
+                8'd255: thd_reciprocal <= 20'd16;       // 1024000/65280
+                default: begin
+                    // 简化插值：使用最近的2的幂次
+                    if (thd_lut_index >= 8'd192)
+                        thd_reciprocal <= 20'd21;       // ≈1024000/49152
+                    else if (thd_lut_index >= 8'd96)
+                        thd_reciprocal <= 20'd42;       // ≈1024000/24576
+                    else if (thd_lut_index >= 8'd48)
+                        thd_reciprocal <= 20'd83;       // ≈1024000/12288
+                    else if (thd_lut_index >= 8'd24)
+                        thd_reciprocal <= 20'd167;      // ≈1024000/6144
+                    else if (thd_lut_index >= 8'd12)
+                        thd_reciprocal <= 20'd333;      // ≈1024000/3072
+                    else if (thd_lut_index >= 8'd6)
+                        thd_reciprocal <= 20'd667;      // ≈1024000/1536
+                    else if (thd_lut_index >= 8'd3)
+                        thd_reciprocal <= 20'd1333;     // ≈1024000/768
+                    else
+                        thd_reciprocal <= 20'd2667;     // ≈1024000/384
+                end
+            endcase
         end
         
-        // 流水线第3级：限幅输出（0-1000）
+        // 流水线第3级：乘法 (谐波和 × 倒数)
         thd_pipe_valid[2] <= thd_pipe_valid[1];
         if (thd_pipe_valid[1]) begin
+            // thd_product = thd_harmonic_sum × thd_reciprocal
+            thd_product <= thd_harmonic_sum * thd_reciprocal;
+        end
+        
+        // 流水线第4级：右移归一化并限幅
+        if (thd_pipe_valid[2]) begin
+            // 结果右移10位 (除以1024，因为倒数是1024000/基波)
             // 限制THD最大值为1000 (100.0%)
-            if (thd_mult_stage2 > 40'd1000)
+            if (thd_product[31:10] > 22'd1000)
                 thd_calc <= 16'd1000;
             else
-                thd_calc <= thd_mult_stage2[15:0];
+                thd_calc <= thd_product[25:10];  // [25:10] = 16位结果
         end
     end
 end
