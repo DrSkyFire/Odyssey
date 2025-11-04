@@ -87,14 +87,14 @@ reg [31:0]  fft_freq_hz;                    // FFT计算的频率（Hz�?
 reg         fft_freq_ready;                 // FFT频率就绪
 reg         use_fft_freq;                   // 使用FFT频率（频域模式）
 
-// 【新增】FFT谐波检测（用于THD计算�?
-reg [15:0]  fft_harmonic_2;                 // 2次谐波幅�?
-reg [15:0]  fft_harmonic_3;                 // 3次谐波幅�?
-reg [15:0]  fft_harmonic_4;                 // 4次谐波幅�?
-reg [15:0]  fft_harmonic_5;                 // 5次谐波幅�?
-reg [2:0]   fft_harm_state;                 // 谐波扫描状�?
-reg [12:0]  fft_target_bin;                 // 目标谐波bin
-reg [15:0]  fft_temp_amp;                   // 临时幅度
+// 【新增】FFT谐波并行检测（用于THD计算）
+reg [12:0]  harm2_bin, harm3_bin, harm4_bin, harm5_bin;  // 谐波bin位置
+reg [15:0]  harm2_amp, harm3_amp, harm4_amp, harm5_amp;  // 谐波峰值幅度
+reg [15:0]  fft_harmonic_2;                 // 2次谐波幅度（最终锁存值）
+reg [15:0]  fft_harmonic_3;                 // 3次谐波幅度
+reg [15:0]  fft_harmonic_4;                 // 4次谐波幅度
+reg [15:0]  fft_harmonic_5;                 // 5次谐波幅度
+reg         thd_ready;                      // THD数据就绪脉冲
 
 // 频率测量
 reg [9:0]   data_d1, data_d2;               // 【修改】10位数据延迟
@@ -596,8 +596,9 @@ always @(posedge clk or negedge rst_n) begin
             fft_avg_amp <= (fft_max_amp_history[0] + fft_max_amp_history[1] + 
                            fft_max_amp_history[2] + fft_max_amp_history[3]) >> 2;
             
-            // 【修复】只有平均峰值>阈值才使用FFT
-            if (fft_avg_amp > 16'd300) begin
+            // 【修复】降低阈值，提高THD检测成功率
+            // 只要有明显峰值（>100）就认为FFT有效
+            if (fft_avg_amp > 16'd100) begin
                 fft_freq_hz <= fft_peak_bin * FREQ_RES;
                 fft_freq_ready <= 1'b1;
             end else begin
@@ -608,108 +609,83 @@ always @(posedge clk or negedge rst_n) begin
 end
 
 //=============================================================================
-// 2C. 【新增】FFT谐波检测状态机（用于THD计算�?
+// 2C. 【修复】FFT谐波检测 - 单次扫描检测所有谐波
+// 原问题：状态机切换需要多次FFT扫描，导致谐波检测失败
+// 新方案：在一次FFT扫描中同时检测基波和所有谐波
 //=============================================================================
-localparam HARM_IDLE  = 3'd0;
-localparam HARM_SCAN2 = 3'd1;
-localparam HARM_SCAN3 = 3'd2;
-localparam HARM_SCAN4 = 3'd3;
-localparam HARM_SCAN5 = 3'd4;
-localparam HARM_DONE  = 3'd5;
-
 always @(posedge clk or negedge rst_n) begin
     if (!rst_n) begin
-        fft_harm_state <= HARM_IDLE;
         fft_harmonic_2 <= 16'd0;
         fft_harmonic_3 <= 16'd0;
         fft_harmonic_4 <= 16'd0;
         fft_harmonic_5 <= 16'd0;
-        fft_target_bin <= 13'd0;
-        fft_temp_amp <= 16'd0;
-    end else begin
-        case (fft_harm_state)
-            HARM_IDLE: begin
-                if (fft_freq_ready) begin
-                    // FFT扫描完成，开始谐波检�?
-                    fft_harm_state <= HARM_SCAN2;
-                    fft_target_bin <= fft_peak_bin << 1;  // 2次谐�?= 基波*2
-                    fft_temp_amp <= 16'd0;
+        harm2_bin <= 13'd0;
+        harm3_bin <= 13'd0;
+        harm4_bin <= 13'd0;
+        harm5_bin <= 13'd0;
+        harm2_amp <= 16'd0;
+        harm3_amp <= 16'd0;
+        harm4_amp <= 16'd0;
+        harm5_amp <= 16'd0;
+        thd_ready <= 1'b0;
+    end else if (measure_en && spectrum_valid) begin
+        // 检测FFT扫描开始，计算谐波bin位置
+        if (spectrum_addr == 13'd0) begin
+            // 基于上次的fft_peak_bin计算本次应该搜索的谐波位置
+            harm2_bin <= (fft_peak_bin << 1);           // 2次谐波 = 基波×2
+            harm3_bin <= (fft_peak_bin << 1) + fft_peak_bin;  // 3次谐波 = 基波×3
+            harm4_bin <= (fft_peak_bin << 2);           // 4次谐波 = 基波×4
+            harm5_bin <= (fft_peak_bin << 2) + fft_peak_bin;  // 5次谐波 = 基波×5
+            
+            // 清空临时幅度
+            harm2_amp <= 16'd0;
+            harm3_amp <= 16'd0;
+            harm4_amp <= 16'd0;
+            harm5_amp <= 16'd0;
+            thd_ready <= 1'b0;
+        end
+        // 扫描过程中，检测各谐波位置附近的最大值
+        else if (spectrum_addr >= 13'd1 && spectrum_addr < (FFT_POINTS/2)) begin
+            // 2次谐波检测（目标bin ±3）
+            if (spectrum_addr >= (harm2_bin - 13'd3) && 
+                spectrum_addr <= (harm2_bin + 13'd3)) begin
+                if (spectrum_data > harm2_amp) begin
+                    harm2_amp <= spectrum_data;
                 end
             end
             
-            HARM_SCAN2: begin
-                if (spectrum_valid) begin
-                    // 在目标bin附近±3范围搜索最大�?
-                    if (spectrum_addr >= (fft_target_bin - 13'd3) && 
-                        spectrum_addr <= (fft_target_bin + 13'd3)) begin
-                        if (spectrum_data > fft_temp_amp) begin
-                            fft_temp_amp <= spectrum_data;
-                        end
-                    end
-                    else if (spectrum_addr > (fft_target_bin + 13'd3)) begin
-                        fft_harmonic_2 <= fft_temp_amp;
-                        fft_harm_state <= HARM_SCAN3;
-                        fft_target_bin <= fft_peak_bin + (fft_peak_bin << 1);  // 3次谐�?
-                        fft_temp_amp <= 16'd0;
-                    end
+            // 3次谐波检测（目标bin ±3）
+            if (spectrum_addr >= (harm3_bin - 13'd3) && 
+                spectrum_addr <= (harm3_bin + 13'd3)) begin
+                if (spectrum_data > harm3_amp) begin
+                    harm3_amp <= spectrum_data;
                 end
             end
             
-            HARM_SCAN3: begin
-                if (spectrum_valid) begin
-                    if (spectrum_addr >= (fft_target_bin - 13'd3) && 
-                        spectrum_addr <= (fft_target_bin + 13'd3)) begin
-                        if (spectrum_data > fft_temp_amp) begin
-                            fft_temp_amp <= spectrum_data;
-                        end
-                    end
-                    else if (spectrum_addr > (fft_target_bin + 13'd3)) begin
-                        fft_harmonic_3 <= fft_temp_amp;
-                        fft_harm_state <= HARM_SCAN4;
-                        fft_target_bin <= fft_peak_bin << 2;  // 4次谐�?
-                        fft_temp_amp <= 16'd0;
-                    end
+            // 4次谐波检测（目标bin ±3）
+            if (spectrum_addr >= (harm4_bin - 13'd3) && 
+                spectrum_addr <= (harm4_bin + 13'd3)) begin
+                if (spectrum_data > harm4_amp) begin
+                    harm4_amp <= spectrum_data;
                 end
             end
             
-            HARM_SCAN4: begin
-                if (spectrum_valid) begin
-                    if (spectrum_addr >= (fft_target_bin - 13'd3) && 
-                        spectrum_addr <= (fft_target_bin + 13'd3)) begin
-                        if (spectrum_data > fft_temp_amp) begin
-                            fft_temp_amp <= spectrum_data;
-                        end
-                    end
-                    else if (spectrum_addr > (fft_target_bin + 13'd3)) begin
-                        fft_harmonic_4 <= fft_temp_amp;
-                        fft_harm_state <= HARM_SCAN5;
-                        fft_target_bin <= fft_peak_bin + (fft_peak_bin << 2);  // 5次谐�?
-                        fft_temp_amp <= 16'd0;
-                    end
+            // 5次谐波检测（目标bin ±3）
+            if (spectrum_addr >= (harm5_bin - 13'd3) && 
+                spectrum_addr <= (harm5_bin + 13'd3)) begin
+                if (spectrum_data > harm5_amp) begin
+                    harm5_amp <= spectrum_data;
                 end
             end
-            
-            HARM_SCAN5: begin
-                if (spectrum_valid) begin
-                    if (spectrum_addr >= (fft_target_bin - 13'd3) && 
-                        spectrum_addr <= (fft_target_bin + 13'd3)) begin
-                        if (spectrum_data > fft_temp_amp) begin
-                            fft_temp_amp <= spectrum_data;
-                        end
-                    end
-                    else if (spectrum_addr > (fft_target_bin + 13'd3)) begin
-                        fft_harmonic_5 <= fft_temp_amp;
-                        fft_harm_state <= HARM_DONE;
-                    end
-                end
-            end
-            
-            HARM_DONE: begin
-                fft_harm_state <= HARM_IDLE;
-            end
-            
-            default: fft_harm_state <= HARM_IDLE;
-        endcase
+        end
+        // 扫描结束，锁存谐波幅度
+        else if (spectrum_addr == (FFT_POINTS/2)) begin
+            fft_harmonic_2 <= harm2_amp;
+            fft_harmonic_3 <= harm3_amp;
+            fft_harmonic_4 <= harm4_amp;
+            fft_harmonic_5 <= harm5_amp;
+            thd_ready <= 1'b1;  // THD数据就绪
+        end
     end
 end
 
@@ -1329,7 +1305,7 @@ end
 reg [31:0]  thd_harmonic_sum;               // 谐波幅度总和（2-5次）
 reg         thd_fft_trigger;                // FFT THD触发信号
 
-// THD检测：当FFT谐波扫描完成时触发
+// THD检测：当FFT扫描完成且谐波数据就绪时触发
 always @(posedge clk or negedge rst_n) begin
     if (!rst_n) begin
         thd_harmonic_sum <= 32'd0;
@@ -1337,8 +1313,8 @@ always @(posedge clk or negedge rst_n) begin
         thd_fft_trigger <= 1'b0;
         fundamental_power <= 32'd0;
     end else begin
-        // 检测FFT谐波扫描完成（状态机到HARM_DONE）
-        if (fft_harm_state == HARM_DONE && !thd_fft_trigger) begin
+        // 【修复】使用thd_ready信号触发，而不是状态机
+        if (thd_ready && !thd_fft_trigger) begin
             // 计算谐波总和（2-5次）
             thd_harmonic_sum <= {16'd0, fft_harmonic_2} + 
                                {16'd0, fft_harmonic_3} + 
@@ -1352,7 +1328,7 @@ always @(posedge clk or negedge rst_n) begin
             thd_calc_trigger <= 1'b1;
         end else begin
             thd_calc_trigger <= 1'b0;
-            if (fft_harm_state != HARM_DONE)
+            if (!thd_ready)
                 thd_fft_trigger <= 1'b0;
         end
     end
@@ -1419,9 +1395,10 @@ always @(posedge clk or negedge rst_n) begin
         thd_out <= 16'd0;
     end else if (measure_en) begin
         // 【智能混合模式】时域+频域结合
-        // 1. 频率：优先使用时域过零检测（稳定可靠）
-        // 2. 幅度：优先使用FFT峰值（抗噪声强）
-        // 3. THD：使用FFT谐波检测（唯一方式）
+        // 1. 频率：时域过零检测（稳定可靠，10Hz-17.5MHz）
+        // 2. 幅度：时域峰峰值（恢复，FFT幅度校准有问题）
+        // 3. 占空比：时域迟滞比较
+        // 4. THD：FFT谐波检测（待调试）
         
         if (measure_done) begin
             // 频率：使用时域过零检测结果（10Hz-17.5MHz全频段）
@@ -1431,20 +1408,14 @@ always @(posedge clk or negedge rst_n) begin
             freq_is_mhz <= (freq_unit_flag_int == 2'd2);
             freq_is_khz <= (freq_unit_flag_int == 2'd1);
             
+            // 幅度：使用时域峰峰值（恢复原方法）
+            amplitude_out <= amp_filtered;
+            
             // 占空比：时域测量
             duty_out <= duty_filtered;
-        end
-        
-        // 幅度和THD：使用FFT结果（当FFT有效时更新）
-        if (fft_freq_ready) begin
-            // 幅度：使用FFT峰值幅度（比时域峰峰值更准确，抗噪声+5-10dB）
-            amplitude_out <= fft_max_amp;
             
-            // THD：使用FFT谐波检测结果（在HARM_DONE状态更新）
+            // THD：使用FFT谐波检测结果
             thd_out <= thd_calc;
-        end else if (measure_done) begin
-            // FFT未就绪时，使用时域幅度作为备用
-            amplitude_out <= amp_filtered;
         end
     end
 end
