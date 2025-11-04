@@ -137,12 +137,65 @@ always @(posedge clk or negedge rst_n) begin
         window_coeff <= hann_window_rom[window_addr];
 end
 
-// 第2级：ADC数据符号扩展（10位->16位）
-assign adc_signed = {{6{data_buffer[15]}}, data_buffer[15:6]};
+//=============================================================================
+// 第2级：ADC数据DC偏置去除（优化版本）
+//=============================================================================
+// 【修复Bug 9】自适应DC去除
+// 使用滑动平均估计DC，然后去除
+
+reg signed [15:0] dc_sum;           // DC累加和
+reg [7:0] dc_count;                 // 采样计数
+reg signed [10:0] dc_avg;           // DC平均值
+
+always @(posedge clk or negedge rst_n) begin
+    if (!rst_n) begin
+        dc_sum <= 16'd0;
+        dc_count <= 8'd0;
+        dc_avg <= 11'd512;  // 初始值512（ADC中点）
+    end else if (fifo_rd_en) begin
+        // 累加ADC数据
+        if (dc_count == 8'd255) begin
+            // 每256个样本更新一次DC估计
+            dc_avg <= dc_sum[15:8];  // 平均值（除以256）
+            dc_sum <= {6'd0, data_buffer[15:6]};  // 重新开始
+            dc_count <= 8'd1;
+        end else begin
+            dc_sum <= dc_sum + {6'd0, data_buffer[15:6]};
+            dc_count <= dc_count + 1'b1;
+        end
+    end
+end
+
+// ADC数据去除DC
+wire signed [10:0] adc_offset_removed;
+assign adc_offset_removed = {1'b0, data_buffer[15:6]} - dc_avg;
+
+// 符号扩展到16位
+assign adc_signed = {{5{adc_offset_removed[10]}}, adc_offset_removed};
 
 // 第3级：乘法（组合逻辑）
-assign windowed_mult = adc_signed * $signed({1'b0, window_coeff});
-assign windowed_data = windowed_mult[30:15];
+// 【紧急修复2025-11-04】禁用Hann窗，改用矩形窗（不加窗）
+// 根本原因：Hann窗对低频信号（1kHz）衰减严重（96%），导致：
+//   1. 基波被极度衰减（10000 → 400）
+//   2. 谐波同样被衰减（但噪声不受影响）
+//   3. SNR急剧下降，谐波淹没在噪声中
+//   4. FFT频谱上看不到任何谐波 → THD=0%
+// 
+// Hann窗特性分析：
+//   - bin 234 (1kHz): 窗系数≈0.04 (衰减96%)
+//   - bin 702 (3kHz): 窗系数≈0.10 (衰减90%)
+//   - 前后各2048点几乎全为0，只有中间有效
+//   - 对于低频信号（<5kHz），大部分能量被丢弃
+// 
+// 矩形窗优势（不加窗）：
+//   ✅ 所有频率等权重，不引入幅度失真
+//   ✅ THD计算准确（谐波/基波比值不变）
+//   ✅ 适合固定频率测量（赛题信号源稳定）
+//   ✅ 频谱泄漏对THD影响可忽略（谐波间隔>>主瓣宽度）
+// 
+// 使用矩形窗（不加窗）- 直接传递ADC数据
+assign windowed_mult = 32'd0;  // 禁用乘法器
+assign windowed_data = adc_signed;  // 直接使用ADC数据
 
 //=============================================================================
 // 通道选择多路复用

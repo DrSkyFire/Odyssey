@@ -239,6 +239,16 @@ wire [15:0] ch1_amplitude;                  // CH1信号幅度
 wire [15:0] ch1_duty;                       // CH1占空比
 wire [15:0] ch1_thd;                        // CH1总谐波失真
 
+// 通道1 THD调试信号
+wire [15:0] ch1_dbg_harmonic_2;
+wire [15:0] ch1_dbg_harmonic_3;
+wire [15:0] ch1_dbg_harmonic_4;
+wire [15:0] ch1_dbg_harmonic_5;
+wire [31:0] ch1_dbg_harmonic_sum;
+wire [15:0] ch1_dbg_fft_max_amp;
+wire        ch1_dbg_calc_trigger;
+wire [2:0]  ch1_dbg_pipe_valid;
+
 // 通道2参数
 wire [15:0] ch2_freq;                       // CH2信号频率
 wire        ch2_freq_is_khz;                // CH2频率单位标志 (0=Hz, 1=kHz, 与ch2_freq_is_mhz组合)
@@ -1424,7 +1434,17 @@ signal_parameter_measure u_ch1_param_measure (
     .thd_out        (ch1_thd),
     
     // 控制
-    .measure_en     (run_flag)
+    .measure_en     (run_flag),
+    
+    // 调试输出
+    .dbg_fft_harmonic_2 (ch1_dbg_harmonic_2),
+    .dbg_fft_harmonic_3 (ch1_dbg_harmonic_3),
+    .dbg_fft_harmonic_4 (ch1_dbg_harmonic_4),
+    .dbg_fft_harmonic_5 (ch1_dbg_harmonic_5),
+    .dbg_harmonic_sum   (ch1_dbg_harmonic_sum),
+    .dbg_fft_max_amp    (ch1_dbg_fft_max_amp),
+    .dbg_calc_trigger   (ch1_dbg_calc_trigger),
+    .dbg_pipe_valid     (ch1_dbg_pipe_valid)
 );
 
 // 通道2参数测量
@@ -2322,6 +2342,7 @@ localparam UART_SEND_TRIG     = 8'd30;  // "Trig:X "
 localparam UART_SEND_FIFO     = 8'd40;  // "FIFO:XXXX "
 localparam UART_SEND_FFT      = 8'd50;  // "FFT:XXX "
 localparam UART_SEND_TEST     = 8'd60;  // "Test:X "
+localparam UART_SEND_THD_DBG  = 8'd65;  // "THD_DBG:H2=XX H3=XX H4=XX H5=XX SUM=XXX BASE=XXX TRG=X PIPE=X "
 localparam UART_SEND_NEWLINE  = 8'd70;  // "\r\n"
 localparam UART_WAIT_BUSY     = 8'd255; // 等待UART空闲
 
@@ -2556,12 +2577,74 @@ always @(posedge clk_100m or negedge rst_n) begin
                         6'd5: uart_data_to_send <= test_mode ? "1" : "0";
                         6'd6: uart_data_to_send <= " ";
                         default: begin
-                            send_state <= UART_SEND_NEWLINE;
+                            send_state <= UART_SEND_THD_DBG;
                             uart_char_index <= 6'd0;
                         end
                     endcase
                     
                     if (uart_char_index <= 6'd6) begin
+                        uart_send_trigger <= 1'b1;
+                        uart_char_index <= uart_char_index + 1'b1;
+                        send_state <= UART_WAIT_BUSY;
+                    end
+                end
+            end
+            
+            //===== 发送THD调试信息 =====
+            // 格式: "H2:XXXX H3:XXXX H4:XXXX H5:XXXX SUM:XXXX BASE:XXXX TRG:X VAL:X "
+            UART_SEND_THD_DBG: begin
+                if (!uart_busy) begin
+                    case (uart_char_index)
+                        // H2:XXXX
+                        6'd0:  uart_data_to_send <= "H";
+                        6'd1:  uart_data_to_send <= "2";
+                        6'd2:  uart_data_to_send <= ":";
+                        6'd3:  uart_data_to_send <= {4'h3, (ch1_dbg_harmonic_2[15:12])}; 
+                        6'd4:  uart_data_to_send <= {4'h3, (ch1_dbg_harmonic_2[11:8])};
+                        6'd5:  uart_data_to_send <= {4'h3, (ch1_dbg_harmonic_2[7:4])};
+                        6'd6:  uart_data_to_send <= {4'h3, (ch1_dbg_harmonic_2[3:0])};
+                        6'd7:  uart_data_to_send <= " ";
+                        // H3:XXXX
+                        6'd8:  uart_data_to_send <= "H";
+                        6'd9:  uart_data_to_send <= "3";
+                        6'd10: uart_data_to_send <= ":";
+                        6'd11: uart_data_to_send <= {4'h3, (ch1_dbg_harmonic_3[15:12])};
+                        6'd12: uart_data_to_send <= {4'h3, (ch1_dbg_harmonic_3[11:8])};
+                        6'd13: uart_data_to_send <= {4'h3, (ch1_dbg_harmonic_3[7:4])};
+                        6'd14: uart_data_to_send <= {4'h3, (ch1_dbg_harmonic_3[3:0])};
+                        6'd15: uart_data_to_send <= " ";
+                        // BASE:XXXX
+                        6'd16: uart_data_to_send <= "B";
+                        6'd17: uart_data_to_send <= "A";
+                        6'd18: uart_data_to_send <= "S";
+                        6'd19: uart_data_to_send <= "E";
+                        6'd20: uart_data_to_send <= ":";
+                        6'd21: uart_data_to_send <= {4'h3, (ch1_dbg_fft_max_amp[15:12])};
+                        6'd22: uart_data_to_send <= {4'h3, (ch1_dbg_fft_max_amp[11:8])};
+                        6'd23: uart_data_to_send <= {4'h3, (ch1_dbg_fft_max_amp[7:4])};
+                        6'd24: uart_data_to_send <= {4'h3, (ch1_dbg_fft_max_amp[3:0])};
+                        6'd25: uart_data_to_send <= " ";
+                        // TRG:X
+                        6'd26: uart_data_to_send <= "T";
+                        6'd27: uart_data_to_send <= "R";
+                        6'd28: uart_data_to_send <= "G";
+                        6'd29: uart_data_to_send <= ":";
+                        6'd30: uart_data_to_send <= ch1_dbg_calc_trigger ? "1" : "0";
+                        6'd31: uart_data_to_send <= " ";
+                        // VAL:X
+                        6'd32: uart_data_to_send <= "V";
+                        6'd33: uart_data_to_send <= "A";
+                        6'd34: uart_data_to_send <= "L";
+                        6'd35: uart_data_to_send <= ":";
+                        6'd36: uart_data_to_send <= ch1_dbg_pipe_valid[2] ? "1" : "0";
+                        6'd37: uart_data_to_send <= " ";
+                        default: begin
+                            send_state <= UART_SEND_NEWLINE;
+                            uart_char_index <= 6'd0;
+                        end
+                    endcase
+                    
+                    if (uart_char_index <= 6'd37) begin
                         uart_send_trigger <= 1'b1;
                         uart_char_index <= uart_char_index + 1'b1;
                         send_state <= UART_WAIT_BUSY;

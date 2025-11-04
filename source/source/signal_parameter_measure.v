@@ -51,7 +51,17 @@ module signal_parameter_measure (
     output reg  [15:0]  thd_out,            // THD (0~1000 表示0%~100%)
     
     // 控制
-    input  wire         measure_en          // 测量使能
+    input  wire         measure_en,         // 测量使能
+    
+    // 调试输出 (THD计算链路)
+    output wire [15:0]  dbg_fft_harmonic_2, // 2次谐波幅度
+    output wire [15:0]  dbg_fft_harmonic_3, // 3次谐波幅度
+    output wire [15:0]  dbg_fft_harmonic_4, // 4次谐波幅度
+    output wire [15:0]  dbg_fft_harmonic_5, // 5次谐波幅度
+    output wire [31:0]  dbg_harmonic_sum,   // 谐波总和
+    output wire [15:0]  dbg_fft_max_amp,    // 基波幅度
+    output wire         dbg_calc_trigger,   // THD计算触发
+    output wire [2:0]   dbg_pipe_valid      // 流水线有效标志
 );
 
 //=============================================================================
@@ -90,6 +100,7 @@ reg         use_fft_freq;                   // 使用FFT频率（频域模式）
 // 【新增】FFT谐波并行检测（用于THD计算）
 reg [12:0]  harm2_bin, harm3_bin, harm4_bin, harm5_bin;  // 谐波bin位置
 reg [15:0]  harm2_amp, harm3_amp, harm4_amp, harm5_amp;  // 谐波峰值幅度
+reg [12:0]  harm_detect_base_bin;           // 【新增】谐波检测基波bin（锁定值）
 reg [15:0]  fft_harmonic_2;                 // 2次谐波幅度（最终锁存值）
 reg [15:0]  fft_harmonic_3;                 // 3次谐波幅度
 reg [15:0]  fft_harmonic_4;                 // 4次谐波幅度
@@ -571,7 +582,7 @@ always @(posedge clk or negedge rst_n) begin
         // 检测FFT扫描开始（DC分量）
         if (spectrum_addr == 13'd0) begin
             fft_scan_active <= 1'b1;
-            fft_max_amp <= 16'd200;  // 【修复】提高噪声阈值
+            fft_max_amp <= 16'd50;  // 【Bug 9修复】降低阈值，适应DC偏置去除后的幅度
             fft_peak_bin <= 13'd0;
             fft_freq_ready <= 1'b0;
             use_fft_freq <= 1'b1;
@@ -610,9 +621,15 @@ always @(posedge clk or negedge rst_n) begin
 end
 
 //=============================================================================
-// 2C. 【修复】FFT谐波检测 - 单次扫描检测所有谐波（修复bin计算时序）
-// 原问题：谐波bin在扫描开始时基于上次的fft_peak_bin计算，存在时序错位
-// 新方案：在扫描过程中实时计算谐波bin位置并检测
+// 2C. 【修复】FFT谐波检测 - 两次扫描法（先确定基波，再检测谐波）
+// 
+// 原问题：谐波bin基于当前扫描的fft_peak_bin计算，但fft_peak_bin在扫描
+//        过程中持续更新，导致谐波bin不稳定，检测到错误位置
+// 
+// 新方案：两次扫描策略
+//   - 第一次扫描：只检测基波峰值（已在2B中完成）
+//   - 第二次扫描：基于锁定的基波bin检测谐波
+//   - 使用fft_peak_bin_history[0]（上次扫描确定的基波bin）计算谐波位置
 //=============================================================================
 always @(posedge clk or negedge rst_n) begin
     if (!rst_n) begin
@@ -629,9 +646,19 @@ always @(posedge clk or negedge rst_n) begin
         harm4_amp <= 16'd0;
         harm5_amp <= 16'd0;
         thd_ready <= 1'b0;
+        harm_detect_base_bin <= 13'd0;
     end else if (measure_en && spectrum_valid) begin
-        // 检测FFT扫描开始
+        // 【关键修复】检测FFT扫描开始时，锁定基波bin
         if (spectrum_addr == 13'd0) begin
+            // 使用上一次扫描确定的基波bin（来自2B的fft_peak_bin）
+            harm_detect_base_bin <= fft_peak_bin;
+            
+            // 【关键】在扫描开始时就计算好所有谐波bin位置
+            harm2_bin <= (fft_peak_bin << 1);                    // 2次谐波 = 基波×2
+            harm3_bin <= (fft_peak_bin << 1) + fft_peak_bin;     // 3次谐波 = 基波×3
+            harm4_bin <= (fft_peak_bin << 2);                    // 4次谐波 = 基波×4
+            harm5_bin <= (fft_peak_bin << 2) + fft_peak_bin;     // 5次谐波 = 基波×5
+            
             // 清空临时幅度（准备新扫描）
             harm2_amp <= 16'd0;
             harm3_amp <= 16'd0;
@@ -639,46 +666,39 @@ always @(posedge clk or negedge rst_n) begin
             harm5_amp <= 16'd0;
             thd_ready <= 1'b0;  // 新扫描开始，清除上次的就绪信号
         end
-        // 扫描过程中，实时计算谐波bin并检测
+        // 扫描过程：检测各次谐波（bin位置已在扫描开始时锁定）
         else if (spectrum_addr >= 13'd1 && spectrum_addr < (FFT_POINTS/2)) begin
-            // 【关键修复】使用当前最新的fft_peak_bin实时计算谐波位置
-            // 因为fft_peak_bin在扫描过程中动态更新
-            harm2_bin <= (fft_peak_bin << 1);           // 2次谐波 = 基波×2
-            harm3_bin <= (fft_peak_bin << 1) + fft_peak_bin;  // 3次谐波 = 基波×3
-            harm4_bin <= (fft_peak_bin << 2);           // 4次谐波 = 基波×4
-            harm5_bin <= (fft_peak_bin << 2) + fft_peak_bin;  // 5次谐波 = 基波×5
-            
-            // 2次谐波检测（目标bin ±2，减少旁瓣噪声）
-            if (harm2_bin < (FFT_POINTS/2 - 13'd2) &&
-                spectrum_addr >= (harm2_bin - 13'd2) && 
-                spectrum_addr <= (harm2_bin + 13'd2)) begin
+            // 2次谐波检测（目标bin ±3，扩大搜索范围）
+            if (harm2_bin > 13'd3 && harm2_bin < (FFT_POINTS/2 - 13'd3) &&
+                spectrum_addr >= (harm2_bin - 13'd3) && 
+                spectrum_addr <= (harm2_bin + 13'd3)) begin
                 if (spectrum_data > harm2_amp) begin
                     harm2_amp <= spectrum_data;
                 end
             end
             
-            // 3次谐波检测（目标bin ±2）
-            if (harm3_bin < (FFT_POINTS/2 - 13'd2) &&
-                spectrum_addr >= (harm3_bin - 13'd2) && 
-                spectrum_addr <= (harm3_bin + 13'd2)) begin
+            // 3次谐波检测（目标bin ±3）
+            if (harm3_bin > 13'd3 && harm3_bin < (FFT_POINTS/2 - 13'd3) &&
+                spectrum_addr >= (harm3_bin - 13'd3) && 
+                spectrum_addr <= (harm3_bin + 13'd3)) begin
                 if (spectrum_data > harm3_amp) begin
                     harm3_amp <= spectrum_data;
                 end
             end
             
-            // 4次谐波检测（目标bin ±2）
-            if (harm4_bin < (FFT_POINTS/2 - 13'd2) &&
-                spectrum_addr >= (harm4_bin - 13'd2) && 
-                spectrum_addr <= (harm4_bin + 13'd2)) begin
+            // 4次谐波检测（目标bin ±3）
+            if (harm4_bin > 13'd3 && harm4_bin < (FFT_POINTS/2 - 13'd3) &&
+                spectrum_addr >= (harm4_bin - 13'd3) && 
+                spectrum_addr <= (harm4_bin + 13'd3)) begin
                 if (spectrum_data > harm4_amp) begin
                     harm4_amp <= spectrum_data;
                 end
             end
             
-            // 5次谐波检测（目标bin ±2）
-            if (harm5_bin < (FFT_POINTS/2 - 13'd2) &&
-                spectrum_addr >= (harm5_bin - 13'd2) && 
-                spectrum_addr <= (harm5_bin + 13'd2)) begin
+            // 5次谐波检测（目标bin ±3）
+            if (harm5_bin > 13'd3 && harm5_bin < (FFT_POINTS/2 - 13'd3) &&
+                spectrum_addr >= (harm5_bin - 13'd3) && 
+                spectrum_addr <= (harm5_bin + 13'd3)) begin
                 if (spectrum_data > harm5_amp) begin
                     harm5_amp <= spectrum_data;
                 end
@@ -686,32 +706,46 @@ always @(posedge clk or negedge rst_n) begin
         end
         // 扫描结束，锁存谐波幅度（优化门限，减少噪声影响）
         else if (spectrum_addr == (FFT_POINTS/2)) begin
-            // 【优化】提高绝对门限，减少噪声和旁瓣影响
-            // 混合门限策略：MAX(基波/N, 绝对值)
+            // 【紧急修复2025-11-04】临时禁用所有谐波门限，直接锁存检测到的幅度
+            // 原因：用户报告FFT频谱能看到显著谐波峰，但THD仍为0.0%
+            //       说明谐波被门限过滤掉了
+            // 
+            // 调试策略：先禁用门限，确认THD计算链路正常，再优化门限
             
-            // 2次谐波：方波理论为0，检测到的是噪声/失真，用高门限
-            if (harm2_amp > ((fft_max_amp >> 5) > 16'd150 ? (fft_max_amp >> 5) : 16'd150))
+            fft_harmonic_2 <= harm2_amp;  // 直接锁存，无门限
+            fft_harmonic_3 <= harm3_amp;  // 直接锁存，无门限
+            fft_harmonic_4 <= harm4_amp;  // 直接锁存，无门限
+            fft_harmonic_5 <= harm5_amp;  // 直接锁存，无门限
+            
+            /* 原门限代码（暂时禁用）：
+            // 2次谐波：偶次谐波，方波/三角波理论为0，但实际电路会有失真
+            // 降低门限以检测实际失真（原150→50）
+            if (harm2_amp > 16'd50)
                 fft_harmonic_2 <= harm2_amp;
             else
                 fft_harmonic_2 <= 16'd0;
             
-            // 3次谐波：方波的主要谐波(理论33%)，用中等门限
-            if (harm3_amp > ((fft_max_amp >> 6) > 16'd120 ? (fft_max_amp >> 6) : 16'd120))
+            // 3次谐波：方波的主要谐波(理论33%)，三角波次要谐波(11%)
+            // 降低门限以检测三角波H3（原80→30）
+            if (harm3_amp > 16'd30)
                 fft_harmonic_3 <= harm3_amp;
             else
                 fft_harmonic_3 <= 16'd0;
             
-            // 4次谐波：偶次谐波，理论为0，用高门限过滤
-            if (harm4_amp > ((fft_max_amp >> 7) > 16'd100 ? (fft_max_amp >> 7) : 16'd100))
+            // 4次谐波：偶次谐波，理论为0，但允许检测失真
+            // 降低门限（原100→40）
+            if (harm4_amp > 16'd40)
                 fft_harmonic_4 <= harm4_amp;
             else
                 fft_harmonic_4 <= 16'd0;
             
-            // 5次谐波：方波次要谐波(理论20%)，用中等门限
-            if (harm5_amp > ((fft_max_amp >> 7) > 16'd80 ? (fft_max_amp >> 7) : 16'd80))
+            // 5次谐波：方波次要谐波(20%)，三角波微弱谐波(4%)
+            // 降低门限以检测三角波H5（原50→20）
+            if (harm5_amp > 16'd20)
                 fft_harmonic_5 <= harm5_amp;
             else
                 fft_harmonic_5 <= 16'd0;
+            */
             
             thd_ready <= 1'b1;  // THD数据就绪，保持到下次扫描开始
         end
@@ -1351,8 +1385,9 @@ always @(posedge clk or negedge rst_n) begin
         // 延迟thd_ready用于边沿检测
         thd_ready_d1 <= thd_ready;
         
-        // 检测thd_ready上升沿（从0到1）
-        if (thd_ready && !thd_ready_d1 && !thd_fft_trigger) begin
+        // 【关键修复】检测thd_ready上升沿（从0到1）
+        // 移除!thd_fft_trigger条件，允许每次FFT扫描都触发THD计算
+        if (thd_ready && !thd_ready_d1) begin
             // 计算谐波总和（2-5次）
             thd_harmonic_sum <= {16'd0, fft_harmonic_2} + 
                                {16'd0, fft_harmonic_3} + 
@@ -1366,14 +1401,15 @@ always @(posedge clk or negedge rst_n) begin
             
             // 【优化】只有谐波总和>0且基波足够大时才触发计算
             // 避免无效计算和除零风险
+            // 【修复】降低基波门限从200→100，支持小信号测量
             if ((fft_harmonic_2 + fft_harmonic_3 + fft_harmonic_4 + fft_harmonic_5) > 16'd0 
-                && fft_max_amp > 16'd200)
+                && fft_max_amp > 16'd100)
                 thd_calc_trigger <= 1'b1;
             else
                 thd_calc_trigger <= 1'b0;  // 谐波全为0，THD=0，不计算
         end else begin
             thd_calc_trigger <= 1'b0;
-            // 当thd_ready变为0时，清除触发标志
+            // 当thd_ready变为0时，清除触发标志（为下次扫描做准备）
             if (!thd_ready && thd_ready_d1)
                 thd_fft_trigger <= 1'b0;
         end
@@ -1393,14 +1429,24 @@ always @(posedge clk or negedge rst_n) begin
     end else begin
         // 流水线第0级：基波幅度归一化到8位索引（256级）
         if (thd_calc_trigger && fundamental_power > 32'd100) begin
-            // 将16位基波幅度映射到0-255
-            // index = (fundamental_power >> 8) 确保不超过255
-            if (fundamental_power[31:16] != 16'd0)
+            // 【修复Bug 8】改进索引计算，支持小幅度信号（<256）
+            // 将基波幅度映射到0-255索引，避免小幅度信号被过度放大
+            if (fundamental_power > 32'd65280)  // 65280 = 255×256
                 thd_lut_index <= 8'd255;  // 饱和到最大
-            else if (fundamental_power[15:8] != 8'd0)
-                thd_lut_index <= fundamental_power[15:8];  // 高8位作为索引
-            else
-                thd_lut_index <= 8'd1;    // 最小值，避免除以0
+            else if (fundamental_power >= 32'd256)
+                thd_lut_index <= fundamental_power[15:8];  // 高8位作为索引（正常范围）
+            else begin
+                // 小幅度信号（100-255）：映射到索引6-15，避免过度放大
+                // 使用低8位的高4位 + 偏移，确保索引在合理范围
+                if (fundamental_power >= 32'd200)
+                    thd_lut_index <= 8'd12;  // ~1024000/(12×256) = 333
+                else if (fundamental_power >= 32'd160)
+                    thd_lut_index <= 8'd10;  // ~1024000/(10×256) = 400
+                else if (fundamental_power >= 32'd128)
+                    thd_lut_index <= 8'd8;   // ~1024000/(8×256) = 500
+                else
+                    thd_lut_index <= 8'd6;   // ~1024000/(6×256) = 667，最小保护值
+            end
             
             thd_pipe_valid[0] <= 1'b1;
         end else begin
@@ -1412,12 +1458,18 @@ always @(posedge clk or negedge rst_n) begin
         if (thd_pipe_valid[0]) begin
             case (thd_lut_index)
                 // 倒数 = 1024000 / (index * 256)
-                // 为了节省资源，只存储关键点，中间用线性插值
-                8'd0:   thd_reciprocal <= 20'd1048575;  // 最大值
+                // 【修复Bug 8】扩展LUT，支持小索引值（对应小幅度信号）
+                8'd0:   thd_reciprocal <= 20'd1048575;  // 最大值（保护）
                 8'd1:   thd_reciprocal <= 20'd4000;     // 1024000/256
                 8'd2:   thd_reciprocal <= 20'd2000;     // 1024000/512
+                8'd3:   thd_reciprocal <= 20'd1333;     // 1024000/768
                 8'd4:   thd_reciprocal <= 20'd1000;     // 1024000/1024
+                8'd5:   thd_reciprocal <= 20'd800;      // 1024000/1280
+                8'd6:   thd_reciprocal <= 20'd667;      // 1024000/1536
+                8'd7:   thd_reciprocal <= 20'd571;      // 1024000/1792
                 8'd8:   thd_reciprocal <= 20'd500;      // 1024000/2048
+                8'd10:  thd_reciprocal <= 20'd400;      // 1024000/2560
+                8'd12:  thd_reciprocal <= 20'd333;      // 1024000/3072
                 8'd16:  thd_reciprocal <= 20'd250;      // 1024000/4096
                 8'd32:  thd_reciprocal <= 20'd125;      // 1024000/8192
                 8'd64:  thd_reciprocal <= 20'd62;       // 1024000/16384
@@ -1433,14 +1485,12 @@ always @(posedge clk or negedge rst_n) begin
                         thd_reciprocal <= 20'd83;       // ≈1024000/12288
                     else if (thd_lut_index >= 8'd24)
                         thd_reciprocal <= 20'd167;      // ≈1024000/6144
-                    else if (thd_lut_index >= 8'd12)
-                        thd_reciprocal <= 20'd333;      // ≈1024000/3072
-                    else if (thd_lut_index >= 8'd6)
-                        thd_reciprocal <= 20'd667;      // ≈1024000/1536
-                    else if (thd_lut_index >= 8'd3)
-                        thd_reciprocal <= 20'd1333;     // ≈1024000/768
+                    else if (thd_lut_index >= 8'd14)
+                        thd_reciprocal <= 20'd286;      // ≈1024000/3584
+                    else if (thd_lut_index >= 8'd9)
+                        thd_reciprocal <= 20'd444;      // ≈1024000/2304
                     else
-                        thd_reciprocal <= 20'd2667;     // ≈1024000/384
+                        thd_reciprocal <= 20'd667;      // ≈1024000/1536 (index<9)
                 end
             endcase
         end
@@ -1484,14 +1534,16 @@ always @(posedge clk or negedge rst_n) begin
     end else begin
         // 每次新的thd_calc到来时更新滑动窗口
         if (thd_pipe_valid[2]) begin
-            // 减去最老的值
+            // 【修复】使用组合逻辑计算新的sum，避免输出滞后
+            // 先计算新的累加和，再输出（避免使用旧值）
             thd_sum <= thd_sum - thd_history[thd_hist_ptr] + thd_calc;
             // 更新历史缓存
             thd_history[thd_hist_ptr] <= thd_calc;
             // 移动指针
             thd_hist_ptr <= thd_hist_ptr + 1'b1;
-            // 计算平均值(除以8 = 右移3位)
-            thd_filtered <= thd_sum[18:3];
+            // 【关键修复】计算平均值时使用更新后的值（组合逻辑）
+            // thd_filtered = (thd_sum - old_value + new_value) / 8
+            thd_filtered <= (thd_sum - thd_history[thd_hist_ptr] + thd_calc) >> 3;
         end
     end
 end
@@ -1533,5 +1585,17 @@ always @(posedge clk or negedge rst_n) begin
         end
     end
 end
+
+//=============================================================================
+// 调试信号输出
+//=============================================================================
+assign dbg_fft_harmonic_2 = fft_harmonic_2;
+assign dbg_fft_harmonic_3 = fft_harmonic_3;
+assign dbg_fft_harmonic_4 = fft_harmonic_4;
+assign dbg_fft_harmonic_5 = fft_harmonic_5;
+assign dbg_harmonic_sum   = thd_harmonic_sum;
+assign dbg_fft_max_amp    = fft_max_amp;
+assign dbg_calc_trigger   = thd_calc_trigger;
+assign dbg_pipe_valid     = thd_pipe_valid;
 
 endmodule
