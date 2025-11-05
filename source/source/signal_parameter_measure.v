@@ -61,7 +61,16 @@ module signal_parameter_measure (
     output wire [31:0]  dbg_harmonic_sum,   // 谐波总和
     output wire [15:0]  dbg_fft_max_amp,    // 基波幅度
     output wire         dbg_calc_trigger,   // THD计算触发
-    output wire [2:0]   dbg_pipe_valid      // 流水线有效标志
+    output wire [2:0]   dbg_pipe_valid,     // 流水线有效标志
+    
+    // 【新增】调试输出 (占空比测量链路)
+    output wire [9:0]   dbg_adaptive_threshold,  // 自适应阈值
+    output wire [9:0]   dbg_threshold_hyst_high, // 迟滞上限
+    output wire [9:0]   dbg_threshold_hyst_low,  // 迟滞下限
+    output wire [31:0]  dbg_duty_high_cnt,       // 高电平计数
+    output wire [31:0]  dbg_duty_total_cnt,      // 总计数
+    output wire         dbg_duty_state,          // 占空比状态机
+    output wire [2:0]   dbg_duty_pipe_valid      // 占空比流水线有效
 );
 
 //=============================================================================
@@ -170,8 +179,9 @@ reg [31:0]  duty_denominator;               // total_cnt
 reg [7:0]   duty_denom_index;               // LUT index
 reg [1:0]   duty_scale_shift;               // Not used (for future)
 reg [15:0]  duty_reciprocal;                // 1/denominator from LUT (Q16 format)
-reg [63:0]  duty_product;                   // numerator[31:0] * reciprocal (32×32=64 bits)
+reg [63:0]  duty_product;                   // numerator[40] * reciprocal[16] (40×16=56 bits)
 reg [15:0]  duty_result;                    // Final result
+reg [2:0]   duty_pipe_valid;                // 【新增】流水线有效标志(3级)
 
 // 【优化】占空比滑动平均滤波 (8次平均，减少跳动)
 reg [15:0]  duty_history[0:7];              // 历史值缓存
@@ -995,36 +1005,44 @@ always @(posedge clk or negedge rst_n) begin
         threshold_hyst_low <= 10'd504;
         threshold_hysteresis <= 10'd8;
     end else if (measure_en) begin
-        if (time_cnt == TIME_100MS - 2) begin
-            // 周期即将结束时更新阈值（使用完整的max/min数据）
-            adaptive_threshold <= (max_val + min_val) >> 1;
+        // 【修复v2】使用measure_done触发+锁存值，消除1周期延迟
+        // 在周期结束时同步更新阈值，确保使用完整的max/min数据
+        if (measure_done) begin
+            // 使用锁存值计算阈值（已在amp_calc_trigger时锁存）
+            adaptive_threshold <= (max_val_latch + min_val_latch) >> 1;
             
             // 计算迟滞量 = (max - min) / 32 ≈ 3%，最小为8
-            if ((max_val - min_val) > 10'd256)
-                threshold_hysteresis <= (max_val - min_val) >> 5;  // ÷32
-            else
-                threshold_hysteresis <= 10'd8;  // 最小迟滞量
-        end else if (sample_valid_sync) begin
-            // 实时微调阈值（基于当前max/min）
-            adaptive_threshold <= (max_val + min_val) >> 1;
+            if (max_val_latch > min_val_latch) begin
+                if ((max_val_latch - min_val_latch) > 10'd256)
+                    threshold_hysteresis <= (max_val_latch - min_val_latch) >> 5;  // ÷32
+                else
+                    threshold_hysteresis <= 10'd8;  // 最小迟滞量
+            end else begin
+                threshold_hysteresis <= 10'd8;  // 异常保护
+            end
             
-            // 微调迟滞量
-            if ((max_val - min_val) > 10'd256)
-                threshold_hysteresis <= (max_val - min_val) >> 5;
+            // 同时更新迟滞上下限（使用临时变量避免复杂表达式）
+            // threshold_hyst_high = adaptive_threshold + threshold_hysteresis
+            // threshold_hyst_low = adaptive_threshold - threshold_hysteresis
+            if (((max_val_latch + min_val_latch) >> 1) + 
+                ((max_val_latch > min_val_latch && (max_val_latch - min_val_latch) > 10'd256) ? 
+                 ((max_val_latch - min_val_latch) >> 5) : 10'd8) > 10'd1023)
+                threshold_hyst_high <= 10'd1023;  // 上限饱和
             else
-                threshold_hysteresis <= 10'd8;
+                threshold_hyst_high <= ((max_val_latch + min_val_latch) >> 1) + 
+                                      ((max_val_latch > min_val_latch && (max_val_latch - min_val_latch) > 10'd256) ? 
+                                       ((max_val_latch - min_val_latch) >> 5) : 10'd8);
+                
+            if (((max_val_latch + min_val_latch) >> 1) < 
+                ((max_val_latch > min_val_latch && (max_val_latch - min_val_latch) > 10'd256) ? 
+                 ((max_val_latch - min_val_latch) >> 5) : 10'd8))
+                threshold_hyst_low <= 10'd0;  // 下限饱和
+            else
+                threshold_hyst_low <= ((max_val_latch + min_val_latch) >> 1) - 
+                                     ((max_val_latch > min_val_latch && (max_val_latch - min_val_latch) > 10'd256) ? 
+                                      ((max_val_latch - min_val_latch) >> 5) : 10'd8);
         end
-        
-        // 计算迟滞上下限（每个时钟都更新，确保及时）
-        if (adaptive_threshold + threshold_hysteresis > 10'd1023)
-            threshold_hyst_high <= 10'd1023;
-        else
-            threshold_hyst_high <= adaptive_threshold + threshold_hysteresis;
-            
-        if (adaptive_threshold < threshold_hysteresis)
-            threshold_hyst_low <= 10'd0;
-        else
-            threshold_hyst_low <= adaptive_threshold - threshold_hysteresis;
+        // 删除实时微调逻辑，保持阈值稳定
     end
 end
 
@@ -1048,28 +1066,31 @@ always @(posedge clk or negedge rst_n) begin
             high_cnt <= 32'd0;
             total_cnt <= 32'd0;
             duty_calc_trigger <= 1'b1;
-        end else begin
+        end else if (sample_valid_sync) begin  // 【修复v2】改为else if，避免竞争
             duty_calc_trigger <= 1'b0;
-            if (sample_valid_sync) begin  // 【修复】使用同步后的sample_valid
-                total_cnt <= total_cnt + 1'b1;
-                
-                // 【优化】自适应阈值 + 迟滞比较器
-                // 状态机：低电平→检测上升沿，高电平→检测下降沿
-                if (duty_state == 1'b0) begin
-                    // 当前低电平状态，检测是否超过上限阈值
-                    if (sample_data_sync > threshold_hyst_high) begin  // 【修复】使用同步后的sample_data
-                        duty_state <= 1'b1;
-                        high_cnt <= high_cnt + 1'b1;
-                    end
+            total_cnt <= total_cnt + 1'b1;
+            
+            // 【修复v2】自适应阈值 + 迟滞比较器
+            // 关键：只有在高电平状态时才累加high_cnt
+            if (duty_state == 1'b0) begin
+                // 当前低电平状态，检测是否超过上限阈值（上升沿）
+                if (sample_data_sync > threshold_hyst_high) begin
+                    duty_state <= 1'b1;  // 切换到高电平状态
+                    high_cnt <= high_cnt + 1'b1;  // 上升沿这个点算高电平
+                end
+                // 低电平状态不计数
+            end else begin
+                // 当前高电平状态，先检测是否低于下限阈值（下降沿）
+                if (sample_data_sync < threshold_hyst_low) begin
+                    duty_state <= 1'b0;  // 切换到低电平状态
+                    // 下降沿这个点不计数（已经是低电平了）
                 end else begin
-                    // 当前高电平状态，检测是否低于下限阈值
-                    if (sample_data_sync < threshold_hyst_low) begin  // 【修复】使用同步后的sample_data
-                        duty_state <= 1'b0;
-                    end else begin
-                        high_cnt <= high_cnt + 1'b1;
-                    end
+                    // 仍然是高电平，累加计数
+                    high_cnt <= high_cnt + 1'b1;
                 end
             end
+        end else begin
+            duty_calc_trigger <= 1'b0;  // 【新增】确保trigger只持续1周期
         end
     end else begin
         high_cnt <= 32'd0;
@@ -1369,25 +1390,34 @@ always @(posedge clk or negedge rst_n) begin
         duty_denominator <= 32'd0;
         duty_denom_index <= 8'd0;
         duty_scale_shift <= 2'd0;
-    end else if (duty_calc_trigger && total_cnt_latch != 0) begin
-        duty_numerator <= high_cnt_latch * 16'd1000;
-        duty_denominator <= total_cnt_latch;
+        duty_pipe_valid[0] <= 1'b0;  // 【新增】流水线级0
+    end else begin
+        // 【修复v2】增强除零保护：检查最小计数值
+        // total_cnt < 16384时，duty_denom_index会为0，导致LUT返回异常大的值
+        // 100ms周期，35MHz采样：正常total_cnt ≈ 3,500,000
+        // 如果total_cnt < 16384，说明信号频率极低或measure_en刚启动
+        duty_pipe_valid[0] <= duty_calc_trigger && (total_cnt_latch >= 32'd16384);  // 【新增】
         
-        // Use fixed 12-bit shift for all cases to avoid saturation
-        // This maps 10-10M range to 2-2441 index range
-        // We'll use upper 8 bits of the 12-bit shifted result
-        // shift by 12: divide by 4096
-        duty_denom_index <= (total_cnt_latch >> 12);  // This gives 0-2441 for our range
-        
-        // Saturate to 1-255 range
-        if ((total_cnt_latch >> 12) == 0)
-            duty_denom_index <= 8'd1;
-        else if ((total_cnt_latch >> 12) >= 255)
-            duty_denom_index <= 8'd255;
-        else
-            duty_denom_index <= (total_cnt_latch >> 12);
+        if (duty_calc_trigger && total_cnt_latch >= 32'd16384) begin
+            duty_numerator <= high_cnt_latch * 16'd1000;
+            duty_denominator <= total_cnt_latch;
             
-        duty_scale_shift <= 2'd0;  // Fixed shift of 12
+            // 【修复】使用14-bit shift避免LUT索引溢出
+            // 采样率35MHz，100ms周期：total_cnt ≈ 3,500,000
+            // shift by 14: 3,500,000 >> 14 = 213 (在1-255范围内✓)
+            // shift by 12: 3,500,000 >> 12 = 854 (溢出到255✗)
+            duty_denom_index <= (total_cnt_latch >> 14);  // divide by 16384
+            
+            // Saturate to 1-255 range
+            if ((total_cnt_latch >> 14) == 0)
+                duty_denom_index <= 8'd1;
+            else if ((total_cnt_latch >> 14) >= 255)
+                duty_denom_index <= 8'd255;
+            else
+                duty_denom_index <= (total_cnt_latch >> 14);
+                
+            duty_scale_shift <= 2'd0;  // Fixed shift of 14
+        end
     end
 end
 
@@ -1395,7 +1425,9 @@ end
 always @(posedge clk or negedge rst_n) begin
     if (!rst_n) begin
         duty_reciprocal <= 16'd0;
+        duty_pipe_valid[1] <= 1'b0;  // 【新增】流水线级1
     end else begin
+        duty_pipe_valid[1] <= duty_pipe_valid[0];  // 【新增】传递有效信号
         duty_reciprocal <= reciprocal_lut(duty_denom_index);
     end
 end
@@ -1406,26 +1438,40 @@ always @(posedge clk or negedge rst_n) begin
         duty_product <= 64'd0;
         duty_result <= 16'd0;
         duty_calc <= 16'd0;
+        duty_pipe_valid[2] <= 1'b0;  // 【新增】流水线级2
     end else begin
-        // Multiply: numerator * reciprocal
-        duty_product <= duty_numerator[31:0] * {16'd0, duty_reciprocal};
+        duty_pipe_valid[2] <= duty_pipe_valid[1];  // 【新增】传递有效信号
         
-        // Fixed scaling: we used >> 12 (divide by 4096)
-        // reciprocal = 65536 / index
-        // product = numerator * 65536 / (total_cnt >> 12)
-        //        = numerator * 65536 * 4096 / total_cnt
-        // result = numerator / total_cnt = product / (65536 * 4096)
-        //        = product >> (16 + 12) = product >> 28
+        // 【修复v2】使用完整40位numerator，避免高位截断
+        // Multiply: numerator[40位] * reciprocal[16位] = 56位
+        duty_product <= duty_numerator * {24'd0, duty_reciprocal};
         
-        duty_result <= duty_product[43:28];  // Shift by 28 bits
-        duty_calc <= duty_result;
+        // 【修复】缩放修正：使用 >> 14 (divide by 16384)
+        // reciprocal = 65536 / index (Q16定点数)
+        // product = numerator * 65536 / (total_cnt >> 14)
+        //        = numerator * 65536 * 16384 / total_cnt
+        // result = numerator / total_cnt = product / (65536 * 16384)
+        //        = product >> (16 + 14) = product >> 30
+        
+        duty_result <= duty_product[45:30];  // Shift by 30 bits (修正)
+        
+        // 【新增v3】仅在流水线有效时更新duty_calc，并添加范围限制
+        if (duty_pipe_valid[2]) begin
+            // 【新增】占空比范围限制：0-1000 (0%-100.0%)
+            // 理论上duty_result不应超过1000，但异常情况下可能溢出
+            if (duty_result > 16'd1000)
+                duty_calc <= 16'd1000;  // 上限饱和到100.0%
+            else
+                duty_calc <= duty_result;
+        end
     end
 end
 
 //=============================================================================
-// 4b. 占空比滑动平均滤�?(8次平均，减少跳动)
+// 4b. 占空比滑动平均滤波器(8次平均，减少跳动)
 //=============================================================================
 integer i;
+reg duty_pipe_valid_d1;  // 【新增】流水线有效信号延迟1拍，用于边沿检测
 always @(posedge clk or negedge rst_n) begin
     if (!rst_n) begin
         for (i = 0; i < 8; i = i + 1) begin
@@ -1434,17 +1480,23 @@ always @(posedge clk or negedge rst_n) begin
         duty_hist_ptr <= 3'd0;
         duty_sum <= 19'd0;
         duty_filtered <= 16'd0;
+        duty_pipe_valid_d1 <= 1'b0;
     end else begin
-        // 每次新的duty_calc到来时更新滑动窗�?
-        if (duty_calc != duty_history[duty_hist_ptr]) begin  // 检测到新�?
-            // 减去最老的�?
+        duty_pipe_valid_d1 <= duty_pipe_valid[2];  // 延迟1拍
+        
+        // 【修复v2】使用流水线有效信号上升沿检测，避免频繁触发
+        // 仅在新的计算结果到达时（duty_pipe_valid[2]上升沿）更新滤波器
+        if (duty_pipe_valid[2] && !duty_pipe_valid_d1) begin
+            // 【关键修复】使用组合逻辑计算新的sum，避免输出滞后
+            // 先计算新的累加和，再输出（避免使用旧值）
             duty_sum <= duty_sum - duty_history[duty_hist_ptr] + duty_calc;
             // 更新历史缓存
             duty_history[duty_hist_ptr] <= duty_calc;
             // 移动指针
             duty_hist_ptr <= duty_hist_ptr + 1'b1;
-            // 计算平均�?(除以8 = 右移3�?
-            duty_filtered <= duty_sum[18:3];
+            // 计算平均值（除以8 = 右移3位）
+            // 使用组合逻辑计算：(sum - old + new) / 8
+            duty_filtered <= (duty_sum - duty_history[duty_hist_ptr] + duty_calc) >> 3;
         end
     end
 end
@@ -1677,6 +1729,7 @@ end
 //=============================================================================
 // 调试信号输出
 //=============================================================================
+// THD调试信号
 assign dbg_fft_harmonic_2 = fft_harmonic_2;
 assign dbg_fft_harmonic_3 = fft_harmonic_3;
 assign dbg_fft_harmonic_4 = fft_harmonic_4;
@@ -1685,5 +1738,14 @@ assign dbg_harmonic_sum   = thd_harmonic_sum;
 assign dbg_fft_max_amp    = fft_max_amp;
 assign dbg_calc_trigger   = thd_calc_trigger;
 assign dbg_pipe_valid     = thd_pipe_valid;
+
+// 【新增】占空比调试信号
+assign dbg_adaptive_threshold  = adaptive_threshold;
+assign dbg_threshold_hyst_high = threshold_hyst_high;
+assign dbg_threshold_hyst_low  = threshold_hyst_low;
+assign dbg_duty_high_cnt       = high_cnt_latch;
+assign dbg_duty_total_cnt      = total_cnt_latch;
+assign dbg_duty_state          = duty_state;
+assign dbg_duty_pipe_valid     = duty_pipe_valid;
 
 endmodule
