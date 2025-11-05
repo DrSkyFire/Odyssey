@@ -106,6 +106,14 @@ reg [15:0]  fft_harmonic_3;                 // 3次谐波幅度
 reg [15:0]  fft_harmonic_4;                 // 4次谐波幅度
 reg [15:0]  fft_harmonic_5;                 // 5次谐波幅度
 reg         thd_ready;                      // THD数据就绪脉冲
+reg [4:0]   harm_search_range;              // 【v12新增】动态搜索范围（频率相关）
+
+// 【v13新增】抛物线插值修正基波bin（消除能量泄漏误差）
+reg [15:0]  peak_left_amp;                  // 基波峰值左侧bin幅度
+reg [15:0]  peak_center_amp;                // 基波峰值中心bin幅度
+reg [15:0]  peak_right_amp;                 // 基波峰值右侧bin幅度
+reg signed [16:0] parabola_delta;           // 抛物线插值偏移量（带符号）
+reg [13:0]  corrected_base_bin;             // 修正后的基波bin（14位支持小数）
 
 // 频率测量
 reg [9:0]   data_d1, data_d2;               // 【修改】10位数据延迟
@@ -568,6 +576,22 @@ reg [12:0] fft_peak_bin_history [0:3]; // 最近4次FFT的峰值bin
 reg [1:0]  fft_history_index;          // 历史索引
 reg [15:0] fft_avg_amp;                // 平均峰值幅度
 
+// 【v11新增】谐波幅度8帧历史缓存（降低噪声和峰值跳动）
+reg [15:0] harm2_amp_history [0:7];    // 2次谐波最近8帧幅度
+reg [15:0] harm3_amp_history [0:7];    // 3次谐波最近8帧幅度
+reg [15:0] harm4_amp_history [0:7];    // 4次谐波最近8帧幅度
+reg [15:0] harm5_amp_history [0:7];    // 5次谐波最近8帧幅度
+reg [2:0]  harm_history_index;         // 谐波历史索引（0-7循环）
+
+// 【v11新增】谐波平均幅度（8帧滑动平均后的稳定值）
+reg [15:0] harm2_amp_avg;
+reg [15:0] harm3_amp_avg;
+reg [15:0] harm4_amp_avg;
+reg [15:0] harm5_amp_avg;
+
+// 【v11新增】动态噪声阈值（基于基波幅度自适应）
+reg [15:0] dynamic_noise_threshold;
+
 always @(posedge clk or negedge rst_n) begin
     if (!rst_n) begin
         fft_max_amp <= 16'd0;
@@ -578,6 +602,9 @@ always @(posedge clk or negedge rst_n) begin
         use_fft_freq <= 1'b0;
         fft_history_index <= 2'd0;
         fft_avg_amp <= 16'd0;
+        
+        // 【v11新增】动态噪声阈值初始化（谐波平均值在谐波检测块中初始化）
+        dynamic_noise_threshold <= 16'd50;
     end else if (measure_en && spectrum_valid) begin
         // 检测FFT扫描开始（DC分量）
         if (spectrum_addr == 13'd0) begin
@@ -607,6 +634,13 @@ always @(posedge clk or negedge rst_n) begin
             // 计算平均峰值幅度
             fft_avg_amp <= (fft_max_amp_history[0] + fft_max_amp_history[1] + 
                            fft_max_amp_history[2] + fft_max_amp_history[3]) >> 2;
+            
+            // 【v11新增】动态噪声阈值计算
+            // 阈值 = 基波幅度的3.125%（除以32，即右移5位）
+            // 3.125%是经验值：既能过滤噪声，又不会误杀微弱谐波
+            // 最小阈值限制为50，避免噪声误检
+            dynamic_noise_threshold <= (fft_avg_amp >> 5) > 16'd50 ? 
+                                       (fft_avg_amp >> 5) : 16'd50;
             
             // 【修复】降低阈值，提高THD检测成功率
             // 只要有明显峰值（>100）就认为FFT有效
@@ -647,17 +681,52 @@ always @(posedge clk or negedge rst_n) begin
         harm5_amp <= 16'd0;
         thd_ready <= 1'b0;
         harm_detect_base_bin <= 13'd0;
+        
+        // 【v11新增】谐波历史索引和平均值初始化
+        harm_history_index <= 3'd0;
+        harm2_amp_avg <= 16'd0;
+        harm3_amp_avg <= 16'd0;
+        harm4_amp_avg <= 16'd0;
+        harm5_amp_avg <= 16'd0;
     end else if (measure_en && spectrum_valid) begin
         // 【关键修复】检测FFT扫描开始时，锁定基波bin
         if (spectrum_addr == 13'd0) begin
             // 使用上一次扫描确定的基波bin（来自2B的fft_peak_bin）
             harm_detect_base_bin <= fft_peak_bin;
             
-            // 【关键】在扫描开始时就计算好所有谐波bin位置
-            harm2_bin <= (fft_peak_bin << 1);                    // 2次谐波 = 基波×2
-            harm3_bin <= (fft_peak_bin << 1) + fft_peak_bin;     // 3次谐波 = 基波×3
-            harm4_bin <= (fft_peak_bin << 2);                    // 4次谐波 = 基波×4
-            harm5_bin <= (fft_peak_bin << 2) + fft_peak_bin;     // 5次谐波 = 基波×5
+            // 【v13修复】回归简单bin×N算法
+            // 
+            // v11/v12问题分析：
+            //   使用freq×N计算谐波bin，但fft_freq_hz = bin×4272是离散值
+            //   导致THD频率相关：515kHz(50%), 516kHz(45%), 517kHz(40%)
+            //   根本原因：离散频率引入量化误差
+            //
+            // v13方案：直接使用bin×N
+            //   harm_bin = fft_peak_bin × N
+            //   优点：
+            //     1. 简单直接，无近似误差
+            //     2. 频率无关，THD稳定
+            //     3. 资源节省（无乘法器）
+            //
+            // 能量泄漏问题：
+            //   20kHz bin[4.68] → 检测bin[4]或bin[5]
+            //   5次谐波：bin[4]×5=20 vs 真实23.4，误差3.4bin
+            //   解决：扩大搜索范围±5→±10，覆盖泄漏误差
+            //
+            // 搜索范围设计：
+            //   ±10 bin覆盖：
+            //     - 基波bin误差±1（泄漏）
+            //     - 5次谐波误差×5 = ±5
+            //     - 频率测量误差±1
+            //     - 总误差≤±7，±10有30%裕量
+            
+            harm2_bin <= {1'b0, fft_peak_bin[11:0]} << 1;       // bin×2
+            harm3_bin <= ({1'b0, fft_peak_bin[11:0]} << 1) + fft_peak_bin;  // bin×3
+            harm4_bin <= {1'b0, fft_peak_bin[11:0]} << 2;       // bin×4  
+            harm5_bin <= ({1'b0, fft_peak_bin[11:0]} << 2) + fft_peak_bin;  // bin×5
+            
+            // 【v13简化】固定搜索范围±10，覆盖所有频率
+            harm_search_range <= 5'd10;
             
             // 清空临时幅度（准备新扫描）
             harm2_amp <= 16'd0;
@@ -668,37 +737,38 @@ always @(posedge clk or negedge rst_n) begin
         end
         // 扫描过程：检测各次谐波（bin位置已在扫描开始时锁定）
         else if (spectrum_addr >= 13'd1 && spectrum_addr < (FFT_POINTS/2)) begin
-            // 2次谐波检测（目标bin ±3，扩大搜索范围）
-            if (harm2_bin > 13'd3 && harm2_bin < (FFT_POINTS/2 - 13'd3) &&
-                spectrum_addr >= (harm2_bin - 13'd3) && 
-                spectrum_addr <= (harm2_bin + 13'd3)) begin
+            // 【v12修复】使用动态搜索范围，适应不同频率的误差
+            // 2次谐波检测
+            if (harm2_bin > harm_search_range && harm2_bin < (FFT_POINTS/2 - harm_search_range) &&
+                spectrum_addr >= (harm2_bin - {8'd0, harm_search_range}) && 
+                spectrum_addr <= (harm2_bin + {8'd0, harm_search_range})) begin
                 if (spectrum_data > harm2_amp) begin
                     harm2_amp <= spectrum_data;
                 end
             end
             
-            // 3次谐波检测（目标bin ±3）
-            if (harm3_bin > 13'd3 && harm3_bin < (FFT_POINTS/2 - 13'd3) &&
-                spectrum_addr >= (harm3_bin - 13'd3) && 
-                spectrum_addr <= (harm3_bin + 13'd3)) begin
+            // 3次谐波检测
+            if (harm3_bin > harm_search_range && harm3_bin < (FFT_POINTS/2 - harm_search_range) &&
+                spectrum_addr >= (harm3_bin - {8'd0, harm_search_range}) && 
+                spectrum_addr <= (harm3_bin + {8'd0, harm_search_range})) begin
                 if (spectrum_data > harm3_amp) begin
                     harm3_amp <= spectrum_data;
                 end
             end
             
-            // 4次谐波检测（目标bin ±3）
-            if (harm4_bin > 13'd3 && harm4_bin < (FFT_POINTS/2 - 13'd3) &&
-                spectrum_addr >= (harm4_bin - 13'd3) && 
-                spectrum_addr <= (harm4_bin + 13'd3)) begin
+            // 4次谐波检测
+            if (harm4_bin > harm_search_range && harm4_bin < (FFT_POINTS/2 - harm_search_range) &&
+                spectrum_addr >= (harm4_bin - {8'd0, harm_search_range}) && 
+                spectrum_addr <= (harm4_bin + {8'd0, harm_search_range})) begin
                 if (spectrum_data > harm4_amp) begin
                     harm4_amp <= spectrum_data;
                 end
             end
             
-            // 5次谐波检测（目标bin ±3）
-            if (harm5_bin > 13'd3 && harm5_bin < (FFT_POINTS/2 - 13'd3) &&
-                spectrum_addr >= (harm5_bin - 13'd3) && 
-                spectrum_addr <= (harm5_bin + 13'd3)) begin
+            // 5次谐波检测
+            if (harm5_bin > harm_search_range && harm5_bin < (FFT_POINTS/2 - harm_search_range) &&
+                spectrum_addr >= (harm5_bin - {8'd0, harm_search_range}) && 
+                spectrum_addr <= (harm5_bin + {8'd0, harm_search_range})) begin
                 if (spectrum_data > harm5_amp) begin
                     harm5_amp <= spectrum_data;
                 end
@@ -706,46 +776,64 @@ always @(posedge clk or negedge rst_n) begin
         end
         // 扫描结束，锁存谐波幅度（优化门限，减少噪声影响）
         else if (spectrum_addr == (FFT_POINTS/2)) begin
-            // 【紧急修复2025-11-04】临时禁用所有谐波门限，直接锁存检测到的幅度
-            // 原因：用户报告FFT频谱能看到显著谐波峰，但THD仍为0.0%
-            //       说明谐波被门限过滤掉了
-            // 
-            // 调试策略：先禁用门限，确认THD计算链路正常，再优化门限
+            // 【v11新增】谐波幅度历史记录与滑动平均
+            // 将本次扫描的谐波幅度存入历史缓存
+            harm2_amp_history[harm_history_index] <= harm2_amp;
+            harm3_amp_history[harm_history_index] <= harm3_amp;
+            harm4_amp_history[harm_history_index] <= harm4_amp;
+            harm5_amp_history[harm_history_index] <= harm5_amp;
+            harm_history_index <= harm_history_index + 1'b1;  // 循环索引（0-7）
             
-            fft_harmonic_2 <= harm2_amp;  // 直接锁存，无门限
-            fft_harmonic_3 <= harm3_amp;  // 直接锁存，无门限
-            fft_harmonic_4 <= harm4_amp;  // 直接锁存，无门限
-            fft_harmonic_5 <= harm5_amp;  // 直接锁存，无门限
+            // 【v11新增】8帧滑动平均计算（抑制噪声和峰值跳动）
+            // 两步计算避免位宽溢出：
+            //   第1步：4+4分组求和（17位中间结果）
+            //   第2步：两组相加后右移3位（÷8）
+            harm2_amp_avg <= ((harm2_amp_history[0] + harm2_amp_history[1] + 
+                              harm2_amp_history[2] + harm2_amp_history[3]) +
+                             (harm2_amp_history[4] + harm2_amp_history[5] + 
+                              harm2_amp_history[6] + harm2_amp_history[7])) >> 3;
             
-            /* 原门限代码（暂时禁用）：
+            harm3_amp_avg <= ((harm3_amp_history[0] + harm3_amp_history[1] + 
+                              harm3_amp_history[2] + harm3_amp_history[3]) +
+                             (harm3_amp_history[4] + harm3_amp_history[5] + 
+                              harm3_amp_history[6] + harm3_amp_history[7])) >> 3;
+            
+            harm4_amp_avg <= ((harm4_amp_history[0] + harm4_amp_history[1] + 
+                              harm4_amp_history[2] + harm4_amp_history[3]) +
+                             (harm4_amp_history[4] + harm4_amp_history[5] + 
+                              harm4_amp_history[6] + harm4_amp_history[7])) >> 3;
+            
+            harm5_amp_avg <= ((harm5_amp_history[0] + harm5_amp_history[1] + 
+                              harm5_amp_history[2] + harm5_amp_history[3]) +
+                             (harm5_amp_history[4] + harm5_amp_history[5] + 
+                              harm5_amp_history[6] + harm5_amp_history[7])) >> 3;
+            
+            // 【v11优化】使用动态阈值和平均幅度，双重滤波
+            // 策略：只有平均幅度>动态阈值，才认为是有效谐波
+            
             // 2次谐波：偶次谐波，方波/三角波理论为0，但实际电路会有失真
-            // 降低门限以检测实际失真（原150→50）
-            if (harm2_amp > 16'd50)
-                fft_harmonic_2 <= harm2_amp;
+            if (harm2_amp_avg > dynamic_noise_threshold)
+                fft_harmonic_2 <= harm2_amp_avg;
             else
                 fft_harmonic_2 <= 16'd0;
             
             // 3次谐波：方波的主要谐波(理论33%)，三角波次要谐波(11%)
-            // 降低门限以检测三角波H3（原80→30）
-            if (harm3_amp > 16'd30)
-                fft_harmonic_3 <= harm3_amp;
+            if (harm3_amp_avg > dynamic_noise_threshold)
+                fft_harmonic_3 <= harm3_amp_avg;
             else
                 fft_harmonic_3 <= 16'd0;
             
             // 4次谐波：偶次谐波，理论为0，但允许检测失真
-            // 降低门限（原100→40）
-            if (harm4_amp > 16'd40)
-                fft_harmonic_4 <= harm4_amp;
+            if (harm4_amp_avg > dynamic_noise_threshold)
+                fft_harmonic_4 <= harm4_amp_avg;
             else
                 fft_harmonic_4 <= 16'd0;
             
             // 5次谐波：方波次要谐波(20%)，三角波微弱谐波(4%)
-            // 降低门限以检测三角波H5（原50→20）
-            if (harm5_amp > 16'd20)
-                fft_harmonic_5 <= harm5_amp;
+            if (harm5_amp_avg > dynamic_noise_threshold)
+                fft_harmonic_5 <= harm5_amp_avg;
             else
                 fft_harmonic_5 <= 16'd0;
-            */
             
             thd_ready <= 1'b1;  // THD数据就绪，保持到下次扫描开始
         end

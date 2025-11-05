@@ -376,16 +376,14 @@ end
 //   近似: (h_offset << 3) - (h_offset >> 2) = h_offset * 7.75
 //   精确: (h_offset * 20) / 3 = h_offset * 6.67
 //=============================================================================
-reg [11:0] h_offset;  // 水平偏移量（h_cnt - AXIS_LEFT_MARGIN）
-reg [14:0] h_mult_10; // h_offset * 10，中间变量
-reg [14:0] h_mult_20; // h_offset * 20，中间变量
+reg [11:0] h_offset;     // 水平偏移量（h_cnt - AXIS_LEFT_MARGIN）
+reg [18:0] addr_mult_107; // 【v11新增】h_offset × 107，用于高精度频谱映射
 
 always @(posedge clk_pixel or negedge rst_n) begin
     if (!rst_n) begin
         spectrum_addr <= 13'd0;
         h_offset <= 12'd0;
-        h_mult_10 <= 15'd0;
-        h_mult_20 <= 15'd0;
+        addr_mult_107 <= 19'd0;
     end
     else begin
         // 使用pixel_x而不是h_cnt来计算地址，确保坐标对齐
@@ -393,35 +391,31 @@ always @(posedge clk_pixel or negedge rst_n) begin
             // 左侧Y轴区域，保持在起点
             spectrum_addr <= 13'd0;
             h_offset <= 12'd0;
-            h_mult_10 <= 15'd0;
-            h_mult_20 <= 15'd0;
+            addr_mult_107 <= 19'd0;
         end
         else if (pixel_x < H_ACTIVE) begin
             // 有效显示区域：pixel_x = 53-1279
             h_offset <= pixel_x - AXIS_LEFT_MARGIN;
             
-            // 根据工作模式选择映射公式（移位近似，误差2.6%）
+            // 根据工作模式选择映射公式
             if (work_mode == 2'b00) begin
                 // **时域模式**: spectrum_addr = h_offset * 6.5
                 //          = (h_offset<<2) + (h_offset<<1) + (h_offset>>1)
                 //          目标6.68，误差-2.7%（损失217个采样点，范围0-7975）
-                h_mult_20 <= (pixel_x - AXIS_LEFT_MARGIN);  // 暂存h_offset
                 spectrum_addr <= (h_offset << 2) + (h_offset << 1) + {1'b0, h_offset[11:1]};
+                addr_mult_107 <= 19'd0;  // 未使用
             end
             else begin
-                // **频谱模式**: 改进映射精度
-                // 目标：spectrum_addr = h_offset * 3.34 (4096 bins / 1227 pixels)
+                // 【v11b修复】频谱模式 - 使用流水线计算，避免组合逻辑时序问题
+                // 目标：spectrum_addr = h_offset × 3.34 (4096 bins / 1227 pixels)
                 // 
-                // 【修复左侧拉伸】使用更精确的乘法：h_offset * 3.34 ≈ h_offset * 107/32
-                // 107/32 = 3.34375 (误差0.1%)
-                // 实现：(h_offset * 107) >> 5
-                //      = ((h_offset<<6) + (h_offset<<5) + (h_offset<<3) + (h_offset<<1) + h_offset) >> 5
-                //      = 64h + 32h + 8h + 2h + h = 107h
-                // 
-                // 为避免乘法器，简化为：(h_offset<<1) + h_offset + (h_offset>>2) + (h_offset>>4)
-                // = 2h + h + 0.25h + 0.0625h = 3.3125h (误差0.8%)
-                h_mult_10 <= (pixel_x - AXIS_LEFT_MARGIN);
-                spectrum_addr <= (h_offset << 1) + h_offset + {2'b00, h_offset[11:2]} + {4'b0000, h_offset[11:4]};
+                // Stage 1: 计算 h_offset × 107
+                // 107 = 64 + 32 + 8 + 2 + 1
+                addr_mult_107 <= (h_offset << 6) + (h_offset << 5) + (h_offset << 3) + 
+                                 (h_offset << 1) + h_offset;
+                                 
+                // Stage 2: 右移5位（÷32）
+                spectrum_addr <= addr_mult_107[18:5];
             end
         end
         else begin
@@ -431,8 +425,7 @@ always @(posedge clk_pixel or negedge rst_n) begin
             else
                 spectrum_addr <= 13'd4095;  // 频谱最大bin
             h_offset <= 12'd0;
-            h_mult_10 <= 15'd0;
-            h_mult_20 <= 15'd0;
+            addr_mult_107 <= 19'd0;
         end
     end
 end
