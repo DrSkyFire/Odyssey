@@ -63,7 +63,7 @@ localparam AMP_MIN_DEFAULT      = 16'd500;      // 0.5V
 localparam AMP_MAX_DEFAULT      = 16'd4000;     // 4V
 localparam DUTY_TARGET_DEFAULT  = 16'd500;      // 50%
 localparam DUTY_TOL_DEFAULT     = 16'd50;       // ±5%
-localparam THD_MAX_DEFAULT      = 16'd50;       // 5%
+localparam THD_MAX_DEFAULT      = 16'd500;      // 50% (提高到50%)
 localparam PHASE_TOL_DEFAULT    = 16'd100;      // ±10°
 
 // 调整步长
@@ -103,14 +103,16 @@ always @(posedge clk or negedge rst_n) begin
         if (btn_duty_up && duty_tolerance < 16'd200)  // 最大±20%
             duty_tolerance <= duty_tolerance + DUTY_STEP;
         
-        // THD阈值调整
+        // THD阈值调整（50% → 30% → 10% → 5% → 50% 循环）
         if (btn_thd_adjust) begin
-            if (thd_max == 16'd50)
-                thd_max <= 16'd100;  // 切换到10%
+            if (thd_max == 16'd500)
+                thd_max <= 16'd300;   // 50% → 30%
+            else if (thd_max == 16'd300)
+                thd_max <= 16'd100;   // 30% → 10%
             else if (thd_max == 16'd100)
-                thd_max <= 16'd30;   // 切换到3%
+                thd_max <= 16'd50;    // 10% → 5%
             else
-                thd_max <= 16'd50;   // 切换回5%
+                thd_max <= 16'd500;   // 5% → 50%
         end
     end
 end
@@ -140,19 +142,24 @@ reg all_pass;               // 全部测试通过
 
 // 测试运行指示闪烁计数器
 reg [25:0] blink_cnt;
-wire blink_1hz;
-assign blink_1hz = (blink_cnt >= 26'd50_000_000);  // 假设clk=100MHz
+reg blink_1hz;
 
+// 1Hz闪烁生成（100MHz时钟，计数50M次=0.5s）
 always @(posedge clk or negedge rst_n) begin
-    if (!rst_n)
+    if (!rst_n) begin
         blink_cnt <= 26'd0;
-    else if (test_enable) begin
-        if (blink_1hz)
+        blink_1hz <= 1'b0;
+    end else if (test_enable) begin
+        if (blink_cnt >= 26'd49_999_999) begin  // 50M-1
             blink_cnt <= 26'd0;
-        else
+            blink_1hz <= ~blink_1hz;  // 翻转，产生1Hz方波
+        end else begin
             blink_cnt <= blink_cnt + 26'd1;
-    end else
+        end
+    end else begin
         blink_cnt <= 26'd0;
+        blink_1hz <= 1'b0;
+    end
 end
 
 // 参数判断逻辑

@@ -2079,47 +2079,58 @@ key_debounce u_key_auto_test (
 );
 
 // 阈值调整按键（在自动测试模式下，其他按键复用为阈值调整）
+// 消抖模块始终工作，通过后续逻辑控制是否响应
+wire btn_freq_up_raw, btn_freq_dn_raw, btn_amp_up_raw, btn_amp_dn_raw, btn_duty_up_raw, btn_thd_adjust_raw;
+
 key_debounce u_key_freq_up (
     .clk        (clk_100m),
     .rst_n      (rst_n),
-    .key_in     (user_button[0] & auto_test_enable),  // 仅在测试模式有效
-    .key_pulse  (btn_freq_up)
+    .key_in     (user_button[0]),
+    .key_pulse  (btn_freq_up_raw)
 );
 
 key_debounce u_key_freq_dn (
     .clk        (clk_100m),
     .rst_n      (rst_n),
-    .key_in     (user_button[1] & auto_test_enable),
-    .key_pulse  (btn_freq_dn)
+    .key_in     (user_button[1]),
+    .key_pulse  (btn_freq_dn_raw)
 );
 
 key_debounce u_key_amp_up (
     .clk        (clk_100m),
     .rst_n      (rst_n),
-    .key_in     (user_button[2] & auto_test_enable),
-    .key_pulse  (btn_amp_up)
+    .key_in     (user_button[2]),
+    .key_pulse  (btn_amp_up_raw)
 );
 
 key_debounce u_key_amp_dn (
     .clk        (clk_100m),
     .rst_n      (rst_n),
-    .key_in     (user_button[3] & auto_test_enable),
-    .key_pulse  (btn_amp_dn)
+    .key_in     (user_button[3]),
+    .key_pulse  (btn_amp_dn_raw)
 );
 
 key_debounce u_key_duty_up (
     .clk        (clk_100m),
     .rst_n      (rst_n),
-    .key_in     (user_button[4] & auto_test_enable),
-    .key_pulse  (btn_duty_up)
+    .key_in     (user_button[4]),
+    .key_pulse  (btn_duty_up_raw)
 );
 
 key_debounce u_key_thd_adjust (
     .clk        (clk_100m),
     .rst_n      (rst_n),
-    .key_in     (user_button[6] & auto_test_enable),
-    .key_pulse  (btn_thd_adjust)
+    .key_in     (user_button[6]),
+    .key_pulse  (btn_thd_adjust_raw)
 );
+
+// 按键复用：仅在测试模式下，这些按键才用于阈值调整
+assign btn_freq_up    = btn_freq_up_raw    & auto_test_enable;
+assign btn_freq_dn    = btn_freq_dn_raw    & auto_test_enable;
+assign btn_amp_up     = btn_amp_up_raw     & auto_test_enable;
+assign btn_amp_dn     = btn_amp_dn_raw     & auto_test_enable;
+assign btn_duty_up    = btn_duty_up_raw    & auto_test_enable;
+assign btn_thd_adjust = btn_thd_adjust_raw & auto_test_enable;
 
 // 微弱信号检测使能按键（预留：user_button[6]）
 assign btn_weak_sig_enable = 1'b0;  // 暂时禁用，未连接按键
