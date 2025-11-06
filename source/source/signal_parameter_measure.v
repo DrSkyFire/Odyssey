@@ -530,16 +530,21 @@ always @(posedge clk or negedge rst_n) begin
     end
 end
 
-// Stage 5: EMA滤波器（指数移动平均，α=0.25）
-// 【优化2025-11-06】替代滑动平均，响应速度提升2倍，资源消耗降低75%
+// Stage 5: EMA滤波器（指数移动平均）
+// 【紧急修复2025-11-06】增强滤波强度以抑制窗函数导致的跳动
 // 
 // 原理：y[n] = α×x[n] + (1-α)×y[n-1]
 //      = y[n-1] + α×(x[n] - y[n-1])
 //      = y[n-1] + error >> ALPHA_SHIFT
 // 
-// α=0.25时，等效4次滑动平均的噪声抑制能力
-// 但响应速度快30-50%（63%响应仅需1个周期=100ms）
-localparam FREQ_ALPHA_SHIFT = 2;  // α = 1/4 = 0.25
+// 【调整】α从0.25降低到0.125，加强平滑
+//   - α=0.25: 等效4次平均，200ms响应（跳动明显）
+//   - α=0.125: 等效8次平均，400ms响应（平滑但仍快于原800ms）
+// 
+// 如果测量值仍跳动，建议：
+//   1. 将FREQ_ALPHA_SHIFT改为4（α=0.0625，等效16次平均）
+//   2. 或禁用窗函数（dual_channel_fft_controller.v中ENABLE_WINDOW=0）
+localparam FREQ_ALPHA_SHIFT = 3;  // α = 1/8 = 0.125（调整：2→3，加强平滑）
 
 reg [1:0] freq_unit_d3;  // 再延迟一拍用于检测切换
 always @(posedge clk or negedge rst_n) begin
@@ -970,9 +975,10 @@ always @(posedge clk or negedge rst_n) begin
 end
 
 //=============================================================================
-// 3B. 【优化2025-11-06】幅度EMA滤波器（α=0.25，快速响应）
+// 3B. 【优化2025-11-06】幅度EMA滤波器（加强平滑以抑制跳动）
 //=============================================================================
-localparam AMP_ALPHA_SHIFT = 2;  // α = 1/4 = 0.25
+// 【调整】α从0.25降低到0.125，等效8次平均
+localparam AMP_ALPHA_SHIFT = 3;  // α = 1/8 = 0.125（调整：2→3）
 
 always @(posedge clk or negedge rst_n) begin
     if (!rst_n) begin

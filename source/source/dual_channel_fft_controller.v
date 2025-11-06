@@ -87,8 +87,18 @@ wire [12:0] spectrum_addr;      // 8192需要13位地址
 wire        spectrum_valid;
 
 //=============================================================================
-// Hann窗函数相关信号
+// 窗函数相关信号（可配置：Hann窗或矩形窗）
 //=============================================================================
+// 【紧急修复2025-11-06】Hann窗虽然降噪效果好，但导致测量值剧烈跳动
+// 根本原因：
+//   1. 窗函数能量损失不一致（采样起始相位敏感）
+//   2. 低频信号（1kHz）在窗内能量分布极不均匀
+//   3. EMA滤波器无法抑制这种系统性跳动
+// 
+// 临时解决方案：禁用窗函数，恢复矩形窗
+// 长期方案：研究Flat-Top窗或其他低跳动窗函数
+parameter ENABLE_WINDOW = 0;  // 0=禁用窗函数（矩形窗），1=启用Hann窗
+
 reg  [15:0] hann_window_rom [0:8191];  // Hann窗系数ROM (16位Q15格式)
 reg  [15:0] window_coeff;              // 窗系数寄存器
 reg  [12:0] window_addr;               // 窗系数读取地址（独立计数器）
@@ -98,7 +108,8 @@ wire signed [15:0] windowed_data;      // 加窗后的数据
 
 // 初始化Hann窗ROM（HEX文件位于source目录）
 initial begin
-    $readmemh("source/hann_window_8192.hex", hann_window_rom);
+    if (ENABLE_WINDOW)
+        $readmemh("source/hann_window_8192.hex", hann_window_rom);
 end
 
 // 从FIFO输出的16位数据中提取10位有效数据（高10位）
@@ -174,29 +185,22 @@ assign adc_offset_removed = {1'b0, data_buffer[15:6]} - dc_avg;
 assign adc_signed = {{5{adc_offset_removed[10]}}, adc_offset_removed};
 
 // 第3级：乘法（组合逻辑）
-// 【优化2025-11-06】重新启用Hann窗 + EMA滤波器组合降噪方案
-// 
-// 策略变更：
-//   之前：禁用Hann窗 + 8次滑动平均（时域降噪）→ 响应慢800ms
-//   现在：启用Hann窗 + EMA滤波器（频域+时域降噪）→ 响应快200ms
-// 
-// Hann窗优势：
-//   ✅ 旁瓣抑制-31dB（vs矩形窗-13dB）→ FFT噪声降低18dB
-//   ✅ 频谱泄漏减少，频率分辨率提升
-//   ✅ 谐波清晰可辨，THD测量准确
-//   ✅ 降低噪声源头，允许使用更弱的时域滤波器
-// 
-// 低频衰减问题已解决：
-//   1. 幅度测量：使用时域峰峰值（不受FFT窗影响）✅
-//   2. THD测量：只需谐波/基波比值（窗函数对所有频率等比例衰减）✅
-//   3. 频率测量：基于FFT bin位置（不受幅度影响）✅
-//   4. 占空比：时域测量（不受FFT影响）✅
-// 
-// 结论：Hann窗的低频衰减不影响任何测量参数的准确度
-// 
-// 使用Hann窗加窗
-assign windowed_mult = $signed(window_coeff) * $signed(adc_signed);
-assign windowed_data = windowed_mult[30:15];  // Q15×16bit，取高16位（相当于右移15位）
+// 【修复2025-11-06】根据ENABLE_WINDOW参数选择是否加窗
+generate
+    if (ENABLE_WINDOW) begin : gen_windowed
+        // 启用Hann窗
+        assign windowed_mult = $signed(window_coeff) * $signed(adc_signed);
+        assign windowed_data = windowed_mult[30:15];  // Q15×16bit，取高16位
+    end else begin : gen_rectangular
+        // 禁用窗函数（矩形窗）- 直接传递ADC数据
+        // 优势：
+        //   ✅ 测量值稳定，无跳动
+        //   ✅ 适合固定频率信号（赛题场景）
+        //   ✅ EMA滤波器可有效抑制随机噪声
+        assign windowed_mult = 32'd0;
+        assign windowed_data = adc_signed;
+    end
+endgenerate
 
 //=============================================================================
 // 通道选择多路复用
