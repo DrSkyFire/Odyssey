@@ -1750,12 +1750,12 @@ always @(posedge clk_100m or negedge rst_n) begin
 end
 
 // 微弱信号检测器实例化
-// 注意：滤波器阶数固定为8（256点），如需不同配置请修改weak_signal_detector.v
+// 注意：使用clk_adc时钟，与ADC采样同步
 weak_signal_detector #(
     .DATA_WIDTH     (16),
     .OUTPUT_WIDTH   (24)
 ) u_weak_sig_detector (
-    .clk                (clk_fft),
+    .clk                (clk_adc),  // 使用35MHz ADC时钟，与采样同步
     .rst_n              (rst_n && weak_sig_enable),  // 检测器独立使能
     
     // 双通道输入（使用11位扩展数据）
@@ -2132,8 +2132,13 @@ assign btn_amp_dn     = btn_amp_dn_raw     & auto_test_enable;
 assign btn_duty_up    = btn_duty_up_raw    & auto_test_enable;
 assign btn_thd_adjust = btn_thd_adjust_raw & auto_test_enable;
 
-// 微弱信号检测使能按键（预留：user_button[6]）
-assign btn_weak_sig_enable = 1'b0;  // 暂时禁用，未连接按键
+// 微弱信号检测使能按键（使用user_button[2]，暂时代替FFT关闭功能）
+key_debounce u_key_weak_sig (
+    .clk        (clk_100m),
+    .rst_n      (rst_n),
+    .key_in     (user_button[2]),
+    .key_pulse  (btn_weak_sig_enable)
+);
 
 // 参考频率调整按键（预留）
 assign btn_ref_freq_up = 1'b0;
