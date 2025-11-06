@@ -146,6 +146,7 @@ reg [15:0]  freq_history[0:3];              // 历史值缓存
 reg [1:0]   freq_hist_ptr;                  // 历史值指针
 reg [17:0]  freq_sum;                       // 累加和
 reg [15:0]  freq_filtered;                  // 滤波后的结果
+reg         fft_done_pulse;                 // FFT完成脉冲（用于强制刷新）
 
 // 幅度测量 - 【修改�?0位精�?
 reg [9:0]   max_val;
@@ -531,21 +532,29 @@ always @(posedge clk or negedge rst_n) begin
     end
 end
 
-// Stage 5: 滑动平均滤波器（4次平均，减少抖动）
+// Stage 5: 滑动平均滤波器（4次平均 + FFT完成时强制刷新）
+// 【优化2025-11-07】FFT完成时强制用最新值刷新窗口，提升响应速度
 // 【修复】单位切换时清空滤波器，避免Hz/kHz/MHz模式数值混淆
 integer j;
 reg [1:0] freq_unit_d3;  // 再延迟一拍用于检测切换
+reg fft_freq_ready_d1;   // FFT就绪信号延迟1拍（边沿检测）
 always @(posedge clk or negedge rst_n) begin
     if (!rst_n) begin
         freq_sum <= 18'd0;
         freq_hist_ptr <= 2'd0;
         freq_filtered <= 16'd0;
         freq_unit_d3 <= 2'd0;
+        fft_freq_ready_d1 <= 1'b0;
+        fft_done_pulse <= 1'b0;
         for (j = 0; j < 4; j = j + 1) begin
             freq_history[j] <= 16'd0;
         end
     end else begin
         freq_unit_d3 <= freq_unit_d2;  // 延迟单位标志
+        fft_freq_ready_d1 <= fft_freq_ready;  // 延迟FFT就绪信号
+        
+        // 【新增】检测FFT完成上升沿 - 用于强制刷新
+        fft_done_pulse <= fft_freq_ready && !fft_freq_ready_d1;
         
         // 【关键修复】检测单位切换，清空滤波器
         if (freq_unit_d2 != freq_unit_d3) begin
@@ -557,12 +566,24 @@ always @(posedge clk or negedge rst_n) begin
                 freq_history[j] <= 16'd0;
             end
         end
-        else if (freq_result_done && freq_result != freq_history[freq_hist_ptr]) begin
-            // 更新滑动平均（当新值与历史不同时）
+        // 【新增】FFT完成时强制刷新整个窗口
+        else if (fft_done_pulse && freq_result != 16'd0) begin
+            // 用最新值填充整个历史窗口，实现快速刷新
+            for (j = 0; j < 4; j = j + 1) begin
+                freq_history[j] <= freq_result;
+            end
+            freq_sum <= {freq_result, 2'b00};  // freq_result × 4
+            freq_hist_ptr <= 2'd0;  // 重置指针
+            freq_filtered <= freq_result;  // 直接输出最新值
+        end
+        // 正常更新：每次freq_result_done时更新滑动窗口
+        else if (freq_result_done) begin
+            // 更新滑动平均 - 使用组合逻辑立即输出
             freq_sum <= freq_sum - freq_history[freq_hist_ptr] + freq_result;
             freq_history[freq_hist_ptr] <= freq_result;
             freq_hist_ptr <= freq_hist_ptr + 1'b1;
-            freq_filtered <= freq_sum[17:2];  // ÷4
+            // 【关键】使用组合逻辑计算平均值，立即生效
+            freq_filtered <= (freq_sum - freq_history[freq_hist_ptr] + freq_result) >> 2;  // ÷4
         end
     end
 end
@@ -967,25 +988,40 @@ always @(posedge clk or negedge rst_n) begin
 end
 
 //=============================================================================
-// 3B. 【新增】幅度滑动平均滤波器(4次平均，减少抖动)
+// 3B. 【优化2025-11-07】幅度滑动平均滤波器(4次平均 + FFT强制刷新)
 //=============================================================================
 integer amp_i;
+reg measure_done_d1;  // measure_done延迟1拍（边沿检测）
 always @(posedge clk or negedge rst_n) begin
     if (!rst_n) begin
         amp_sum <= 18'd0;
         amp_hist_ptr <= 2'd0;
         amp_filtered <= 16'd0;
+        measure_done_d1 <= 1'b0;
         for (amp_i = 0; amp_i < 4; amp_i = amp_i + 1) begin
             amp_history[amp_i] <= 16'd0;
         end
     end else begin
-        // 当amplitude_calc更新时（检测到新值与历史不同）
-        if (amplitude_calc != amp_history[amp_hist_ptr] && amplitude_calc != 16'd0) begin
-            // 更新滑动平均
+        measure_done_d1 <= measure_done;
+        
+        // 【新增】FFT完成时强制刷新整个窗口
+        if (fft_done_pulse && amplitude_calc != 16'd0) begin
+            // 用最新值填充整个历史窗口
+            for (amp_i = 0; amp_i < 4; amp_i = amp_i + 1) begin
+                amp_history[amp_i] <= amplitude_calc;
+            end
+            amp_sum <= {amplitude_calc, 2'b00};  // amplitude_calc × 4
+            amp_hist_ptr <= 2'd0;
+            amp_filtered <= amplitude_calc;  // 直接输出最新值
+        end
+        // 正常更新：每次measure_done上升沿时更新
+        else if (measure_done && !measure_done_d1 && amplitude_calc != 16'd0) begin
+            // 更新滑动平均 - 使用组合逻辑立即输出
             amp_sum <= amp_sum - amp_history[amp_hist_ptr] + amplitude_calc;
             amp_history[amp_hist_ptr] <= amplitude_calc;
             amp_hist_ptr <= amp_hist_ptr + 1'b1;
-            amp_filtered <= amp_sum[17:2];  // ÷4
+            // 【关键】使用组合逻辑计算平均值，立即生效
+            amp_filtered <= (amp_sum - amp_history[amp_hist_ptr] + amplitude_calc) >> 2;  // ÷4
         end
     end
 end
@@ -1468,7 +1504,7 @@ always @(posedge clk or negedge rst_n) begin
 end
 
 //=============================================================================
-// 4b. 占空比滑动平均滤波器(8次平均，减少跳动)
+// 4b. 【优化2025-11-07】占空比滑动平均滤波器(8次平均 + FFT强制刷新)
 //=============================================================================
 integer i;
 reg duty_pipe_valid_d1;  // 【新增】流水线有效信号延迟1拍，用于边沿检测
@@ -1484,18 +1520,23 @@ always @(posedge clk or negedge rst_n) begin
     end else begin
         duty_pipe_valid_d1 <= duty_pipe_valid[2];  // 延迟1拍
         
-        // 【修复v2】使用流水线有效信号上升沿检测，避免频繁触发
-        // 仅在新的计算结果到达时（duty_pipe_valid[2]上升沿）更新滤波器
-        if (duty_pipe_valid[2] && !duty_pipe_valid_d1) begin
+        // 【新增】FFT完成时强制刷新整个窗口
+        if (fft_done_pulse && duty_calc != 16'd0) begin
+            // 用最新值填充整个历史窗口
+            for (i = 0; i < 8; i = i + 1) begin
+                duty_history[i] <= duty_calc;
+            end
+            duty_sum <= {duty_calc, 3'b000};  // duty_calc × 8
+            duty_hist_ptr <= 3'd0;
+            duty_filtered <= duty_calc;  // 直接输出最新值
+        end
+        // 正常更新：使用流水线有效信号上升沿检测
+        else if (duty_pipe_valid[2] && !duty_pipe_valid_d1) begin
             // 【关键修复】使用组合逻辑计算新的sum，避免输出滞后
-            // 先计算新的累加和，再输出（避免使用旧值）
             duty_sum <= duty_sum - duty_history[duty_hist_ptr] + duty_calc;
-            // 更新历史缓存
             duty_history[duty_hist_ptr] <= duty_calc;
-            // 移动指针
             duty_hist_ptr <= duty_hist_ptr + 1'b1;
             // 计算平均值（除以8 = 右移3位）
-            // 使用组合逻辑计算：(sum - old + new) / 8
             duty_filtered <= (duty_sum - duty_history[duty_hist_ptr] + duty_calc) >> 3;
         end
     end
@@ -1656,9 +1697,9 @@ always @(posedge clk or negedge rst_n) begin
 end
 
 //=============================================================================
-// 5b. THD滑动平均滤波器(8次平均，减少跳动)
+// 5b. 【优化2025-11-07】THD滑动平均滤波器(8次平均 + FFT强制刷新)
 //=============================================================================
-reg [15:0]  thd_history[0:7];               // THD历史值缓存
+reg [15:0]  thd_history[0:7];               // THD历史值缓存（8次）
 reg [2:0]   thd_hist_ptr;                   // THD历史值指针
 reg [18:0]  thd_sum;                        // THD累加和
 reg [15:0]  thd_filtered;                   // 滤波后的THD结果
@@ -1672,17 +1713,23 @@ always @(posedge clk or negedge rst_n) begin
         thd_sum <= 19'd0;
         thd_filtered <= 16'd0;
     end else begin
-        // 每次新的thd_calc到来时更新滑动窗口
-        if (thd_pipe_valid[2]) begin
+        // 【新增】FFT完成时强制刷新整个窗口
+        if (fft_done_pulse && thd_calc != 16'd0) begin
+            // 用最新值填充整个历史窗口
+            for (i = 0; i < 8; i = i + 1) begin
+                thd_history[i] <= thd_calc;
+            end
+            thd_sum <= {thd_calc, 3'b000};  // thd_calc × 8
+            thd_hist_ptr <= 3'd0;
+            thd_filtered <= thd_calc;  // 直接输出最新值
+        end
+        // 正常更新：每次新的thd_calc到来时更新滑动窗口
+        else if (thd_pipe_valid[2]) begin
             // 【修复】使用组合逻辑计算新的sum，避免输出滞后
-            // 先计算新的累加和，再输出（避免使用旧值）
             thd_sum <= thd_sum - thd_history[thd_hist_ptr] + thd_calc;
-            // 更新历史缓存
             thd_history[thd_hist_ptr] <= thd_calc;
-            // 移动指针
             thd_hist_ptr <= thd_hist_ptr + 1'b1;
-            // 【关键修复】计算平均值时使用更新后的值（组合逻辑）
-            // thd_filtered = (thd_sum - old_value + new_value) / 8
+            // 计算平均值（除以8 = 右移3位）
             thd_filtered <= (thd_sum - thd_history[thd_hist_ptr] + thd_calc) >> 3;
         end
     end
