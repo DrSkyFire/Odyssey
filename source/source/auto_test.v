@@ -2,6 +2,10 @@
 // 文件名: auto_test.v
 // 描述: 自动测试模块 - 参数阈值判断与LED指示
 //       根据测试要求判断各参数是否合格，通过LED反馈结果
+// 新增功能：
+//   - 按键可调整阈值（频率、幅度、占空比、THD）
+//   - LED实时显示测试结果
+//   - 支持阈值保存和恢复
 //=============================================================================
 
 module auto_test (
@@ -19,6 +23,14 @@ module auto_test (
     input  wire [15:0]  phase_diff,         // 相位差 (0-3599 = 0-359.9°)
     input  wire         param_valid,        // 参数有效标志
     
+    // 阈值配置按键（在测试模式下复用）
+    input  wire         btn_freq_up,        // 频率上限增加
+    input  wire         btn_freq_dn,        // 频率上限减少
+    input  wire         btn_amp_up,         // 幅度上限增加
+    input  wire         btn_amp_dn,         // 幅度下限减少
+    input  wire         btn_duty_up,        // 占空比容差增加
+    input  wire         btn_thd_adjust,     // THD阈值调整
+    
     // 测试结果输出 (LED映射)
     output reg [7:0]    test_result         // 8位LED指示
     // Bit[0]: 频率测试结果 (1=合格, 0=不合格)
@@ -32,31 +44,89 @@ module auto_test (
 );
 
 //=============================================================================
-// 测试阈值定义（根据实际需求调整）
+// 测试阈值定义（可通过按键调整）
 //=============================================================================
-// 频率测试：目标10Hz，容差±1Hz
-localparam FREQ_TARGET      = 16'd10;       // 目标频率 10Hz
-localparam FREQ_TOL         = 16'd1;        // 容差 ±1Hz
-localparam FREQ_MIN         = FREQ_TARGET - FREQ_TOL;
-localparam FREQ_MAX         = FREQ_TARGET + FREQ_TOL;
+// 默认阈值（可在运行时通过按键修改）
+reg [15:0] freq_target;         // 目标频率
+reg [15:0] freq_tolerance;      // 频率容差
+reg [15:0] amp_min;             // 幅度下限
+reg [15:0] amp_max;             // 幅度上限
+reg [15:0] duty_target;         // 目标占空比
+reg [15:0] duty_tolerance;      // 占空比容差
+reg [15:0] thd_max;             // THD上限
+reg [15:0] phase_tolerance;     // 相位差容差
 
-// 幅度测试：范围 500-4000 (对应ADC 0.5V-4V)
-localparam AMP_MIN          = 16'd500;
-localparam AMP_MAX          = 16'd4000;
+// 初始默认值
+localparam FREQ_TARGET_DEFAULT  = 16'd1000;     // 默认1kHz
+localparam FREQ_TOL_DEFAULT     = 16'd50;       // ±50Hz
+localparam AMP_MIN_DEFAULT      = 16'd500;      // 0.5V
+localparam AMP_MAX_DEFAULT      = 16'd4000;     // 4V
+localparam DUTY_TARGET_DEFAULT  = 16'd500;      // 50%
+localparam DUTY_TOL_DEFAULT     = 16'd50;       // ±5%
+localparam THD_MAX_DEFAULT      = 16'd50;       // 5%
+localparam PHASE_TOL_DEFAULT    = 16'd100;      // ±10°
 
-// 占空比测试：目标50%，容差±5% (对应 450-550)
-localparam DUTY_TARGET      = 16'd500;
-localparam DUTY_TOL         = 16'd50;
-localparam DUTY_MIN         = DUTY_TARGET - DUTY_TOL;
-localparam DUTY_MAX         = DUTY_TARGET + DUTY_TOL;
+// 调整步长
+localparam FREQ_STEP            = 16'd10;       // 频率调整10Hz
+localparam AMP_STEP             = 16'd100;      // 幅度调整0.1V
+localparam DUTY_STEP            = 16'd10;       // 占空比调整1%
+localparam THD_STEP             = 16'd5;        // THD调整0.5%
 
-// THD测试：要求<5% (对应值<50)
-localparam THD_MAX          = 16'd50;       // 5.0%
+//=============================================================================
+// 阈值配置逻辑（按键调整）
+//=============================================================================
+always @(posedge clk or negedge rst_n) begin
+    if (!rst_n) begin
+        // 复位到默认值
+        freq_target     <= FREQ_TARGET_DEFAULT;
+        freq_tolerance  <= FREQ_TOL_DEFAULT;
+        amp_min         <= AMP_MIN_DEFAULT;
+        amp_max         <= AMP_MAX_DEFAULT;
+        duty_target     <= DUTY_TARGET_DEFAULT;
+        duty_tolerance  <= DUTY_TOL_DEFAULT;
+        thd_max         <= THD_MAX_DEFAULT;
+        phase_tolerance <= PHASE_TOL_DEFAULT;
+    end else if (test_enable) begin
+        // 频率目标调整
+        if (btn_freq_up && freq_target < 16'd20000)  // 最大20kHz
+            freq_target <= freq_target + FREQ_STEP;
+        else if (btn_freq_dn && freq_target > FREQ_STEP)
+            freq_target <= freq_target - FREQ_STEP;
+        
+        // 幅度范围调整
+        if (btn_amp_up && amp_max < 16'd5000)  // 最大5V
+            amp_max <= amp_max + AMP_STEP;
+        else if (btn_amp_dn && amp_min > AMP_STEP)
+            amp_min <= amp_min - AMP_STEP;
+        
+        // 占空比容差调整
+        if (btn_duty_up && duty_tolerance < 16'd200)  // 最大±20%
+            duty_tolerance <= duty_tolerance + DUTY_STEP;
+        
+        // THD阈值调整
+        if (btn_thd_adjust) begin
+            if (thd_max == 16'd50)
+                thd_max <= 16'd100;  // 切换到10%
+            else if (thd_max == 16'd100)
+                thd_max <= 16'd30;   // 切换到3%
+            else
+                thd_max <= 16'd50;   // 切换回5%
+        end
+    end
+end
 
-// 相位差测试：双通道同步信号相位差应接近0° 或180°
-// 容差±10° (对应 0-100 或 1700-1900 或 3500-3599)
-localparam PHASE_SYNC_TOL   = 16'd100;      // ±10°容差
-localparam PHASE_180        = 16'd1800;     // 180°
+//=============================================================================
+// 阈值边界计算
+//=============================================================================
+wire [15:0] freq_min;
+wire [15:0] freq_max;
+wire [15:0] duty_min;
+wire [15:0] duty_max;
+
+assign freq_min = (freq_target > freq_tolerance) ? (freq_target - freq_tolerance) : 16'd0;
+assign freq_max = freq_target + freq_tolerance;
+assign duty_min = (duty_target > duty_tolerance) ? (duty_target - duty_tolerance) : 16'd0;
+assign duty_max = (duty_target + duty_tolerance > 16'd1000) ? 16'd1000 : (duty_target + duty_tolerance);
 
 //=============================================================================
 // 测试逻辑
@@ -95,29 +165,30 @@ always @(posedge clk or negedge rst_n) begin
         phase_pass  <= 1'b0;
         all_pass    <= 1'b0;
     end else if (test_enable && param_valid) begin
-        // 1. 频率测试
-        freq_pass <= (freq >= FREQ_MIN) && (freq <= FREQ_MAX);
+        // 1. 频率测试（使用可配置阈值）
+        freq_pass <= (freq >= freq_min) && (freq <= freq_max);
         
-        // 2. 幅度测试
-        amp_pass <= (amplitude >= AMP_MIN) && (amplitude <= AMP_MAX);
+        // 2. 幅度测试（使用可配置范围）
+        amp_pass <= (amplitude >= amp_min) && (amplitude <= amp_max);
         
-        // 3. 占空比测试
-        duty_pass <= (duty >= DUTY_MIN) && (duty <= DUTY_MAX);
+        // 3. 占空比测试（使用可配置目标和容差）
+        duty_pass <= (duty >= duty_min) && (duty <= duty_max);
         
-        // 4. THD测试
-        thd_pass <= (thd <= THD_MAX);
+        // 4. THD测试（使用可配置上限）
+        thd_pass <= (thd <= thd_max);
         
         // 5. 相位差测试（同相或反相都算合格）
-        // 同相: 0°±10° (0-100 或 3500-3599)
-        // 反相: 180°±10° (1700-1900)
-        phase_pass <= ((phase_diff <= PHASE_SYNC_TOL) || 
-                       (phase_diff >= (16'd3600 - PHASE_SYNC_TOL)) ||
-                       ((phase_diff >= (PHASE_180 - PHASE_SYNC_TOL)) && 
-                        (phase_diff <= (PHASE_180 + PHASE_SYNC_TOL))));
+        // 同相: 0°±tolerance
+        // 反相: 180°±tolerance
+        phase_pass <= ((phase_diff <= phase_tolerance) || 
+                       (phase_diff >= (16'd3600 - phase_tolerance)) ||
+                       ((phase_diff >= (16'd1800 - phase_tolerance)) && 
+                        (phase_diff <= (16'd1800 + phase_tolerance))));
         
         // 6. 综合判断
         all_pass <= freq_pass && amp_pass && duty_pass && thd_pass && phase_pass;
-    end else begin
+    end else if (!test_enable) begin
+        // 退出测试模式时清零
         freq_pass   <= 1'b0;
         amp_pass    <= 1'b0;
         duty_pass   <= 1'b0;

@@ -362,6 +362,14 @@ wire [7:0] auto_test_result;        // 自动测试结果LED
 reg        auto_test_enable;        // 自动测试使能
 wire       btn_auto_test;           // 自动测试按键
 
+// 自动测试阈值调整按键（在测试模式下，其他按键复用为阈值调整）
+wire       btn_freq_up;             // 频率增加
+wire       btn_freq_dn;             // 频率减少
+wire       btn_amp_up;              // 幅度增加
+wire       btn_amp_dn;              // 幅度减少
+wire       btn_duty_up;             // 占空比增加
+wire       btn_thd_adjust;          // THD调整
+
 //=============================================================================
 // UART发送模块信号
 //=============================================================================
@@ -1689,6 +1697,14 @@ auto_test u_auto_test (
     // 测试控制
     .test_enable    (auto_test_enable),
     
+    // 阈值调整按键
+    .btn_freq_up    (btn_freq_up),
+    .btn_freq_dn    (btn_freq_dn),
+    .btn_amp_up     (btn_amp_up),
+    .btn_amp_dn     (btn_amp_dn),
+    .btn_duty_up    (btn_duty_up),
+    .btn_thd_adjust (btn_thd_adjust),
+    
     // 参数输入
     .freq           (signal_freq),
     .amplitude      (signal_amplitude),
@@ -2060,6 +2076,49 @@ key_debounce u_key_auto_test (
     .rst_n      (rst_n),
     .key_in     (user_button[5]),
     .key_pulse  (btn_auto_test)
+);
+
+// 阈值调整按键（在自动测试模式下，其他按键复用为阈值调整）
+key_debounce u_key_freq_up (
+    .clk        (clk_100m),
+    .rst_n      (rst_n),
+    .key_in     (user_button[0] & auto_test_enable),  // 仅在测试模式有效
+    .key_pulse  (btn_freq_up)
+);
+
+key_debounce u_key_freq_dn (
+    .clk        (clk_100m),
+    .rst_n      (rst_n),
+    .key_in     (user_button[1] & auto_test_enable),
+    .key_pulse  (btn_freq_dn)
+);
+
+key_debounce u_key_amp_up (
+    .clk        (clk_100m),
+    .rst_n      (rst_n),
+    .key_in     (user_button[2] & auto_test_enable),
+    .key_pulse  (btn_amp_up)
+);
+
+key_debounce u_key_amp_dn (
+    .clk        (clk_100m),
+    .rst_n      (rst_n),
+    .key_in     (user_button[3] & auto_test_enable),
+    .key_pulse  (btn_amp_dn)
+);
+
+key_debounce u_key_duty_up (
+    .clk        (clk_100m),
+    .rst_n      (rst_n),
+    .key_in     (user_button[4] & auto_test_enable),
+    .key_pulse  (btn_duty_up)
+);
+
+key_debounce u_key_thd_adjust (
+    .clk        (clk_100m),
+    .rst_n      (rst_n),
+    .key_in     (user_button[6] & auto_test_enable),
+    .key_pulse  (btn_thd_adjust)
 );
 
 // 微弱信号检测使能按键（预留：user_button[6]）
