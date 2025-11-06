@@ -636,7 +636,7 @@ always @(posedge clk_adc or negedge rst_n) begin
 end
 
 // 溢出标志锁存（一旦发生溢出，保持标志直到手动清除）
-assign adc_otr_clear = user_button[7];  // 按键7清除溢出标志
+// adc_otr_clear在按键部分赋值（使用btn_7_pulse，避免与btn_test_mode冲突）
 
 always @(posedge clk_adc or negedge rst_n) begin
     if (!rst_n) begin
@@ -1945,53 +1945,109 @@ hdmi_tx u_hdmi_tx (
 );
 
 //=============================================================================
-// 12. 按键消抖和控制逻辑
+// 12. 按键消抖和控制逻辑（修复冲突，每个按键只有一个消抖模块）
 //=============================================================================
-key_debounce u_key_mode (
+// 原始按键脉冲信号（每个按键一个消抖模块）
+wire btn_0_pulse, btn_1_pulse, btn_2_pulse, btn_3_pulse;
+wire btn_4_pulse, btn_5_pulse, btn_6_pulse, btn_7_pulse;
+
+key_debounce u_key_0 (
     .clk            (clk_100m),
     .rst_n          (rst_n),
     .key_in         (user_button[0]),
-    .key_pulse      (btn_mode)
+    .key_pulse      (btn_0_pulse)
 );
 
-key_debounce u_key_start (
+key_debounce u_key_1 (
     .clk            (clk_100m),
     .rst_n          (rst_n),
     .key_in         (user_button[1]),
-    .key_pulse      (btn_start)
+    .key_pulse      (btn_1_pulse)
 );
 
-key_debounce u_key_stop (
+key_debounce u_key_2 (
     .clk            (clk_100m),
     .rst_n          (rst_n),
     .key_in         (user_button[2]),
-    .key_pulse      (btn_stop)
+    .key_pulse      (btn_2_pulse)
 );
 
-// ✅ 通道1开关按键（替代原来的通道选择）
-key_debounce u_key_ch1_toggle (
+key_debounce u_key_3 (
     .clk            (clk_100m),
     .rst_n          (rst_n),
-    .key_in         (user_button[3]),       // 按键3控制CH1开关
-    .key_pulse      (btn_ch1_toggle)
+    .key_in         (user_button[3]),
+    .key_pulse      (btn_3_pulse)
 );
 
-// ✅ 通道2开关按键
-key_debounce u_key_ch2_toggle (
-    .clk            (clk_100m),
-    .rst_n          (rst_n),
-    .key_in         (user_button[6]),       // 按键6控制CH2开关
-    .key_pulse      (btn_ch2_toggle)
-);
-
-// 触发模式切换按键（Auto/Normal）- 使用button[4]
-key_debounce u_key_trig_mode (
+key_debounce u_key_4 (
     .clk            (clk_100m),
     .rst_n          (rst_n),
     .key_in         (user_button[4]),
-    .key_pulse      (btn_trig_mode)
+    .key_pulse      (btn_4_pulse)
 );
 
+key_debounce u_key_5 (
+    .clk            (clk_100m),
+    .rst_n          (rst_n),
+    .key_in         (user_button[5]),
+    .key_pulse      (btn_5_pulse)
+);
+
+key_debounce u_key_6 (
+    .clk            (clk_100m),
+    .rst_n          (rst_n),
+    .key_in         (user_button[6]),
+    .key_pulse      (btn_6_pulse)
+);
+
+key_debounce u_key_7 (
+    .clk            (clk_100m),
+    .rst_n          (rst_n),
+    .key_in         (user_button[7]),
+    .key_pulse      (btn_7_pulse)
+);
+
+// 按键功能分配（基于工作模式的智能复用）
+// 默认模式: button[0]=模式切换, [1]=启动, [2]=停止, [3]=CH1开关, [4]=触发模式, [5]=自动测试, [6]=CH2开关, [7]=测试模式
+// 自动测试模式: button[0]=频率+, [1]=频率-, [2]=幅度+, [3]=幅度-, [4]=占空比+, [6]=THD调整
+// 微弱信号模式: button[2]=参考频率+, [3]=参考频率-, [4]=参考模式切换, [5]=微弱信号切换
+
+// 基础功能按键（在自动测试和微弱信号模式外有效）
+assign btn_mode       = btn_0_pulse & ~auto_test_enable;
+assign btn_start      = btn_1_pulse & ~auto_test_enable & ~weak_sig_enable;
+assign btn_stop       = btn_2_pulse & ~auto_test_enable & ~weak_sig_enable;
+assign btn_ch1_toggle = btn_3_pulse & ~auto_test_enable & ~weak_sig_enable;
+assign btn_trig_mode  = btn_4_pulse & ~auto_test_enable & ~weak_sig_enable;
+assign btn_ch2_toggle = btn_6_pulse & ~auto_test_enable;
+assign btn_test_mode  = btn_7_pulse;
+
+// 自动测试模式按键（仅在auto_test_enable=1时有效）
+assign btn_freq_up    = btn_0_pulse & auto_test_enable;
+assign btn_freq_dn    = btn_1_pulse & auto_test_enable;
+assign btn_amp_up     = btn_2_pulse & auto_test_enable;
+assign btn_amp_dn     = btn_3_pulse & auto_test_enable;
+assign btn_duty_up    = btn_4_pulse & auto_test_enable;
+assign btn_thd_adjust = btn_6_pulse & auto_test_enable;
+
+// 微弱信号检测按键
+assign btn_weak_sig_enable = btn_5_pulse;  // button[5]切换微弱信号检测
+assign btn_ref_freq_up = btn_2_pulse & weak_sig_enable & ~auto_test_enable;
+assign btn_ref_freq_dn = btn_3_pulse & weak_sig_enable & ~auto_test_enable;
+assign btn_ref_mode    = btn_4_pulse & weak_sig_enable & ~auto_test_enable;
+
+// 自动测试切换按键（button[5]，在所有模式下都有效）
+assign btn_auto_test  = btn_5_pulse;
+
+// AI识别按键（预留，暂未分配）
+assign btn_ai_enable = 1'b0;
+
+// ADC溢出标志清除（使用消抖后的btn_7_pulse）
+assign adc_otr_clear = btn_7_pulse;
+
+
+//=============================================================================
+// 工作模式和触发系统控制逻辑
+//=============================================================================
 // 工作模式切换（默认频域模式展示FFT功能）
 always @(posedge clk_100m or negedge rst_n) begin
     if (!rst_n)
@@ -2004,9 +2060,6 @@ always @(posedge clk_100m or negedge rst_n) begin
     end
 end
 
-//=============================================================================
-// 触发系统控制逻辑
-//=============================================================================
 // 触发模式切换（Auto/Normal）
 always @(posedge clk_100m or negedge rst_n) begin
     if (!rst_n)
@@ -2061,92 +2114,6 @@ always @(posedge clk_100m or negedge rst_n) begin
     else if (btn_stop)
         run_flag <= 1'b0;
 end
-
-// 测试模式切换
-key_debounce u_key_test (
-    .clk        (clk_100m),
-    .rst_n      (rst_n),
-    .key_in     (user_button[7]),
-    .key_pulse  (btn_test_mode)
-);
-
-// 自动测试按键
-key_debounce u_key_auto_test (
-    .clk        (clk_100m),
-    .rst_n      (rst_n),
-    .key_in     (user_button[5]),
-    .key_pulse  (btn_auto_test)
-);
-
-// 阈值调整按键（在自动测试模式下，其他按键复用为阈值调整）
-// 消抖模块始终工作，通过后续逻辑控制是否响应
-wire btn_freq_up_raw, btn_freq_dn_raw, btn_amp_up_raw, btn_amp_dn_raw, btn_duty_up_raw, btn_thd_adjust_raw;
-
-key_debounce u_key_freq_up (
-    .clk        (clk_100m),
-    .rst_n      (rst_n),
-    .key_in     (user_button[0]),
-    .key_pulse  (btn_freq_up_raw)
-);
-
-key_debounce u_key_freq_dn (
-    .clk        (clk_100m),
-    .rst_n      (rst_n),
-    .key_in     (user_button[1]),
-    .key_pulse  (btn_freq_dn_raw)
-);
-
-key_debounce u_key_amp_up (
-    .clk        (clk_100m),
-    .rst_n      (rst_n),
-    .key_in     (user_button[2]),
-    .key_pulse  (btn_amp_up_raw)
-);
-
-key_debounce u_key_amp_dn (
-    .clk        (clk_100m),
-    .rst_n      (rst_n),
-    .key_in     (user_button[3]),
-    .key_pulse  (btn_amp_dn_raw)
-);
-
-key_debounce u_key_duty_up (
-    .clk        (clk_100m),
-    .rst_n      (rst_n),
-    .key_in     (user_button[4]),
-    .key_pulse  (btn_duty_up_raw)
-);
-
-key_debounce u_key_thd_adjust (
-    .clk        (clk_100m),
-    .rst_n      (rst_n),
-    .key_in     (user_button[6]),
-    .key_pulse  (btn_thd_adjust_raw)
-);
-
-// 按键复用：仅在测试模式下，这些按键才用于阈值调整
-assign btn_freq_up    = btn_freq_up_raw    & auto_test_enable;
-assign btn_freq_dn    = btn_freq_dn_raw    & auto_test_enable;
-assign btn_amp_up     = btn_amp_up_raw     & auto_test_enable;
-assign btn_amp_dn     = btn_amp_dn_raw     & auto_test_enable;
-assign btn_duty_up    = btn_duty_up_raw    & auto_test_enable;
-assign btn_thd_adjust = btn_thd_adjust_raw & auto_test_enable;
-
-// 微弱信号检测使能按键（使用user_button[2]，暂时代替FFT关闭功能）
-key_debounce u_key_weak_sig (
-    .clk        (clk_100m),
-    .rst_n      (rst_n),
-    .key_in     (user_button[2]),
-    .key_pulse  (btn_weak_sig_enable)
-);
-
-// 参考频率调整按键（预留）
-assign btn_ref_freq_up = 1'b0;
-assign btn_ref_freq_dn = 1'b0;
-assign btn_ref_mode = 1'b0;
-
-// AI信号识别使能按键（预留：user_button[7]）
-assign btn_ai_enable = 1'b0;  // 暂时禁用，未连接按键
 
 // FFT启动信号
 assign fft_start = run_flag && (work_mode == 2'd1);
