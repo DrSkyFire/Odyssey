@@ -41,10 +41,10 @@ localparam TYPE_NOISE    = 3'd5;  // 噪声信号
 // 特征阈值定义（根据仿真和实验调整）
 //=============================================================================
 // 正弦波特征：
-// - 低THD (<5%)
+// - 低THD (<8%) - 修复: 放宽阈值以适应实际ADC噪声
 // - 峰值因子 ≈ 1.414 (√2)
 // - 波形因子 ≈ 1.11
-localparam SINE_THD_MAX        = 16'd5;      // THD < 5%
+localparam SINE_THD_MAX        = 16'd8;      // 修复: THD < 8% (原5%太严格)
 localparam SINE_CF_MIN         = 16'd350;    // CF: 1.37 (Q8.8 = 350)
 localparam SINE_CF_MAX         = 16'd400;    // CF: 1.56
 localparam SINE_FF_MIN         = 16'd270;    // FF: 1.05

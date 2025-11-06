@@ -1801,7 +1801,7 @@ end
 ai_signal_recognizer #(
     .DATA_WIDTH   (11),
     .WINDOW_SIZE  (1024),
-    .FFT_BINS     (512)
+    .FFT_BINS     (4096)  // 修复: 8192点FFT的有效频点数
 ) u_ch1_ai_recognizer (
     .clk              (clk_fft),
     .rst_n            (rst_n),
@@ -1810,10 +1810,10 @@ ai_signal_recognizer #(
     .signal_in        (ch1_data_11b),
     .signal_valid     (dual_data_valid && ai_enable),
     
-    // FFT频谱输入（需要根据实际FFT模块连接）
-    .fft_magnitude    (ch1_spectrum_rd_data),  // 使用频谱RAM读出数据
-    .fft_bin_index    (spectrum_rd_addr[9:0]),
-    .fft_valid        (ai_enable && (current_fft_channel == 1'b0)),  // 仅CH1 FFT期间有效
+    // 修复: FFT频谱输入 - 使用FFT实时输出而非RAM读取
+    .fft_magnitude    (ch1_spectrum_magnitude),      // ✅ 使用FFT实时输出
+    .fft_bin_index    (ch1_spectrum_wr_addr[12:0]),  // ✅ 使用FFT写地址(13位)
+    .fft_valid        (ch1_spectrum_valid && ai_enable),  // ✅ 使用FFT有效信号
     
     .ai_enable        (ai_enable),
     
@@ -1832,7 +1832,7 @@ ai_signal_recognizer #(
 ai_signal_recognizer #(
     .DATA_WIDTH   (11),
     .WINDOW_SIZE  (1024),
-    .FFT_BINS     (512)
+    .FFT_BINS     (4096)  // 修复: 8192点FFT的有效频点数
 ) u_ch2_ai_recognizer (
     .clk              (clk_fft),
     .rst_n            (rst_n),
@@ -1841,10 +1841,10 @@ ai_signal_recognizer #(
     .signal_in        (ch2_data_11b),
     .signal_valid     (dual_data_valid && ai_enable),
     
-    // FFT频谱输入
-    .fft_magnitude    (ch2_spectrum_rd_data),
-    .fft_bin_index    (spectrum_rd_addr[9:0]),
-    .fft_valid        (ai_enable && (current_fft_channel == 1'b1)),  // 仅CH2 FFT期间有效
+    // 修复: FFT频谱输入 - 使用FFT实时输出而非RAM读取
+    .fft_magnitude    (ch2_spectrum_magnitude),      // ✅ 使用FFT实时输出
+    .fft_bin_index    (ch2_spectrum_wr_addr[12:0]),  // ✅ 使用FFT写地址(13位)
+    .fft_valid        (ch2_spectrum_valid && ai_enable),  // ✅ 使用FFT有效信号
     
     .ai_enable        (ai_enable),
     

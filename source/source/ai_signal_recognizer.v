@@ -12,7 +12,7 @@
 module ai_signal_recognizer #(
     parameter DATA_WIDTH = 11,
     parameter WINDOW_SIZE = 1024,
-    parameter FFT_BINS = 512
+    parameter FFT_BINS = 4096           // 修复: 8192点FFT的有效频点数(对称性)
 )(
     input  wire                         clk,
     input  wire                         rst_n,
@@ -23,7 +23,7 @@ module ai_signal_recognizer #(
     
     // FFT频谱输入
     input  wire [15:0]                  fft_magnitude,
-    input  wire [9:0]                   fft_bin_index,
+    input  wire [12:0]                  fft_bin_index,  // 修复: 13位支持0~8191
     input  wire                         fft_valid,
     
     // 使能控制

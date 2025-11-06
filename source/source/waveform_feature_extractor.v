@@ -15,7 +15,7 @@
 module waveform_feature_extractor #(
     parameter DATA_WIDTH = 11,          // 输入数据位宽
     parameter WINDOW_SIZE = 1024,       // 分析窗口大小
-    parameter FFT_BINS = 512            // FFT频率点数
+    parameter FFT_BINS = 4096           // 修复: FFT频率点数(8192点FFT的有效频点)
 )(
     input  wire                         clk,
     input  wire                         rst_n,
@@ -26,7 +26,7 @@ module waveform_feature_extractor #(
     
     // FFT频谱输入（用于频域特征）
     input  wire [15:0]                  fft_magnitude,    // FFT幅度谱
-    input  wire [9:0]                   fft_bin_index,    // FFT频点索引
+    input  wire [12:0]                  fft_bin_index,    // 修复: FFT频点索引(13位支持0~8191)
     input  wire                         fft_valid,
     
     // 特征输出
@@ -213,12 +213,12 @@ reg [31:0] fft_sum_mag;          // 总能量
 reg [31:0] fft_weighted_sum;     // 加权求和（质心）
 reg [15:0] fft_fundamental;      // 基波幅度
 reg [31:0] fft_harmonic_sum;     // 谐波能量和
-reg [9:0]  fundamental_bin;      // 基波频点
-reg [9:0]  fundamental_bin_reg;  // 基波频点寄存器（延迟一拍用于谐波检测）
+reg [12:0] fundamental_bin;      // 修复: 基波频点(13位)
+reg [12:0] fundamental_bin_reg;  // 修复: 基波频点寄存器(13位)
 
 // 寻找基波（最大幅度）
 reg [15:0] max_magnitude;
-reg [9:0]  max_bin_index;
+reg [12:0] max_bin_index;  // 修复: 13位以支持0~8191
 
 always @(posedge clk or negedge rst_n) begin
     if (!rst_n) begin
