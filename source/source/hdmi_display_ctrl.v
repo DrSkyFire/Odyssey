@@ -28,11 +28,12 @@ module hdmi_display_ctrl (
     input  wire         ch2_freq_is_khz,    // CH2频率单位 (0=Hz, 1=kHz)
     input  wire         ch2_freq_is_mhz,    // CH2 MHz单位 (1=MHz)
     input  wire [15:0]  ch2_amplitude,      // CH2幅度
-    input  wire [15:0]  ch2_duty,           // CH2占空�?(0-1000 = 0-100%)
+    input  wire [15:0]  ch2_duty,           // CH2占空比(0-1000 = 0-100%)
     input  wire [15:0]  ch2_thd,            // CH2 THD (0-1000 = 0-100%)
-    input  wire [15:0]  phase_diff,     // 相位�?(0-3599 = 0-359.9°)
+    input  wire signed [15:0]  phase_diff,  // 相位差(-1800 ~ +1799 = -180.0° ~ +179.9°)
+    input  wire [7:0]   phase_confidence,   // 相位差置信度 (0-255)
     
-    // �?AI识别结果输入
+    // ✅ AI识别结果输入
     input  wire [2:0]   ch1_waveform_type,   // CH1波形类型: 0=未知,1=正弦,2=方波,3=三角,4=锯齿,5=噪声
     input  wire [7:0]   ch1_confidence,      // CH1置信�?(0-100%)
     input  wire         ch1_ai_valid,        // CH1识别结果有效
@@ -210,6 +211,10 @@ reg         in_char_area_d1;
 // 数字分解
 reg [3:0]   digit_0, digit_1, digit_2, digit_3, digit_4;
 
+// 【时序优化】BCD转换流水线寄存器，减少组合逻辑延迟
+reg [15:0]  ch1_freq_div10, ch1_freq_div100, ch1_freq_div1000, ch1_freq_div10000;
+reg [15:0]  ch2_freq_div10, ch2_freq_div100, ch2_freq_div1000, ch2_freq_div10000;
+
 // CH1预计算的数字（每帧更新一次，避免实时除法�?
 reg [3:0]   ch1_freq_d0, ch1_freq_d1, ch1_freq_d2, ch1_freq_d3, ch1_freq_d4;
 reg [3:0]   ch1_amp_d0, ch1_amp_d1, ch1_amp_d2, ch1_amp_d3;
@@ -222,10 +227,12 @@ reg [3:0]   ch2_amp_d0, ch2_amp_d1, ch2_amp_d2, ch2_amp_d3;
 reg [3:0]   ch2_duty_d0, ch2_duty_d1, ch2_duty_d2;
 reg [3:0]   ch2_thd_d0, ch2_thd_d1, ch2_thd_d2;
 
-// 相位差预计算
+// 相位差预计算（支持有符号）
+reg         phase_sign;                         // 符号位 (0=正, 1=负)
+reg [15:0]  phase_abs;                          // 绝对值
 reg [3:0]   phase_d0, phase_d1, phase_d2, phase_d3;
 
-// �?NEW: 频率自适应单位和数值
+// ✅ NEW: 频率自适应单位和数值
 reg [1:0]   ch1_freq_unit;      // 0=Hz, 1=kHz, 2=MHz
 reg [15:0]  ch1_freq_display;   // 显示数值（已转换单位）
 reg [1:0]   ch2_freq_unit;
@@ -443,9 +450,16 @@ always @(posedge clk_pixel or negedge rst_n) begin
         ch2_amp_d0 <= 4'd0; ch2_amp_d1 <= 4'd0; ch2_amp_d2 <= 4'd0; ch2_amp_d3 <= 4'd0;
         ch2_duty_d0 <= 4'd0; ch2_duty_d1 <= 4'd0; ch2_duty_d2 <= 4'd0;
         ch2_thd_d0 <= 4'd0; ch2_thd_d1 <= 4'd0; ch2_thd_d2 <= 4'd0;
+        phase_sign <= 1'b0;
+        phase_abs <= 16'd0;
         phase_d0 <= 4'd0; phase_d1 <= 4'd0; phase_d2 <= 4'd0; phase_d3 <= 4'd0;
         ch1_freq_unit <= 2'd0; ch1_freq_display <= 16'd0;
         ch2_freq_unit <= 2'd0; ch2_freq_display <= 16'd0;
+        // 流水线寄存器初始化
+        ch1_freq_div10 <= 16'd0; ch1_freq_div100 <= 16'd0; 
+        ch1_freq_div1000 <= 16'd0; ch1_freq_div10000 <= 16'd0;
+        ch2_freq_div10 <= 16'd0; ch2_freq_div100 <= 16'd0;
+        ch2_freq_div1000 <= 16'd0; ch2_freq_div10000 <= 16'd0;
     end else begin
         // 在场消隐期间更新（v_cnt == 0），分散到多个时钟周期避免时序违例
         if (v_cnt == 12'd0 && h_cnt == 12'd0) begin
@@ -470,21 +484,30 @@ always @(posedge clk_pixel or negedge rst_n) begin
             end
         end
         
-        // BCD转换：分散到多个时钟周期（每5个像素周期处理一位）
+        // 【时序优化】BCD转换流水线：先计算除法，再取模
+        // Stage 1: 计算除法结果（h_cnt = 5, 10, 15...）
+        if (v_cnt == 12'd0 && h_cnt == 12'd5) begin
+            ch1_freq_div10 <= ch1_freq_display / 5'd10;
+            ch1_freq_div100 <= ch1_freq_display / 7'd100;
+            ch1_freq_div1000 <= ch1_freq_display / 10'd1000;
+            ch1_freq_div10000 <= ch1_freq_display / 14'd10000;
+        end
+        
+        // Stage 2: 基于除法结果取模（h_cnt = 10, 15, 20...）
         if (v_cnt == 12'd0 && h_cnt == 12'd10) begin
-            ch1_freq_d0 <= ch1_freq_display % 4'd10;  // 个位
+            ch1_freq_d0 <= ch1_freq_display % 4'd10;  // 个位：直接取模
         end
         if (v_cnt == 12'd0 && h_cnt == 12'd15) begin
-            ch1_freq_d1 <= (ch1_freq_display / 5'd10) % 4'd10;  // 十位
+            ch1_freq_d1 <= ch1_freq_div10 % 4'd10;  // 十位：从流水线读取
         end
         if (v_cnt == 12'd0 && h_cnt == 12'd20) begin
-            ch1_freq_d2 <= (ch1_freq_display / 7'd100) % 4'd10;  // 百位
+            ch1_freq_d2 <= ch1_freq_div100 % 4'd10;  // 百位：从流水线读取
         end
         if (v_cnt == 12'd0 && h_cnt == 12'd25) begin
-            ch1_freq_d3 <= (ch1_freq_display / 10'd1000) % 4'd10;  // 千位
+            ch1_freq_d3 <= ch1_freq_div1000 % 4'd10;  // 千位：从流水线读取
         end
         if (v_cnt == 12'd0 && h_cnt == 12'd30) begin
-            ch1_freq_d4 <= (ch1_freq_display / 14'd10000) % 4'd10;  // 万位
+            ch1_freq_d4 <= ch1_freq_div10000 % 4'd10;  // 万位：从流水线读取
         end
             
         // CH1幅度（4位数字）- 分散处理
@@ -546,21 +569,30 @@ always @(posedge clk_pixel or negedge rst_n) begin
             end
         end
         
-        // CH2频率BCD转换 - 分散处理
+        // 【时序优化】CH2频率BCD转换流水线
+        // Stage 1: 计算除法结果
+        if (v_cnt == 12'd0 && h_cnt == 12'd105) begin
+            ch2_freq_div10 <= ch2_freq_display / 5'd10;
+            ch2_freq_div100 <= ch2_freq_display / 7'd100;
+            ch2_freq_div1000 <= ch2_freq_display / 10'd1000;
+            ch2_freq_div10000 <= ch2_freq_display / 14'd10000;
+        end
+        
+        // Stage 2: 基于除法结果取模
         if (v_cnt == 12'd0 && h_cnt == 12'd110) begin
             ch2_freq_d0 <= ch2_freq_display % 10;
         end
         if (v_cnt == 12'd0 && h_cnt == 12'd115) begin
-            ch2_freq_d1 <= (ch2_freq_display / 10) % 10;
+            ch2_freq_d1 <= ch2_freq_div10 % 10;
         end
         if (v_cnt == 12'd0 && h_cnt == 12'd120) begin
-            ch2_freq_d2 <= (ch2_freq_display / 100) % 10;
+            ch2_freq_d2 <= ch2_freq_div100 % 10;
         end
         if (v_cnt == 12'd0 && h_cnt == 12'd125) begin
-            ch2_freq_d3 <= (ch2_freq_display / 1000) % 10;
+            ch2_freq_d3 <= ch2_freq_div1000 % 10;
         end
         if (v_cnt == 12'd0 && h_cnt == 12'd130) begin
-            ch2_freq_d4 <= (ch2_freq_display / 10000) % 10;
+            ch2_freq_d4 <= ch2_freq_div10000 % 10;
         end
         
         // CH2幅度（4位数字）
@@ -599,18 +631,25 @@ always @(posedge clk_pixel or negedge rst_n) begin
             ch2_thd_d2 <= (ch2_thd / 100) % 10;
         end
         
-        // 相位差（4位数字）
+        // 相位差（支持有符号显示: ±XXX.X°）
+        // Stage 1: 计算符号和绝对值
+        if (v_cnt == 12'd0 && h_cnt == 12'd182) begin
+            phase_sign <= phase_diff[15];  // 符号位
+            phase_abs <= phase_diff[15] ? ((~phase_diff) + 16'd1) : phase_diff;
+        end
+        
+        // Stage 2: BCD转换（基于绝对值）
         if (v_cnt == 12'd0 && h_cnt == 12'd185) begin
-            phase_d0 <= phase_diff % 10;
+            phase_d0 <= phase_abs % 10;
         end
         if (v_cnt == 12'd0 && h_cnt == 12'd190) begin
-            phase_d1 <= (phase_diff / 10) % 10;
+            phase_d1 <= (phase_abs / 10) % 10;
         end
         if (v_cnt == 12'd0 && h_cnt == 12'd195) begin
-            phase_d2 <= (phase_diff / 100) % 10;
+            phase_d2 <= (phase_abs / 100) % 10;
         end
         if (v_cnt == 12'd0 && h_cnt == 12'd200) begin
-            phase_d3 <= (phase_diff / 1000) % 10;
+            phase_d3 <= (phase_abs / 1000) % 10;
         end
     end
 end
@@ -2088,35 +2127,47 @@ always @(posedge clk_pixel or negedge rst_n) begin
                 in_char_area <= 1'b1;
             end
 
-            // "XXX.X°" - 相位差数值（0-359.9度）
+            // "±XXX.X°" - 相位差数值（-180.0° ~ +179.9°）
+            // 符号位
             else if (pixel_x_d1 >= 172 && pixel_x_d1 < 188) begin
-                char_code <= digit_to_ascii(phase_d3);  // 百位
+                char_code <= phase_sign ? 8'd45 : 8'd43;  // '-' or '+'
                 char_col <= pixel_x_d1 - 12'd172;
                 in_char_area <= 1'b1;
             end
+            // 百位
             else if (pixel_x_d1 >= 188 && pixel_x_d1 < 204) begin
-                char_code <= digit_to_ascii(phase_d2);  // 十位
+                char_code <= digit_to_ascii(phase_d3);
                 char_col <= pixel_x_d1 - 12'd188;
                 in_char_area <= 1'b1;
             end
+            // 十位
             else if (pixel_x_d1 >= 204 && pixel_x_d1 < 220) begin
-                char_code <= digit_to_ascii(phase_d1);  // 个位
+                char_code <= digit_to_ascii(phase_d2);
                 char_col <= pixel_x_d1 - 12'd204;
                 in_char_area <= 1'b1;
             end
+            // 个位
             else if (pixel_x_d1 >= 220 && pixel_x_d1 < 236) begin
-                char_code <= 8'd46;  // '.'
+                char_code <= digit_to_ascii(phase_d1);
                 char_col <= pixel_x_d1 - 12'd220;
                 in_char_area <= 1'b1;
             end
+            // 小数点
             else if (pixel_x_d1 >= 236 && pixel_x_d1 < 252) begin
-                char_code <= digit_to_ascii(phase_d0);  // 小数位
+                char_code <= 8'd46;  // '.'
                 char_col <= pixel_x_d1 - 12'd236;
                 in_char_area <= 1'b1;
             end
+            // 小数位
             else if (pixel_x_d1 >= 252 && pixel_x_d1 < 268) begin
-                char_code <= 8'd176;  // '°' (度数符号)
+                char_code <= digit_to_ascii(phase_d0);
                 char_col <= pixel_x_d1 - 12'd252;
+                in_char_area <= 1'b1;
+            end
+            // 度数符号 '°'
+            else if (pixel_x_d1 >= 268 && pixel_x_d1 < 284) begin
+                char_code <= 8'd176;  // '°' (度数符号)
+                char_col <= pixel_x_d1 - 12'd268;
                 in_char_area <= 1'b1;
             end
             else begin

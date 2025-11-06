@@ -376,7 +376,7 @@ if (pixel_y_d1 >= PARAM_Y_START && pixel_y_d1 < PARAM_Y_END) begin
     else if (pixel_y_d1 >= TABLE_Y_PHASE && pixel_y_d1 < PARAM_Y_END) begin
         char_row <= (pixel_y_d1 - TABLE_Y_PHASE) << 1;
         
-        // 显示 "Phase Diff: 123.4°"
+        // 显示 "Phase: ±123.4°"
         if (pixel_x_d1 >= 400 && pixel_x_d1 < 416) begin
             char_code <= 8'd80;  // 'P'
             char_col <= pixel_x_d1 - 12'd400;
@@ -407,7 +407,50 @@ if (pixel_y_d1 >= PARAM_Y_START && pixel_y_d1 < PARAM_Y_END) begin
             char_col <= pixel_x_d1 - 12'd480;
             in_char_area <= 1'b1;
         end
-        // 数值显示 "123.4°" (使用phase_diff数据)
+        
+        // 数值显示 "±123.4°" (使用phase_diff数据)
+        // 符号位 (+ or -)
+        else if (pixel_x_d1 >= 520 && pixel_x_d1 < 536) begin
+            char_code <= phase_sign ? 8'd45 : 8'd43;  // '-' or '+'
+            char_col <= pixel_x_d1 - 12'd520;
+            in_char_area <= 1'b1;
+        end
+        // 百位
+        else if (pixel_x_d1 >= 536 && pixel_x_d1 < 552) begin
+            char_code <= digit_to_ascii(phase_d3);
+            char_col <= pixel_x_d1 - 12'd536;
+            in_char_area <= 1'b1;
+        end
+        // 十位
+        else if (pixel_x_d1 >= 552 && pixel_x_d1 < 568) begin
+            char_code <= digit_to_ascii(phase_d2);
+            char_col <= pixel_x_d1 - 12'd552;
+            in_char_area <= 1'b1;
+        end
+        // 个位
+        else if (pixel_x_d1 >= 568 && pixel_x_d1 < 584) begin
+            char_code <= digit_to_ascii(phase_d1);
+            char_col <= pixel_x_d1 - 12'd568;
+            in_char_area <= 1'b1;
+        end
+        // 小数点
+        else if (pixel_x_d1 >= 584 && pixel_x_d1 < 600) begin
+            char_code <= 8'd46;  // '.'
+            char_col <= pixel_x_d1 - 12'd584;
+            in_char_area <= 1'b1;
+        end
+        // 小数位
+        else if (pixel_x_d1 >= 600 && pixel_x_d1 < 616) begin
+            char_code <= digit_to_ascii(phase_d0);
+            char_col <= pixel_x_d1 - 12'd600;
+            in_char_area <= 1'b1;
+        end
+        // 度数符号 '°'
+        else if (pixel_x_d1 >= 616 && pixel_x_d1 < 632) begin
+            char_code <= 8'd176;  // '°' (度数符号)
+            char_col <= pixel_x_d1 - 12'd616;
+            in_char_area <= 1'b1;
+        end
         else begin
             in_char_area <= 1'b0;
         end
