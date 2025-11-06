@@ -2008,13 +2008,12 @@ key_debounce u_key_7 (
 );
 
 // 按键功能分配（基于工作模式的智能复用）
-// 默认模式: button[0]=模式切换, [1]=启动, [2]=停止, [3]=CH1开关, [4]=触发模式, [5]=自动测试, [6]=CH2开关, [7]=测试模式
+// 默认模式: button[0]=模式切换, [1]=微弱信号, [2]=停止, [3]=CH1开关, [4]=触发模式, [5]=自动测试, [6]=CH2开关, [7]=测试模式
 // 自动测试模式: button[0]=频率+, [1]=频率-, [2]=幅度+, [3]=幅度-, [4]=占空比+, [6]=THD调整
-// 微弱信号模式: button[2]=参考频率+, [3]=参考频率-, [4]=参考模式切换, [5]=微弱信号切换
+// 微弱信号模式: button[2]=参考频率+, [3]=参考频率-, [4]=参考模式切换
 
 // 基础功能按键（在自动测试和微弱信号模式外有效）
 assign btn_mode       = btn_0_pulse & ~auto_test_enable;
-assign btn_start      = btn_1_pulse & ~auto_test_enable & ~weak_sig_enable;
 assign btn_stop       = btn_2_pulse & ~auto_test_enable & ~weak_sig_enable;
 assign btn_ch1_toggle = btn_3_pulse & ~auto_test_enable & ~weak_sig_enable;
 assign btn_trig_mode  = btn_4_pulse & ~auto_test_enable & ~weak_sig_enable;
@@ -2029,14 +2028,17 @@ assign btn_amp_dn     = btn_3_pulse & auto_test_enable;
 assign btn_duty_up    = btn_4_pulse & auto_test_enable;
 assign btn_thd_adjust = btn_6_pulse & auto_test_enable;
 
-// 微弱信号检测按键
-assign btn_weak_sig_enable = btn_5_pulse;  // button[5]切换微弱信号检测
+// 微弱信号检测按键（button[1]，因为FFT已有自动启动功能）
+assign btn_weak_sig_enable = btn_1_pulse & ~auto_test_enable;  // button[1]切换微弱信号检测
 assign btn_ref_freq_up = btn_2_pulse & weak_sig_enable & ~auto_test_enable;
 assign btn_ref_freq_dn = btn_3_pulse & weak_sig_enable & ~auto_test_enable;
 assign btn_ref_mode    = btn_4_pulse & weak_sig_enable & ~auto_test_enable;
 
-// 自动测试切换按键（button[5]，在所有模式下都有效）
+// 自动测试切换按键（button[5]）
 assign btn_auto_test  = btn_5_pulse;
+
+// btn_start在新设计中不再使用（FFT自动启动）
+assign btn_start = 1'b0;
 
 // AI识别按键（预留，暂未分配）
 assign btn_ai_enable = 1'b0;
