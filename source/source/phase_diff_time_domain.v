@@ -140,6 +140,9 @@ end
 //==============================================================================
 reg [19:0]  ch2_phase_latched;  // 锁存的CH2相位值
 reg [2:0]   calc_counter;        // 计算周期计数器
+reg         ch1_leading;         // CH1超前标志（CH1先过零）
+reg         ch2_leading;         // CH2超前标志（CH2先过零）
+reg [19:0]  phase_snapshot;      // 相位快照（后过零通道的计数值）
 
 always @(posedge clk or negedge rst_n) begin
     if (!rst_n) begin
@@ -150,26 +153,49 @@ always @(posedge clk or negedge rst_n) begin
         ch2_zero_snapshot <= 20'd0;
         ch1_has_crossed <= 1'b0;
         ch2_has_crossed <= 1'b0;
+        ch1_leading <= 1'b0;
+        ch2_leading <= 1'b0;
+        phase_snapshot <= 20'd0;
         calc_counter <= 3'd0;
         calc_valid <= 1'b0;
     end else begin
-        // 记录过零事件
-        if (ch1_zero_cross) begin
+        // 【关键修复】记录过零事件和过零顺序
+        if (ch1_zero_cross && !ch1_has_crossed) begin
             ch1_zero_snapshot <= ch2_period_cnt;  // CH1过零时CH2的位置
             ch1_has_crossed <= 1'b1;
+            
+            // 【新增】如果CH2还未过零，说明CH1先过零（CH1超前）
+            if (!ch2_has_crossed) begin
+                ch1_leading <= 1'b1;
+                ch2_leading <= 1'b0;
+            end
         end
         
-        if (ch2_zero_cross) begin
+        if (ch2_zero_cross && !ch2_has_crossed) begin
             ch2_zero_snapshot <= ch1_period_cnt;  // CH2过零时CH1的位置
             ch2_has_crossed <= 1'b1;
+            
+            // 【新增】如果CH1还未过零，说明CH2先过零（CH2超前）
+            if (!ch1_has_crossed) begin
+                ch2_leading <= 1'b1;
+                ch1_leading <= 1'b0;
+            end
         end
         
-        // 当两个通道都过零后，计算相位差
+        // 【修复】当两个通道都过零后，根据过零顺序计算相位差
         if (ch1_has_crossed && ch2_has_crossed) begin
-            // 【修复】始终使用 CH1过零时CH2的位置 作为相位差基准
-            // ch1_zero_snapshot = CH1过零时，CH2距离上次过零的位置
-            // 这个值直接反映了 CH2 相对于 CH1 的相位滞后量
-            time_diff <= ch1_zero_snapshot;
+            // 根据过零顺序选择正确的相位差计算方式
+            if (ch1_leading) begin
+                // CH1先过零 → CH1超前 → 正相位差
+                // 使用CH2过零时CH1的计数值
+                time_diff <= ch2_zero_snapshot;
+                phase_snapshot <= ch2_zero_snapshot;
+            end else begin
+                // CH2先过零 → CH2超前 → 负相位差
+                // 使用CH1过零时CH2的计数值
+                time_diff <= ch1_zero_snapshot;
+                phase_snapshot <= ch1_zero_snapshot;
+            end
             
             avg_period <= (ch1_period + ch2_period) >> 1;
             calc_counter <= 3'd4;
@@ -178,6 +204,8 @@ always @(posedge clk or negedge rst_n) begin
             // 清除标志，准备下一轮
             ch1_has_crossed <= 1'b0;
             ch2_has_crossed <= 1'b0;
+            ch1_leading <= 1'b0;
+            ch2_leading <= 1'b0;
         end else if (calc_counter > 3'd0) begin
             calc_counter <= calc_counter - 1'b1;
             calc_valid <= 1'b1;
@@ -193,16 +221,15 @@ end
 // 优化：使用动态计算 phase ≈ (time_diff * 3600 * 1024) / (avg_period * 1024)
 //       简化为 (time_diff << 10) * 3600 / (avg_period << 10)
 // 进一步优化：phase ≈ (time_diff * k) >> 10, 其中 k = 3600*1024/avg_period
-// 【改进】符号判断逻辑：
-//   - time_diff = CH1过零时，CH2距离上次过零的计数值
-//   - 如果 time_diff < period/2：CH2滞后于CH1，相位差为正
-//   - 如果 time_diff > period/2：CH2超前于CH1（绕了大半圈），相位差为负
+// 【改进v2】符号判断逻辑：基于过零顺序，而非时间差大小
 //==============================================================================
 reg [31:0]  phase_calc_step1;   // (time_diff × 系数) 中间结果
 reg [31:0]  phase_calc_step2;   // 移位结果（近似除法）
 reg [31:0]  scale_factor;       // 动态计算的缩放系数
 reg [19:0]  time_diff_d1;       // 时间差延迟（用于符号判断）
 reg [19:0]  avg_period_d1;      // 周期延迟
+reg         ch1_leading_d1, ch1_leading_d2;  // CH1超前标志延迟
+reg         ch2_leading_d1, ch2_leading_d2;  // CH2超前标志延迟
 reg         calc_valid_d1, calc_valid_d2;
 reg [19:0]  period_diff;        // 周期差异（用于置信度计算）
 
@@ -213,6 +240,10 @@ always @(posedge clk or negedge rst_n) begin
         scale_factor <= 32'd103;  // 默认值，对应 period=35000
         time_diff_d1 <= 20'd0;
         avg_period_d1 <= 20'd35000;
+        ch1_leading_d1 <= 1'b0;
+        ch1_leading_d2 <= 1'b0;
+        ch2_leading_d1 <= 1'b0;
+        ch2_leading_d2 <= 1'b0;
         period_diff <= 20'd0;
         calc_valid_d1 <= 1'b0;
         calc_valid_d2 <= 1'b0;
@@ -223,6 +254,10 @@ always @(posedge clk or negedge rst_n) begin
         // 流水线延迟
         calc_valid_d1 <= calc_valid;
         calc_valid_d2 <= calc_valid_d1;
+        ch1_leading_d1 <= ch1_leading;
+        ch1_leading_d2 <= ch1_leading_d1;
+        ch2_leading_d1 <= ch2_leading;
+        ch2_leading_d2 <= ch2_leading_d1;
         
         // 步骤1：计算缩放系数和时间差乘法
         // scale_factor ≈ 3686400 / avg_period (3686400 = 3600 * 1024)
@@ -250,23 +285,27 @@ always @(posedge clk or negedge rst_n) begin
         
         // 步骤3：180°环绕处理和符号判断
         if (calc_valid_d2) begin
-            // 【修复】符号判断逻辑：
-            // time_diff_d1 = CH1过零时，CH2的相位计数（0 ~ period）
-            // 如果 < period/2：CH2落后，相位差为正（CH1超前）
-            // 如果 > period/2：CH2超前（绕大圈），相位差应为负
-            if (time_diff_d1 > (avg_period_d1 >> 1)) begin
-                // CH2超前（绕大圈）= 负相位差
-                // 实际相位差 = time_diff - period = -(period - time_diff)
-                if (phase_calc_step2 > 32'd1800)
-                    phase_diff <= -16'sd1800;  // 限制在-180°
-                else
-                    phase_diff <= -(16'sd3600 - phase_calc_step2[15:0]);
-            end else begin
-                // CH2滞后 = 正相位差
+            // 【修复v2】符号判断逻辑：基于过零顺序
+            // ch1_leading=1：CH1先过零，CH1超前，相位差为正
+            // ch2_leading=1：CH2先过零，CH2超前，相位差为负
+            
+            // 【新增】单通道检测：如果time_diff接近满周期，说明另一通道无信号
+            if (time_diff_d1 > (avg_period_d1 - (avg_period_d1 >> 4))) begin
+                // 单通道模式：time_diff > 93.75% of period
+                phase_diff <= 16'sd0;        // 输出0°（无效相位差）
+                confidence <= 8'd0;          // 置信度为0
+            end else if (ch1_leading_d1) begin
+                // CH1超前 = 正相位差
                 if (phase_calc_step2 > 32'd1800)
                     phase_diff <= 16'sd1800;   // 限制在+180°
                 else
                     phase_diff <= phase_calc_step2[15:0];
+            end else begin
+                // CH2超前 = 负相位差
+                if (phase_calc_step2 > 32'd1800)
+                    phase_diff <= -16'sd1800;  // 限制在-180°
+                else
+                    phase_diff <= -phase_calc_step2[15:0];
             end
             
             // 【改进】置信度：综合周期稳定性和数据有效性
