@@ -537,14 +537,17 @@ end
 //      = y[n-1] + α×(x[n] - y[n-1])
 //      = y[n-1] + error >> ALPHA_SHIFT
 // 
-// 【调整】α从0.25降低到0.125，加强平滑
-//   - α=0.25: 等效4次平均，200ms响应（跳动明显）
-//   - α=0.125: 等效8次平均，400ms响应（平滑但仍快于原800ms）
-// 
-// 如果测量值仍跳动，建议：
-//   1. 将FREQ_ALPHA_SHIFT改为4（α=0.0625，等效16次平均）
-//   2. 或禁用窗函数（dual_channel_fft_controller.v中ENABLE_WINDOW=0）
-localparam FREQ_ALPHA_SHIFT = 3;  // α = 1/8 = 0.125（调整：2→3，加强平滑）
+// 【自适应EMA滤波器 2025-11-07】
+// 根据输入变化幅度自动调整α值：
+//   - 小变化（稳态）：α=0.125（SHIFT=3），强平滑抑制噪声/窗函数波动
+//   - 中等变化：      α=0.25 （SHIFT=2），平衡响应速度
+//   - 大变化（瞬态）：α=0.5  （SHIFT=1），快速跟踪，避免震荡
+// 变化阈值：
+//   - 大变化阈值：>5% (例如100kHz变化>5kHz)
+//   - 小变化阈值：<1% (例如100kHz变化<1kHz)
+localparam FREQ_ALPHA_SHIFT_SLOW = 3;  // 稳态α = 0.125
+localparam FREQ_ALPHA_SHIFT_MID  = 2;  // 中态α = 0.25
+localparam FREQ_ALPHA_SHIFT_FAST = 1;  // 瞬态α = 0.5
 
 reg [1:0] freq_unit_d3;  // 再延迟一拍用于检测切换
 always @(posedge clk or negedge rst_n) begin
@@ -567,10 +570,42 @@ always @(posedge clk or negedge rst_n) begin
             // 计算误差（带符号扩展）
             freq_error <= $signed({1'b0, freq_result}) - $signed({1'b0, freq_ema});
             
-            // 更新EMA：y[n] = y[n-1] + α×error
-            //              = y[n-1] + (error >> 2)
-            freq_ema <= freq_ema + freq_error[16:FREQ_ALPHA_SHIFT];
-            freq_filtered <= freq_ema + freq_error[16:FREQ_ALPHA_SHIFT];  // 输出更新后的值
+            // 【自适应EMA 2025-11-07】根据误差大小自动调整α
+            // 误差绝对值 vs 当前值的比例决定平滑强度
+            // 注意：freq_error是17位有符号数，需要取绝对值比较
+            if (freq_error[16]) begin  // 负数，取反+1
+                // 大变化：|error| > ema/16 (>6.25%)，使用α=0.5快速跟踪
+                if ((~freq_error[15:0] + 1'b1) > {4'd0, freq_ema[15:4]}) begin
+                    freq_ema <= freq_ema + freq_error[16:FREQ_ALPHA_SHIFT_FAST];
+                    freq_filtered <= freq_ema + freq_error[16:FREQ_ALPHA_SHIFT_FAST];
+                end
+                // 中等变化：|error| > ema/64 (>1.56%)，使用α=0.25
+                else if ((~freq_error[15:0] + 1'b1) > {6'd0, freq_ema[15:6]}) begin
+                    freq_ema <= freq_ema + freq_error[16:FREQ_ALPHA_SHIFT_MID];
+                    freq_filtered <= freq_ema + freq_error[16:FREQ_ALPHA_SHIFT_MID];
+                end
+                // 小变化：使用α=0.125强平滑
+                else begin
+                    freq_ema <= freq_ema + freq_error[16:FREQ_ALPHA_SHIFT_SLOW];
+                    freq_filtered <= freq_ema + freq_error[16:FREQ_ALPHA_SHIFT_SLOW];
+                end
+            end else begin  // 正数
+                // 大变化：error > ema/16 (>6.25%)
+                if (freq_error[15:0] > {4'd0, freq_ema[15:4]}) begin
+                    freq_ema <= freq_ema + freq_error[16:FREQ_ALPHA_SHIFT_FAST];
+                    freq_filtered <= freq_ema + freq_error[16:FREQ_ALPHA_SHIFT_FAST];
+                end
+                // 中等变化：error > ema/64 (>1.56%)
+                else if (freq_error[15:0] > {6'd0, freq_ema[15:6]}) begin
+                    freq_ema <= freq_ema + freq_error[16:FREQ_ALPHA_SHIFT_MID];
+                    freq_filtered <= freq_ema + freq_error[16:FREQ_ALPHA_SHIFT_MID];
+                end
+                // 小变化
+                else begin
+                    freq_ema <= freq_ema + freq_error[16:FREQ_ALPHA_SHIFT_SLOW];
+                    freq_filtered <= freq_ema + freq_error[16:FREQ_ALPHA_SHIFT_SLOW];
+                end
+            end
         end
     end
 end
@@ -975,10 +1010,12 @@ always @(posedge clk or negedge rst_n) begin
 end
 
 //=============================================================================
-// 3B. 【优化2025-11-06】幅度EMA滤波器（加强平滑以抑制跳动）
+// 3B. 【自适应EMA滤波器 2025-11-07】幅度测量（抑制窗函数能量波动）
 //=============================================================================
-// 【调整】α从0.25降低到0.125，等效8次平均
-localparam AMP_ALPHA_SHIFT = 3;  // α = 1/8 = 0.125（调整：2→3）
+// 窗函数会导致幅度测量系统性波动，需要根据变化幅度自适应调整α
+localparam AMP_ALPHA_SHIFT_SLOW = 3;  // 稳态α = 0.125
+localparam AMP_ALPHA_SHIFT_MID  = 2;  // 中态α = 0.25  
+localparam AMP_ALPHA_SHIFT_FAST = 1;  // 瞬态α = 0.5
 
 always @(posedge clk or negedge rst_n) begin
     if (!rst_n) begin
@@ -991,9 +1028,37 @@ always @(posedge clk or negedge rst_n) begin
             // 计算误差
             amp_error <= $signed({1'b0, amplitude_calc}) - $signed({1'b0, amp_ema});
             
-            // 更新EMA
-            amp_ema <= amp_ema + amp_error[16:AMP_ALPHA_SHIFT];
-            amp_filtered <= amp_ema + amp_error[16:AMP_ALPHA_SHIFT];
+            // 【自适应α】根据误差大小选择平滑强度
+            if (amp_error[16]) begin  // 负误差
+                // 大变化：|error| > ema/16
+                if ((~amp_error[15:0] + 1'b1) > {4'd0, amp_ema[15:4]}) begin
+                    amp_ema <= amp_ema + amp_error[16:AMP_ALPHA_SHIFT_FAST];
+                    amp_filtered <= amp_ema + amp_error[16:AMP_ALPHA_SHIFT_FAST];
+                end
+                // 中等变化：|error| > ema/64
+                else if ((~amp_error[15:0] + 1'b1) > {6'd0, amp_ema[15:6]}) begin
+                    amp_ema <= amp_ema + amp_error[16:AMP_ALPHA_SHIFT_MID];
+                    amp_filtered <= amp_ema + amp_error[16:AMP_ALPHA_SHIFT_MID];
+                end
+                // 小变化：强平滑抑制窗函数波动
+                else begin
+                    amp_ema <= amp_ema + amp_error[16:AMP_ALPHA_SHIFT_SLOW];
+                    amp_filtered <= amp_ema + amp_error[16:AMP_ALPHA_SHIFT_SLOW];
+                end
+            end else begin  // 正误差
+                if (amp_error[15:0] > {4'd0, amp_ema[15:4]}) begin
+                    amp_ema <= amp_ema + amp_error[16:AMP_ALPHA_SHIFT_FAST];
+                    amp_filtered <= amp_ema + amp_error[16:AMP_ALPHA_SHIFT_FAST];
+                end
+                else if (amp_error[15:0] > {6'd0, amp_ema[15:6]}) begin
+                    amp_ema <= amp_ema + amp_error[16:AMP_ALPHA_SHIFT_MID];
+                    amp_filtered <= amp_ema + amp_error[16:AMP_ALPHA_SHIFT_MID];
+                end
+                else begin
+                    amp_ema <= amp_ema + amp_error[16:AMP_ALPHA_SHIFT_SLOW];
+                    amp_filtered <= amp_ema + amp_error[16:AMP_ALPHA_SHIFT_SLOW];
+                end
+            end
         end
     end
 end
@@ -1476,9 +1541,11 @@ always @(posedge clk or negedge rst_n) begin
 end
 
 //=============================================================================
-// 4b. 【优化2025-11-06】占空比EMA滤波器（α=0.125，较强平滑）
+// 4b. 【自适应EMA滤波器 2025-11-07】占空比测量（抑制窗函数波动）
 //=============================================================================
-localparam DUTY_ALPHA_SHIFT = 3;  // α = 1/8 = 0.125
+localparam DUTY_ALPHA_SHIFT_SLOW = 3;  // 稳态α = 0.125
+localparam DUTY_ALPHA_SHIFT_MID  = 2;  // 中态α = 0.25
+localparam DUTY_ALPHA_SHIFT_FAST = 1;  // 瞬态α = 0.5
 
 reg duty_pipe_valid_d1;  // 流水线有效信号延迟1拍，用于边沿检测
 always @(posedge clk or negedge rst_n) begin
@@ -1495,9 +1562,37 @@ always @(posedge clk or negedge rst_n) begin
             // 计算误差
             duty_error <= $signed({1'b0, duty_calc}) - $signed({1'b0, duty_ema});
             
-            // 更新EMA
-            duty_ema <= duty_ema + duty_error[16:DUTY_ALPHA_SHIFT];
-            duty_filtered <= duty_ema + duty_error[16:DUTY_ALPHA_SHIFT];
+            // 【自适应α】根据误差大小选择平滑强度
+            if (duty_error[16]) begin  // 负误差
+                // 大变化：|error| > ema/16
+                if ((~duty_error[15:0] + 1'b1) > {4'd0, duty_ema[15:4]}) begin
+                    duty_ema <= duty_ema + duty_error[16:DUTY_ALPHA_SHIFT_FAST];
+                    duty_filtered <= duty_ema + duty_error[16:DUTY_ALPHA_SHIFT_FAST];
+                end
+                // 中等变化：|error| > ema/64
+                else if ((~duty_error[15:0] + 1'b1) > {6'd0, duty_ema[15:6]}) begin
+                    duty_ema <= duty_ema + duty_error[16:DUTY_ALPHA_SHIFT_MID];
+                    duty_filtered <= duty_ema + duty_error[16:DUTY_ALPHA_SHIFT_MID];
+                end
+                // 小变化
+                else begin
+                    duty_ema <= duty_ema + duty_error[16:DUTY_ALPHA_SHIFT_SLOW];
+                    duty_filtered <= duty_ema + duty_error[16:DUTY_ALPHA_SHIFT_SLOW];
+                end
+            end else begin  // 正误差
+                if (duty_error[15:0] > {4'd0, duty_ema[15:4]}) begin
+                    duty_ema <= duty_ema + duty_error[16:DUTY_ALPHA_SHIFT_FAST];
+                    duty_filtered <= duty_ema + duty_error[16:DUTY_ALPHA_SHIFT_FAST];
+                end
+                else if (duty_error[15:0] > {6'd0, duty_ema[15:6]}) begin
+                    duty_ema <= duty_ema + duty_error[16:DUTY_ALPHA_SHIFT_MID];
+                    duty_filtered <= duty_ema + duty_error[16:DUTY_ALPHA_SHIFT_MID];
+                end
+                else begin
+                    duty_ema <= duty_ema + duty_error[16:DUTY_ALPHA_SHIFT_SLOW];
+                    duty_filtered <= duty_ema + duty_error[16:DUTY_ALPHA_SHIFT_SLOW];
+                end
+            end
         end
     end
 end
@@ -1657,9 +1752,11 @@ always @(posedge clk or negedge rst_n) begin
 end
 
 //=============================================================================
-// 5b. 【优化2025-11-06】THD EMA滤波器（α=0.125，较强平滑）
+// 5b. 【自适应EMA滤波器 2025-11-07】THD测量（抑制窗函数波动）
 //=============================================================================
-localparam THD_ALPHA_SHIFT = 3;  // α = 1/8 = 0.125
+localparam THD_ALPHA_SHIFT_SLOW = 3;  // 稳态α = 0.125
+localparam THD_ALPHA_SHIFT_MID  = 2;  // 中态α = 0.25
+localparam THD_ALPHA_SHIFT_FAST = 1;  // 瞬态α = 0.5
 
 reg [15:0]  thd_ema;                        // EMA输出
 reg signed [16:0] thd_error;                // 误差
@@ -1676,9 +1773,37 @@ always @(posedge clk or negedge rst_n) begin
             // 计算误差
             thd_error <= $signed({1'b0, thd_calc}) - $signed({1'b0, thd_ema});
             
-            // 更新EMA
-            thd_ema <= thd_ema + thd_error[16:THD_ALPHA_SHIFT];
-            thd_filtered <= thd_ema + thd_error[16:THD_ALPHA_SHIFT];
+            // 【自适应α】根据误差大小选择平滑强度
+            if (thd_error[16]) begin  // 负误差
+                // 大变化：|error| > ema/16
+                if ((~thd_error[15:0] + 1'b1) > {4'd0, thd_ema[15:4]}) begin
+                    thd_ema <= thd_ema + thd_error[16:THD_ALPHA_SHIFT_FAST];
+                    thd_filtered <= thd_ema + thd_error[16:THD_ALPHA_SHIFT_FAST];
+                end
+                // 中等变化：|error| > ema/64
+                else if ((~thd_error[15:0] + 1'b1) > {6'd0, thd_ema[15:6]}) begin
+                    thd_ema <= thd_ema + thd_error[16:THD_ALPHA_SHIFT_MID];
+                    thd_filtered <= thd_ema + thd_error[16:THD_ALPHA_SHIFT_MID];
+                end
+                // 小变化
+                else begin
+                    thd_ema <= thd_ema + thd_error[16:THD_ALPHA_SHIFT_SLOW];
+                    thd_filtered <= thd_ema + thd_error[16:THD_ALPHA_SHIFT_SLOW];
+                end
+            end else begin  // 正误差
+                if (thd_error[15:0] > {4'd0, thd_ema[15:4]}) begin
+                    thd_ema <= thd_ema + thd_error[16:THD_ALPHA_SHIFT_FAST];
+                    thd_filtered <= thd_ema + thd_error[16:THD_ALPHA_SHIFT_FAST];
+                end
+                else if (thd_error[15:0] > {6'd0, thd_ema[15:6]}) begin
+                    thd_ema <= thd_ema + thd_error[16:THD_ALPHA_SHIFT_MID];
+                    thd_filtered <= thd_ema + thd_error[16:THD_ALPHA_SHIFT_MID];
+                end
+                else begin
+                    thd_ema <= thd_ema + thd_error[16:THD_ALPHA_SHIFT_SLOW];
+                    thd_filtered <= thd_ema + thd_error[16:THD_ALPHA_SHIFT_SLOW];
+                end
+            end
         end
     end
 end
