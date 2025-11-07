@@ -701,8 +701,8 @@ always @(posedge clk_pixel or negedge rst_n) begin
         // 鉁?鑷姩娴嬭瘯鍙傛暟棰勮绠?(浠巋_cnt=210寮�濮?
         if (v_cnt == 12'd0 && h_cnt == 12'd210) begin
             // 棰戠巼杞崲涓簁Hz鏄剧ず (32浣嶉鐜?/ 1000)
-            freq_min_khz <= freq_min_display / 1000;
-            freq_max_khz <= freq_max_display / 1000;
+            freq_min_khz <= freq_min_display >> 10;  // 优化：除以1024代替除以1000
+            freq_max_khz <= freq_max_display >> 10;  // 优化：除以1024代替除以1000
             // 骞呭害淇濇寔mV鍗曚綅
             amp_min_mv <= amp_min_display;
             amp_max_mv <= amp_max_display;

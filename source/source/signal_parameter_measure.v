@@ -181,6 +181,7 @@ reg [7:0]   duty_denom_index;               // LUT index
 reg [1:0]   duty_scale_shift;               // Not used (for future)
 reg [15:0]  duty_reciprocal;                // 1/denominator from LUT (Q16 format)
 reg [63:0]  duty_product;                   // numerator[40] * reciprocal[16] (40×16=56 bits)
+reg [63:0]  duty_product_d1;                // 【时序优化】乘法器输出寄存器
 reg [15:0]  duty_result;                    // Final result
 reg [2:0]   duty_pipe_valid;                // 【新增】流水线有效标志(3级)
 
@@ -1468,28 +1469,32 @@ always @(posedge clk or negedge rst_n) begin
     end
 end
 
-// Stage 3: Multiply numerator by reciprocal and scale
+// Stage 3: Multiply numerator by reciprocal and scale (时序优化：添加流水线)
 always @(posedge clk or negedge rst_n) begin
     if (!rst_n) begin
         duty_product <= 64'd0;
+        duty_product_d1 <= 64'd0;
         duty_result <= 16'd0;
         duty_calc <= 16'd0;
         duty_pipe_valid[2] <= 1'b0;  // 【新增】流水线级2
     end else begin
         duty_pipe_valid[2] <= duty_pipe_valid[1];  // 【新增】传递有效信号
         
-        // 【修复v2】使用完整40位numerator，避免高位截断
+        // 【时序优化】Stage 3a: 执行乘法，结果寄存
         // Multiply: numerator[40位] * reciprocal[16位] = 56位
         duty_product <= duty_numerator * {24'd0, duty_reciprocal};
         
-        // 【修复】缩放修正：使用 >> 14 (divide by 16384)
+        // 【时序优化】Stage 3b: 延迟乘法结果，打断长路径
+        duty_product_d1 <= duty_product;
+        
+        // 【修复】缩放修正：使用 >> 30 (divide by 1073741824)
         // reciprocal = 65536 / index (Q16定点数)
         // product = numerator * 65536 / (total_cnt >> 14)
         //        = numerator * 65536 * 16384 / total_cnt
         // result = numerator / total_cnt = product / (65536 * 16384)
         //        = product >> (16 + 14) = product >> 30
         
-        duty_result <= duty_product[45:30];  // Shift by 30 bits (修正)
+        duty_result <= duty_product_d1[45:30];  // Shift by 30 bits (使用延迟后的值)
         
         // 【新增v3】仅在流水线有效时更新duty_calc，并添加范围限制
         if (duty_pipe_valid[2]) begin
