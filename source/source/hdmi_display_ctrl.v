@@ -71,6 +71,25 @@ module hdmi_display_ctrl (
     input  wire [3:0]   duty_max_d0, duty_max_d1, duty_max_d2, duty_max_d3,
     input  wire [3:0]   thd_max_d0, thd_max_d1, thd_max_d2, thd_max_d3,
     
+    
+    // ✨ 锁相放大显示输入
+    input  wire         weak_sig_enable,        // 微弱信号模式使能
+    input  wire [31:0]  lia_ref_freq,           // 参考频率 (Hz)
+    input  wire [1:0]   lia_ref_mode,           // 参考模式 (0=DDS, 1=CH2, 2=外部)
+    input  wire signed [23:0] ch1_lia_magnitude,// CH1幅度 (24-bit)
+    input  wire [15:0]  ch1_lia_phase,          // CH1相位 (0-65535 -> 0-360°)
+    input  wire         ch1_lia_locked,         // CH1锁定状态
+    input  wire [15:0]  lia_snr_estimate,       // SNR估计 (dB, 8.8定点)
+    
+    // ✨ 锁相放大显示输入
+    input  wire         weak_sig_enable,        // 微弱信号模式使能
+    input  wire [31:0]  lia_ref_freq,           // 参考频率 (Hz)
+    input  wire [1:0]   lia_ref_mode,           // 参考模式 (0=DDS, 1=CH2, 2=外部)
+    input  wire signed [23:0] ch1_lia_magnitude,// CH1幅度 (24-bit)
+    input  wire [15:0]  ch1_lia_phase,          // CH1相位 (0-65535 -> 0-360°)
+    input  wire         ch1_lia_locked,         // CH1锁定状态
+    input  wire [15:0]  lia_snr_estimate,       // SNR估计 (dB, 8.8定点)
+    
     // HDMI输出
     output wire [23:0]  rgb_out,
     output wire         de_out,
@@ -143,6 +162,17 @@ localparam AUTO_TEST_WIDTH   = 360;     // 自动测试区域宽度
 localparam AUTO_TEST_HEIGHT  = 300;     // 自动测试区域高度
 localparam AUTO_LINE_HEIGHT  = 28;      // 行高
 localparam AUTO_CHAR_WIDTH   = 16;      // 字符宽度
+
+//=============================================================================
+// 锁相放大显示区域参数 (屏幕左上角)
+//=============================================================================
+localparam LIA_X_START = 20;            // 锁相放大区域X起始
+localparam LIA_Y_START = 60;            // 锁相放大区域Y起始
+localparam LIA_WIDTH   = 360;           // 锁相放大区域宽度
+localparam LIA_HEIGHT  = 200;           // 锁相放大区域高度
+localparam LIA_LINE_HEIGHT = 28;        // 行高
+localparam LIA_CHAR_WIDTH  = 16;        // 字符宽度
+
 
 // 自动测试模式状�?
 localparam ADJUST_IDLE = 3'd0;
@@ -288,6 +318,21 @@ reg [7:0]   auto_test_char_code;    // 自动测试字符编码
 reg [4:0]   auto_test_char_row;     // 自动测试字符行号
 reg [11:0]  auto_test_char_col;     // 自动测试字符列号
 reg         auto_test_char_valid;   // 自动测试字符有效
+
+// 锁相放大显示相关信号
+reg         in_lia_area;            // 在锁相放大显示区域内
+reg         in_lia_area_d1, in_lia_area_d2, in_lia_area_d3;  // 延迟链
+reg [4:0]   lia_char_row;           // 锁相放大字符行号
+reg [11:0]  lia_char_col;           // 锁相放大字符列号
+
+// 锁相放大显示数据（预处理）
+reg [31:0]  lia_freq_display;       // 参考频率显示值
+reg [3:0]   lia_freq_d0, lia_freq_d1, lia_freq_d2, lia_freq_d3, lia_freq_d4, lia_freq_d5;
+reg [3:0]   lia_mag_d0, lia_mag_d1, lia_mag_d2, lia_mag_d3;  // 幅度（mV）
+reg [3:0]   lia_phase_d0, lia_phase_d1, lia_phase_d2;  // 相位（度）
+reg [3:0]   lia_snr_d0, lia_snr_d1, lia_snr_d2;  // SNR（dB）
+reg         lia_phase_sign;         // 相位符号（0=正，1=负）
+
 
 // ✨ 注意：freq_min_d0~d5, freq_max_d0~d5, amp_min/max_d0~d3, duty_min/max_d0~d3, thd_max_d0~d3
 //          现在都是输入端口（来自auto_test模块的BCD格式），不再需要内部寄存器
