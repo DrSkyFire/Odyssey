@@ -356,19 +356,35 @@ reg test_mode;
 wire btn_test_mode;
 
 //=============================================================================
-// 自动测试模块信号
+// 自动测试模块信号（层级化设计）
 //=============================================================================
 wire [7:0] auto_test_result;        // 自动测试结果LED
-reg        auto_test_enable;        // 自动测试使能
+reg        auto_test_enable;        // 自动测试使能（一级状态）
 wire       btn_auto_test;           // 自动测试按键
 
-// 自动测试阈值调整按键（在测试模式下，其他按键复用为阈值调整）
-wire       btn_freq_up;             // 频率增加
-wire       btn_freq_dn;             // 频率减少
-wire       btn_amp_up;              // 幅度增加
-wire       btn_amp_dn;              // 幅度减少
-wire       btn_duty_up;             // 占空比增加
-wire       btn_thd_adjust;          // THD调整
+// 参数调整模式状态（二级状态）
+localparam ADJUST_IDLE   = 3'd0;    // 空闲（参数选择界面）
+localparam ADJUST_FREQ   = 3'd1;    // 频率调整
+localparam ADJUST_AMP    = 3'd2;    // 幅度调整
+localparam ADJUST_DUTY   = 3'd3;    // 占空比调整
+localparam ADJUST_THD    = 3'd4;    // THD调整
+reg [2:0]  param_adjust_mode;       // 当前参数调整模式
+
+// 步进模式（0=细调, 1=中调, 2=粗调）
+reg [1:0]  adjust_step_mode;
+
+// 自动测试阈值调整按键（层级化按键信号）
+wire       btn_enter_freq_adjust;   // 进入频率调整模式
+wire       btn_enter_amp_adjust;    // 进入幅度调整模式
+wire       btn_enter_duty_adjust;   // 进入占空比调整模式
+wire       btn_enter_thd_adjust;    // 进入THD调整模式
+wire       btn_exit_adjust;         // 退出当前调整模式
+wire       btn_limit_dn_dn;         // 下限减少
+wire       btn_limit_dn_up;         // 下限增加
+wire       btn_limit_up_dn;         // 上限减少
+wire       btn_limit_up_up;         // 上限增加
+wire       btn_step_toggle;         // 步进模式切换
+wire       btn_reset_default;       // 恢复默认值
 
 //=============================================================================
 // UART发送模块信号
@@ -1690,20 +1706,27 @@ phase_diff_calc_v4 u_phase_diff (
 //=============================================================================
 // 9.6 自动测试模块
 //=============================================================================
+// 自动测试阈值输出（用于HDMI显示）
+wire [31:0] freq_min_display, freq_max_display;  // 频率使用32位
+wire [15:0] amp_min_display, amp_max_display;
+wire [15:0] duty_min_display, duty_max_display;
+wire [15:0] thd_max_display;
+
 auto_test u_auto_test (
     .clk            (clk_100m),
     .rst_n          (rst_n),
     
-    // 测试控制
+    // 测试控制（层级化）
     .test_enable    (auto_test_enable),
+    .adjust_mode    (param_adjust_mode),
+    .step_mode      (adjust_step_mode),
     
-    // 阈值调整按键
-    .btn_freq_up    (btn_freq_up),
-    .btn_freq_dn    (btn_freq_dn),
-    .btn_amp_up     (btn_amp_up),
-    .btn_amp_dn     (btn_amp_dn),
-    .btn_duty_up    (btn_duty_up),
-    .btn_thd_adjust (btn_thd_adjust),
+    // 层级化阈值调整按键
+    .btn_limit_dn_dn    (btn_limit_dn_dn),
+    .btn_limit_dn_up    (btn_limit_dn_up),
+    .btn_limit_up_dn    (btn_limit_up_dn),
+    .btn_limit_up_up    (btn_limit_up_up),
+    .btn_reset_default  (btn_reset_default),
     
     // 参数输入
     .freq           (signal_freq),
@@ -1714,7 +1737,16 @@ auto_test u_auto_test (
     .param_valid    (param_valid),
     
     // 测试结果输出
-    .test_result    (auto_test_result)
+    .test_result    (auto_test_result),
+    
+    // HDMI显示接口
+    .freq_min_out   (freq_min_display),
+    .freq_max_out   (freq_max_display),
+    .amp_min_out    (amp_min_display),
+    .amp_max_out    (amp_max_display),
+    .duty_min_out   (duty_min_display),
+    .duty_max_out   (duty_max_display),
+    .thd_max_out    (thd_max_display)
 );
 
 //=============================================================================
@@ -2007,10 +2039,10 @@ key_debounce u_key_7 (
     .key_pulse      (btn_7_pulse)
 );
 
-// 按键功能分配（基于工作模式的智能复用）
-// 默认模式: button[0]=模式切换, [1]=微弱信号, [2]=停止, [3]=CH1开关, [4]=触发模式, [5]=自动测试, [6]=CH2开关, [7]=测试模式
-// 自动测试模式: button[0]=频率+, [1]=频率-, [2]=幅度+, [3]=幅度-, [4]=占空比+, [6]=THD调整
-// 微弱信号模式: button[2]=参考频率+, [3]=参考频率-, [4]=参考模式切换
+// 按键功能分配（层级化设计 - 移除内部测试信号功能）
+// 默认模式: button[0]=模式切换, [1]=微弱信号, [2]=停止, [3]=CH1开关, [4]=触发模式, [5]=自动测试, [6]=CH2开关, [7]=无
+// 自动测试-参数选择: button[0]=频率调整, [1]=幅度调整, [2]=占空比调整, [3]=THD调整, [5]=退出, [7]=退出
+// 自动测试-参数调整: button[0]=下限-, [1]=下限+, [2]=上限-, [3]=上限+, [4]=步进切换, [6]=恢复默认, [7]=返回
 
 // 基础功能按键（在自动测试和微弱信号模式外有效）
 assign btn_mode       = btn_0_pulse & ~auto_test_enable;
@@ -2018,18 +2050,10 @@ assign btn_stop       = btn_2_pulse & ~auto_test_enable & ~weak_sig_enable;
 assign btn_ch1_toggle = btn_3_pulse & ~auto_test_enable & ~weak_sig_enable;
 assign btn_trig_mode  = btn_4_pulse & ~auto_test_enable & ~weak_sig_enable;
 assign btn_ch2_toggle = btn_6_pulse & ~auto_test_enable;
-assign btn_test_mode  = btn_7_pulse;
+assign btn_test_mode  = 1'b0;  // 不再使用测试模式
 
-// 自动测试模式按键（仅在auto_test_enable=1时有效）
-assign btn_freq_up    = btn_0_pulse & auto_test_enable;
-assign btn_freq_dn    = btn_1_pulse & auto_test_enable;
-assign btn_amp_up     = btn_2_pulse & auto_test_enable;
-assign btn_amp_dn     = btn_3_pulse & auto_test_enable;
-assign btn_duty_up    = btn_4_pulse & auto_test_enable;
-assign btn_thd_adjust = btn_6_pulse & auto_test_enable;
-
-// 微弱信号检测按键（button[1]，因为FFT已有自动启动功能）
-assign btn_weak_sig_enable = btn_1_pulse & ~auto_test_enable;  // button[1]切换微弱信号检测
+// 微弱信号检测按键（button[1]）
+assign btn_weak_sig_enable = btn_1_pulse & ~auto_test_enable;
 assign btn_ref_freq_up = btn_2_pulse & weak_sig_enable & ~auto_test_enable;
 assign btn_ref_freq_dn = btn_3_pulse & weak_sig_enable & ~auto_test_enable;
 assign btn_ref_mode    = btn_4_pulse & weak_sig_enable & ~auto_test_enable;
@@ -2037,14 +2061,25 @@ assign btn_ref_mode    = btn_4_pulse & weak_sig_enable & ~auto_test_enable;
 // 自动测试切换按键（button[5]）
 assign btn_auto_test  = btn_5_pulse;
 
-// btn_start在新设计中不再使用（FFT自动启动）
+// 自动测试-参数选择界面按键（仅在ADJUST_IDLE状态有效）
+assign btn_enter_freq_adjust = btn_0_pulse & auto_test_enable & (param_adjust_mode == ADJUST_IDLE);
+assign btn_enter_amp_adjust  = btn_1_pulse & auto_test_enable & (param_adjust_mode == ADJUST_IDLE);
+assign btn_enter_duty_adjust = btn_2_pulse & auto_test_enable & (param_adjust_mode == ADJUST_IDLE);
+assign btn_enter_thd_adjust  = btn_3_pulse & auto_test_enable & (param_adjust_mode == ADJUST_IDLE);
+
+// 自动测试-参数调整界面按键（在非IDLE状态有效）
+assign btn_limit_dn_dn   = btn_0_pulse & auto_test_enable & (param_adjust_mode != ADJUST_IDLE);
+assign btn_limit_dn_up   = btn_1_pulse & auto_test_enable & (param_adjust_mode != ADJUST_IDLE);
+assign btn_limit_up_dn   = btn_2_pulse & auto_test_enable & (param_adjust_mode != ADJUST_IDLE);
+assign btn_limit_up_up   = btn_3_pulse & auto_test_enable & (param_adjust_mode != ADJUST_IDLE);
+assign btn_step_toggle   = btn_4_pulse & auto_test_enable & (param_adjust_mode != ADJUST_IDLE);
+assign btn_reset_default = btn_6_pulse & auto_test_enable & (param_adjust_mode != ADJUST_IDLE);
+assign btn_exit_adjust   = btn_7_pulse & auto_test_enable;  // button[7]专用于自动测试退出
+
+// 不再使用的按键
 assign btn_start = 1'b0;
-
-// AI识别按键（预留，暂未分配）
 assign btn_ai_enable = 1'b0;
-
-// ADC溢出标志清除（使用消抖后的btn_7_pulse）
-assign adc_otr_clear = btn_7_pulse;
+assign adc_otr_clear = 1'b0;  // button[7]已分配给自动测试
 
 
 //=============================================================================
@@ -2119,6 +2154,62 @@ end
 
 // FFT启动信号
 assign fft_start = run_flag && (work_mode == 2'd1);
+
+//=============================================================================
+// 自动测试层级控制逻辑
+//=============================================================================
+// 一级状态：自动测试模式开关
+always @(posedge clk_100m or negedge rst_n) begin
+    if (!rst_n)
+        auto_test_enable <= 1'b0;
+    else if (btn_auto_test)
+        auto_test_enable <= ~auto_test_enable;
+    else if (btn_exit_adjust && param_adjust_mode == ADJUST_IDLE)
+        auto_test_enable <= 1'b0;  // 在参数选择界面按[7]退出自动测试
+end
+
+// 二级状态：参数调整模式状态机
+always @(posedge clk_100m or negedge rst_n) begin
+    if (!rst_n)
+        param_adjust_mode <= ADJUST_IDLE;
+    else if (!auto_test_enable)
+        param_adjust_mode <= ADJUST_IDLE;  // 退出自动测试时复位到IDLE
+    else begin
+        case (param_adjust_mode)
+            ADJUST_IDLE: begin
+                // 参数选择界面
+                if (btn_enter_freq_adjust)
+                    param_adjust_mode <= ADJUST_FREQ;
+                else if (btn_enter_amp_adjust)
+                    param_adjust_mode <= ADJUST_AMP;
+                else if (btn_enter_duty_adjust)
+                    param_adjust_mode <= ADJUST_DUTY;
+                else if (btn_enter_thd_adjust)
+                    param_adjust_mode <= ADJUST_THD;
+            end
+            
+            default: begin
+                // 任意参数调整界面，按[7]返回参数选择
+                if (btn_exit_adjust)
+                    param_adjust_mode <= ADJUST_IDLE;
+            end
+        endcase
+    end
+end
+
+// 步进模式切换（0=细调, 1=中调, 2=粗调）
+always @(posedge clk_100m or negedge rst_n) begin
+    if (!rst_n)
+        adjust_step_mode <= 2'd0;  // 默认细调
+    else if (!auto_test_enable)
+        adjust_step_mode <= 2'd0;  // 退出自动测试时复位
+    else if (btn_step_toggle) begin
+        if (adjust_step_mode == 2'd2)
+            adjust_step_mode <= 2'd0;
+        else
+            adjust_step_mode <= adjust_step_mode + 1'b1;
+    end
+end
 
 //=============================================================================
 // 13. LED状态指示（双通道状态 / 自动测试结果切换）
