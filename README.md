@@ -1,15 +1,15 @@
-# FPGA智能信号分析与测试系统
-
 <div align="center">
 
-![Version](https://img.shields.io/badge/version-v2.0-blue)
-![FPGA](https://img.shields.io/badge/FPGA-Pango_PGL50H-green)
-![Status](https://img.shields.io/badge/status-Competition_Project-orange)
-![Language](https://img.shields.io/badge/language-Verilog-brightgreen)
+![License](https://img.shields.io/badge/License-MIT-blue.svg)
+![FPGA](https://img.shields.io/badge/FPGA-Pango%20PGL50H-orange.svg)
+![HDL](https://img.shields.io/badge/HDL-Verilog-green.svg)
+![Status](https://img.shields.io/badge/Status-Competition%20Project-red.svg)
+![Version](https://img.shields.io/badge/Version-v2.0-brightgreen.svg)
+![Stars](https://img.shields.io/github/stars/DrSkyFire/Odyssey?style=social)
 
-**高性能双通道信号分析仪 | 8192点FFT频谱分析 | 锁相放大微弱信号检测 | HDMI实时显示**
+**基于FPGA的高性能双通道信号分析与自动测试系统**
 
-[项目概述](#项目概述) • [创新点](#创新点) • [技术实现](#技术实现) • [性能指标](#性能指标) • [功能演示](#功能演示)
+[📖 文档](docs/文档索引.md) | [🚀 快速开始](#-快速使用指南) | [💡 创新点](#-创新点)
 
 </div>
 
