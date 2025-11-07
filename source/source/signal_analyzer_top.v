@@ -1712,6 +1712,15 @@ wire [15:0] amp_min_display, amp_max_display;
 wire [15:0] duty_min_display, duty_max_display;
 wire [15:0] thd_max_display;
 
+// BCD格式输出（用于HDMI直接显示，避免除法运算）
+wire [3:0] freq_min_d0, freq_min_d1, freq_min_d2, freq_min_d3, freq_min_d4, freq_min_d5;
+wire [3:0] freq_max_d0, freq_max_d1, freq_max_d2, freq_max_d3, freq_max_d4, freq_max_d5;
+wire [3:0] amp_min_d0, amp_min_d1, amp_min_d2, amp_min_d3;
+wire [3:0] amp_max_d0, amp_max_d1, amp_max_d2, amp_max_d3;
+wire [3:0] duty_min_d0, duty_min_d1, duty_min_d2, duty_min_d3;
+wire [3:0] duty_max_d0, duty_max_d1, duty_max_d2, duty_max_d3;
+wire [3:0] thd_max_d0, thd_max_d1, thd_max_d2, thd_max_d3;
+
 auto_test u_auto_test (
     .clk            (clk_100m),
     .rst_n          (rst_n),
@@ -1746,7 +1755,18 @@ auto_test u_auto_test (
     .amp_max_out    (amp_max_display),
     .duty_min_out   (duty_min_display),
     .duty_max_out   (duty_max_display),
-    .thd_max_out    (thd_max_display)
+    .thd_max_out    (thd_max_display),
+    
+    // BCD格式输出
+    .freq_min_d0_out(freq_min_d0), .freq_min_d1_out(freq_min_d1), .freq_min_d2_out(freq_min_d2),
+    .freq_min_d3_out(freq_min_d3), .freq_min_d4_out(freq_min_d4), .freq_min_d5_out(freq_min_d5),
+    .freq_max_d0_out(freq_max_d0), .freq_max_d1_out(freq_max_d1), .freq_max_d2_out(freq_max_d2),
+    .freq_max_d3_out(freq_max_d3), .freq_max_d4_out(freq_max_d4), .freq_max_d5_out(freq_max_d5),
+    .amp_min_d0_out(amp_min_d0), .amp_min_d1_out(amp_min_d1), .amp_min_d2_out(amp_min_d2), .amp_min_d3_out(amp_min_d3),
+    .amp_max_d0_out(amp_max_d0), .amp_max_d1_out(amp_max_d1), .amp_max_d2_out(amp_max_d2), .amp_max_d3_out(amp_max_d3),
+    .duty_min_d0_out(duty_min_d0), .duty_min_d1_out(duty_min_d1), .duty_min_d2_out(duty_min_d2), .duty_min_d3_out(duty_min_d3),
+    .duty_max_d0_out(duty_max_d0), .duty_max_d1_out(duty_max_d1), .duty_max_d2_out(duty_max_d2), .duty_max_d3_out(duty_max_d3),
+    .thd_max_d0_out(thd_max_d0), .thd_max_d1_out(thd_max_d1), .thd_max_d2_out(thd_max_d2), .thd_max_d3_out(thd_max_d3)
 );
 
 //=============================================================================
@@ -1962,6 +1982,17 @@ hdmi_display_ctrl u_hdmi_ctrl (
     .duty_max_display   (duty_max_display),
     .thd_max_display    (thd_max_display),
     .auto_test_result   (auto_test_result),
+    
+    // BCD格式输入（直接显示，0延迟）
+    .freq_min_d0(freq_min_d0), .freq_min_d1(freq_min_d1), .freq_min_d2(freq_min_d2),
+    .freq_min_d3(freq_min_d3), .freq_min_d4(freq_min_d4), .freq_min_d5(freq_min_d5),
+    .freq_max_d0(freq_max_d0), .freq_max_d1(freq_max_d1), .freq_max_d2(freq_max_d2),
+    .freq_max_d3(freq_max_d3), .freq_max_d4(freq_max_d4), .freq_max_d5(freq_max_d5),
+    .amp_min_d0(amp_min_d0), .amp_min_d1(amp_min_d1), .amp_min_d2(amp_min_d2), .amp_min_d3(amp_min_d3),
+    .amp_max_d0(amp_max_d0), .amp_max_d1(amp_max_d1), .amp_max_d2(amp_max_d2), .amp_max_d3(amp_max_d3),
+    .duty_min_d0(duty_min_d0), .duty_min_d1(duty_min_d1), .duty_min_d2(duty_min_d2), .duty_min_d3(duty_min_d3),
+    .duty_max_d0(duty_max_d0), .duty_max_d1(duty_max_d1), .duty_max_d2(duty_max_d2), .duty_max_d3(duty_max_d3),
+    .thd_max_d0(thd_max_d0), .thd_max_d1(thd_max_d1), .thd_max_d2(thd_max_d2), .thd_max_d3(thd_max_d3),
     
     // HDMI时序输出
     .rgb_out            (hdmi_rgb),

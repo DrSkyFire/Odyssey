@@ -43,14 +43,25 @@ module auto_test (
     // Bit[5]: 综合测试结果 (全部合格时为1)
     // Bit[7:6]: 模式指示
     
-    // HDMI显示接口
+    // HDMI显示接口 - Binary格式（保留用于测试）
     output wire [31:0]  freq_min_out,       // 频率下限 (Hz)
     output wire [31:0]  freq_max_out,       // 频率上限 (Hz)
     output wire [15:0]  amp_min_out,        // 幅度下限
     output wire [15:0]  amp_max_out,        // 幅度上限
     output wire [15:0]  duty_min_out,       // 占空比下限
     output wire [15:0]  duty_max_out,       // 占空比上限
-    output wire [15:0]  thd_max_out         // THD上限
+    output wire [15:0]  thd_max_out,        // THD上限
+    
+    // HDMI显示接口 - BCD格式（用于直接显示，无需转换）
+    output wire [3:0]   freq_min_d0_out, freq_min_d1_out, freq_min_d2_out,
+    output wire [3:0]   freq_min_d3_out, freq_min_d4_out, freq_min_d5_out,
+    output wire [3:0]   freq_max_d0_out, freq_max_d1_out, freq_max_d2_out,
+    output wire [3:0]   freq_max_d3_out, freq_max_d4_out, freq_max_d5_out,
+    output wire [3:0]   amp_min_d0_out, amp_min_d1_out, amp_min_d2_out, amp_min_d3_out,
+    output wire [3:0]   amp_max_d0_out, amp_max_d1_out, amp_max_d2_out, amp_max_d3_out,
+    output wire [3:0]   duty_min_d0_out, duty_min_d1_out, duty_min_d2_out, duty_min_d3_out,
+    output wire [3:0]   duty_max_d0_out, duty_max_d1_out, duty_max_d2_out, duty_max_d3_out,
+    output wire [3:0]   thd_max_d0_out, thd_max_d1_out, thd_max_d2_out, thd_max_d3_out
 );
 
 //=============================================================================
@@ -63,8 +74,9 @@ localparam ADJUST_DUTY   = 3'd3;
 localparam ADJUST_THD    = 3'd4;
 
 //=============================================================================
-// 测试阈值寄存器（上下限独立可调）
+// 测试阈值寄存器（双格式存储：Binary用于测试，BCD用于显示）
 //=============================================================================
+// Binary格式（用于实际测试比较）
 reg [31:0] freq_min;            // 频率下限 (Hz，32位)
 reg [31:0] freq_max;            // 频率上限 (Hz，32位)
 reg [15:0] amp_min;             // 幅度下限
@@ -72,6 +84,19 @@ reg [15:0] amp_max;             // 幅度上限
 reg [15:0] duty_min;            // 占空比下限
 reg [15:0] duty_max;            // 占空比上限
 reg [15:0] thd_max;             // THD上限（无下限）
+
+// BCD格式（用于HDMI显示，避免除法运算）
+// 频率：6位BCD (0-999999 Hz)
+reg [3:0] freq_min_d0, freq_min_d1, freq_min_d2, freq_min_d3, freq_min_d4, freq_min_d5;
+reg [3:0] freq_max_d0, freq_max_d1, freq_max_d2, freq_max_d3, freq_max_d4, freq_max_d5;
+// 幅度：4位BCD (0-9999 mV = 0-9.999V)
+reg [3:0] amp_min_d0, amp_min_d1, amp_min_d2, amp_min_d3;
+reg [3:0] amp_max_d0, amp_max_d1, amp_max_d2, amp_max_d3;
+// 占空比：4位BCD (0-1000 = 0-100.0%)
+reg [3:0] duty_min_d0, duty_min_d1, duty_min_d2, duty_min_d3;
+reg [3:0] duty_max_d0, duty_max_d1, duty_max_d2, duty_max_d3;
+// THD：4位BCD
+reg [3:0] thd_max_d0, thd_max_d1, thd_max_d2, thd_max_d3;
 
 // 默认阈值（用户指定）
 // 频率: 100kHz ± 容差
@@ -102,6 +127,73 @@ localparam DUTY_STEP_COARSE  = 16'd100;      // 10%
 localparam THD_STEP_FINE     = 16'd1;        // 0.1%
 localparam THD_STEP_MID      = 16'd10;       // 1%
 localparam THD_STEP_COARSE   = 16'd100;      // 10%
+
+//=============================================================================
+// BCD辅助函数
+//=============================================================================
+// Binary转BCD（32位 → 6位BCD）
+function automatic [23:0] bin32_to_bcd6;
+    input [31:0] bin;
+    integer i;
+    reg [55:0] shift_reg;  // 32位binary + 24位BCD
+    begin
+        shift_reg = {24'd0, bin};
+        for (i = 0; i < 32; i = i + 1) begin
+            // BCD调整：每一位>=5则+3
+            if (shift_reg[35:32] >= 5) shift_reg[35:32] = shift_reg[35:32] + 3;
+            if (shift_reg[39:36] >= 5) shift_reg[39:36] = shift_reg[39:36] + 3;
+            if (shift_reg[43:40] >= 5) shift_reg[43:40] = shift_reg[43:40] + 3;
+            if (shift_reg[47:44] >= 5) shift_reg[47:44] = shift_reg[47:44] + 3;
+            if (shift_reg[51:48] >= 5) shift_reg[51:48] = shift_reg[51:48] + 3;
+            if (shift_reg[55:52] >= 5) shift_reg[55:52] = shift_reg[55:52] + 3;
+            // 左移1位
+            shift_reg = shift_reg << 1;
+        end
+        bin32_to_bcd6 = shift_reg[55:32];
+    end
+endfunction
+
+// Binary转BCD（16位 → 4位BCD）
+function automatic [15:0] bin16_to_bcd4;
+    input [15:0] bin;
+    integer i;
+    reg [31:0] shift_reg;  // 16位binary + 16位BCD
+    begin
+        shift_reg = {16'd0, bin};
+        for (i = 0; i < 16; i = i + 1) begin
+            if (shift_reg[19:16] >= 5) shift_reg[19:16] = shift_reg[19:16] + 3;
+            if (shift_reg[23:20] >= 5) shift_reg[23:20] = shift_reg[23:20] + 3;
+            if (shift_reg[27:24] >= 5) shift_reg[27:24] = shift_reg[27:24] + 3;
+            if (shift_reg[31:28] >= 5) shift_reg[31:28] = shift_reg[31:28] + 3;
+            shift_reg = shift_reg << 1;
+        end
+        bin16_to_bcd4 = shift_reg[31:16];
+    end
+endfunction
+
+// BCD转Binary（6位BCD → 32位）
+function automatic [31:0] bcd6_to_bin32;
+    input [23:0] bcd;
+    begin
+        bcd6_to_bin32 = bcd[3:0] + 
+                       bcd[7:4] * 10 +
+                       bcd[11:8] * 100 +
+                       bcd[15:12] * 1000 +
+                       bcd[19:16] * 10000 +
+                       bcd[23:20] * 100000;
+    end
+endfunction
+
+// BCD转Binary（4位BCD → 16位）
+function automatic [15:0] bcd4_to_bin16;
+    input [15:0] bcd;
+    begin
+        bcd4_to_bin16 = bcd[3:0] + 
+                       bcd[7:4] * 10 +
+                       bcd[11:8] * 100 +
+                       bcd[15:12] * 1000;
+    end
+endfunction
 
 //=============================================================================
 // 步进值选择逻辑
@@ -139,11 +231,19 @@ always @(*) begin
 end
 
 //=============================================================================
-// 阈值配置逻辑（层级化按键调整）
+// 阈值配置逻辑（层级化按键调整 + BCD同步更新）
 //=============================================================================
+// 临时变量用于存储新值
+reg [31:0] freq_min_new, freq_max_new;
+reg [15:0] amp_min_new, amp_max_new;
+reg [15:0] duty_min_new, duty_max_new;
+reg [15:0] thd_max_new;
+reg [23:0] bcd_temp_24;
+reg [15:0] bcd_temp_16;
+
 always @(posedge clk or negedge rst_n) begin
     if (!rst_n) begin
-        // 复位到默认值
+        // 复位到默认值 - Binary
         freq_min <= FREQ_DEFAULT - FREQ_TOL_DEFAULT;
         freq_max <= FREQ_DEFAULT + FREQ_TOL_DEFAULT;
         amp_min  <= AMP_DEFAULT - AMP_TOL_DEFAULT;
@@ -151,6 +251,36 @@ always @(posedge clk or negedge rst_n) begin
         duty_min <= DUTY_DEFAULT - DUTY_TOL_DEFAULT;
         duty_max <= DUTY_DEFAULT + DUTY_TOL_DEFAULT;
         thd_max  <= THD_MAX_DEFAULT;
+        
+        // 复位到默认值 - BCD
+        // 95000 Hz = 0x095000
+        bcd_temp_24 = bin32_to_bcd6(FREQ_DEFAULT - FREQ_TOL_DEFAULT);
+        {freq_min_d5, freq_min_d4, freq_min_d3, freq_min_d2, freq_min_d1, freq_min_d0} <= bcd_temp_24;
+        
+        // 105000 Hz = 0x105000
+        bcd_temp_24 = bin32_to_bcd6(FREQ_DEFAULT + FREQ_TOL_DEFAULT);
+        {freq_max_d5, freq_max_d4, freq_max_d3, freq_max_d2, freq_max_d1, freq_max_d0} <= bcd_temp_24;
+        
+        // 2500 mV = 0x2500
+        bcd_temp_16 = bin16_to_bcd4(AMP_DEFAULT - AMP_TOL_DEFAULT);
+        {amp_min_d3, amp_min_d2, amp_min_d1, amp_min_d0} <= bcd_temp_16;
+        
+        // 3500 mV = 0x3500
+        bcd_temp_16 = bin16_to_bcd4(AMP_DEFAULT + AMP_TOL_DEFAULT);
+        {amp_max_d3, amp_max_d2, amp_max_d1, amp_max_d0} <= bcd_temp_16;
+        
+        // 550 (55%) = 0x0550
+        bcd_temp_16 = bin16_to_bcd4(DUTY_DEFAULT - DUTY_TOL_DEFAULT);
+        {duty_min_d3, duty_min_d2, duty_min_d1, duty_min_d0} <= bcd_temp_16;
+        
+        // 650 (65%) = 0x0650
+        bcd_temp_16 = bin16_to_bcd4(DUTY_DEFAULT + DUTY_TOL_DEFAULT);
+        {duty_max_d3, duty_max_d2, duty_max_d1, duty_max_d0} <= bcd_temp_16;
+        
+        // 600 (60%) = 0x0600
+        bcd_temp_16 = bin16_to_bcd4(THD_MAX_DEFAULT);
+        {thd_max_d3, thd_max_d2, thd_max_d1, thd_max_d0} <= bcd_temp_16;
+        
     end else if (test_enable) begin
         // 恢复默认值
         if (btn_reset_default) begin
@@ -158,17 +288,31 @@ always @(posedge clk or negedge rst_n) begin
                 ADJUST_FREQ: begin
                     freq_min <= FREQ_DEFAULT - FREQ_TOL_DEFAULT;
                     freq_max <= FREQ_DEFAULT + FREQ_TOL_DEFAULT;
+                    bcd_temp_24 = bin32_to_bcd6(FREQ_DEFAULT - FREQ_TOL_DEFAULT);
+                    {freq_min_d5, freq_min_d4, freq_min_d3, freq_min_d2, freq_min_d1, freq_min_d0} <= bcd_temp_24;
+                    bcd_temp_24 = bin32_to_bcd6(FREQ_DEFAULT + FREQ_TOL_DEFAULT);
+                    {freq_max_d5, freq_max_d4, freq_max_d3, freq_max_d2, freq_max_d1, freq_max_d0} <= bcd_temp_24;
                 end
                 ADJUST_AMP: begin
                     amp_min <= AMP_DEFAULT - AMP_TOL_DEFAULT;
                     amp_max <= AMP_DEFAULT + AMP_TOL_DEFAULT;
+                    bcd_temp_16 = bin16_to_bcd4(AMP_DEFAULT - AMP_TOL_DEFAULT);
+                    {amp_min_d3, amp_min_d2, amp_min_d1, amp_min_d0} <= bcd_temp_16;
+                    bcd_temp_16 = bin16_to_bcd4(AMP_DEFAULT + AMP_TOL_DEFAULT);
+                    {amp_max_d3, amp_max_d2, amp_max_d1, amp_max_d0} <= bcd_temp_16;
                 end
                 ADJUST_DUTY: begin
                     duty_min <= DUTY_DEFAULT - DUTY_TOL_DEFAULT;
                     duty_max <= DUTY_DEFAULT + DUTY_TOL_DEFAULT;
+                    bcd_temp_16 = bin16_to_bcd4(DUTY_DEFAULT - DUTY_TOL_DEFAULT);
+                    {duty_min_d3, duty_min_d2, duty_min_d1, duty_min_d0} <= bcd_temp_16;
+                    bcd_temp_16 = bin16_to_bcd4(DUTY_DEFAULT + DUTY_TOL_DEFAULT);
+                    {duty_max_d3, duty_max_d2, duty_max_d1, duty_max_d0} <= bcd_temp_16;
                 end
                 ADJUST_THD: begin
                     thd_max <= THD_MAX_DEFAULT;
+                    bcd_temp_16 = bin16_to_bcd4(THD_MAX_DEFAULT);
+                    {thd_max_d3, thd_max_d2, thd_max_d1, thd_max_d0} <= bcd_temp_16;
                 end
             endcase
         end else begin
@@ -176,59 +320,108 @@ always @(posedge clk or negedge rst_n) begin
             case (adjust_mode)
                 ADJUST_FREQ: begin
                     // 频率下限调整
-                    if (btn_limit_dn_dn && freq_min >= freq_step)
-                        freq_min <= freq_min - freq_step;
-                    else if (btn_limit_dn_up && freq_min + freq_step < freq_max)
-                        freq_min <= freq_min + freq_step;
+                    if (btn_limit_dn_dn && freq_min >= freq_step) begin
+                        freq_min_new = freq_min - freq_step;
+                        freq_min <= freq_min_new;
+                        bcd_temp_24 = bin32_to_bcd6(freq_min_new);
+                        {freq_min_d5, freq_min_d4, freq_min_d3, freq_min_d2, freq_min_d1, freq_min_d0} <= bcd_temp_24;
+                    end else if (btn_limit_dn_up && freq_min + freq_step < freq_max) begin
+                        freq_min_new = freq_min + freq_step;
+                        freq_min <= freq_min_new;
+                        bcd_temp_24 = bin32_to_bcd6(freq_min_new);
+                        {freq_min_d5, freq_min_d4, freq_min_d3, freq_min_d2, freq_min_d1, freq_min_d0} <= bcd_temp_24;
+                    end
                     
                     // 频率上限调整
-                    if (btn_limit_up_dn && freq_max > freq_min + freq_step)
-                        freq_max <= freq_max - freq_step;
-                    else if (btn_limit_up_up && freq_max + freq_step < 32'd500000)  // 最大500kHz
-                        freq_max <= freq_max + freq_step;
+                    if (btn_limit_up_dn && freq_max > freq_min + freq_step) begin
+                        freq_max_new = freq_max - freq_step;
+                        freq_max <= freq_max_new;
+                        bcd_temp_24 = bin32_to_bcd6(freq_max_new);
+                        {freq_max_d5, freq_max_d4, freq_max_d3, freq_max_d2, freq_max_d1, freq_max_d0} <= bcd_temp_24;
+                    end else if (btn_limit_up_up && freq_max + freq_step < 32'd500000) begin  // 最大500kHz
+                        freq_max_new = freq_max + freq_step;
+                        freq_max <= freq_max_new;
+                        bcd_temp_24 = bin32_to_bcd6(freq_max_new);
+                        {freq_max_d5, freq_max_d4, freq_max_d3, freq_max_d2, freq_max_d1, freq_max_d0} <= bcd_temp_24;
+                    end
                 end
                 
                 ADJUST_AMP: begin
                     // 幅度下限调整
-                    if (btn_limit_dn_dn && amp_min >= amp_step)
-                        amp_min <= amp_min - amp_step;
-                    else if (btn_limit_dn_up && amp_min + amp_step < amp_max)
-                        amp_min <= amp_min + amp_step;
+                    if (btn_limit_dn_dn && amp_min >= amp_step) begin
+                        amp_min_new = amp_min - amp_step;
+                        amp_min <= amp_min_new;
+                        bcd_temp_16 = bin16_to_bcd4(amp_min_new);
+                        {amp_min_d3, amp_min_d2, amp_min_d1, amp_min_d0} <= bcd_temp_16;
+                    end else if (btn_limit_dn_up && amp_min + amp_step < amp_max) begin
+                        amp_min_new = amp_min + amp_step;
+                        amp_min <= amp_min_new;
+                        bcd_temp_16 = bin16_to_bcd4(amp_min_new);
+                        {amp_min_d3, amp_min_d2, amp_min_d1, amp_min_d0} <= bcd_temp_16;
+                    end
                     
                     // 幅度上限调整
-                    if (btn_limit_up_dn && amp_max > amp_min + amp_step)
-                        amp_max <= amp_max - amp_step;
-                    else if (btn_limit_up_up && amp_max + amp_step < 16'd5000)  // 最大5V
-                        amp_max <= amp_max + amp_step;
+                    if (btn_limit_up_dn && amp_max > amp_min + amp_step) begin
+                        amp_max_new = amp_max - amp_step;
+                        amp_max <= amp_max_new;
+                        bcd_temp_16 = bin16_to_bcd4(amp_max_new);
+                        {amp_max_d3, amp_max_d2, amp_max_d1, amp_max_d0} <= bcd_temp_16;
+                    end else if (btn_limit_up_up && amp_max + amp_step < 16'd5000) begin  // 最大5V
+                        amp_max_new = amp_max + amp_step;
+                        amp_max <= amp_max_new;
+                        bcd_temp_16 = bin16_to_bcd4(amp_max_new);
+                        {amp_max_d3, amp_max_d2, amp_max_d1, amp_max_d0} <= bcd_temp_16;
+                    end
                 end
                 
                 ADJUST_DUTY: begin
                     // 占空比下限调整
-                    if (btn_limit_dn_dn && duty_min >= duty_step)
-                        duty_min <= duty_min - duty_step;
-                    else if (btn_limit_dn_up && duty_min + duty_step < duty_max)
-                        duty_min <= duty_min + duty_step;
+                    if (btn_limit_dn_dn && duty_min >= duty_step) begin
+                        duty_min_new = duty_min - duty_step;
+                        duty_min <= duty_min_new;
+                        bcd_temp_16 = bin16_to_bcd4(duty_min_new);
+                        {duty_min_d3, duty_min_d2, duty_min_d1, duty_min_d0} <= bcd_temp_16;
+                    end else if (btn_limit_dn_up && duty_min + duty_step < duty_max) begin
+                        duty_min_new = duty_min + duty_step;
+                        duty_min <= duty_min_new;
+                        bcd_temp_16 = bin16_to_bcd4(duty_min_new);
+                        {duty_min_d3, duty_min_d2, duty_min_d1, duty_min_d0} <= bcd_temp_16;
+                    end
                     
                     // 占空比上限调整
-                    if (btn_limit_up_dn && duty_max > duty_min + duty_step)
-                        duty_max <= duty_max - duty_step;
-                    else if (btn_limit_up_up && duty_max + duty_step < 16'd1000)  // 最大100%
-                        duty_max <= duty_max + duty_step;
+                    if (btn_limit_up_dn && duty_max > duty_min + duty_step) begin
+                        duty_max_new = duty_max - duty_step;
+                        duty_max <= duty_max_new;
+                        bcd_temp_16 = bin16_to_bcd4(duty_max_new);
+                        {duty_max_d3, duty_max_d2, duty_max_d1, duty_max_d0} <= bcd_temp_16;
+                    end else if (btn_limit_up_up && duty_max + duty_step < 16'd1000) begin  // 最大100%
+                        duty_max_new = duty_max + duty_step;
+                        duty_max <= duty_max_new;
+                        bcd_temp_16 = bin16_to_bcd4(duty_max_new);
+                        {duty_max_d3, duty_max_d2, duty_max_d1, duty_max_d0} <= bcd_temp_16;
+                    end
                 end
                 
                 ADJUST_THD: begin
                     // THD只有上限，使用上限按键调整
-                    if (btn_limit_up_dn && thd_max >= thd_step)
-                        thd_max <= thd_max - thd_step;
-                    else if (btn_limit_up_up && thd_max + thd_step < 16'd1000)  // 最大100%
-                        thd_max <= thd_max + thd_step;
+                    if (btn_limit_up_dn && thd_max >= thd_step) begin
+                        thd_max_new = thd_max - thd_step;
+                        thd_max <= thd_max_new;
+                        bcd_temp_16 = bin16_to_bcd4(thd_max_new);
+                        {thd_max_d3, thd_max_d2, thd_max_d1, thd_max_d0} <= bcd_temp_16;
+                    end else if (btn_limit_up_up && thd_max + thd_step < 16'd1000) begin  // 最大100%
+                        thd_max_new = thd_max + thd_step;
+                        thd_max <= thd_max_new;
+                        bcd_temp_16 = bin16_to_bcd4(thd_max_new);
+                        {thd_max_d3, thd_max_d2, thd_max_d1, thd_max_d0} <= bcd_temp_16;
+                    end
                 end
             endcase
         end
     end
 end
 
-// 输出到HDMI显示
+// 输出到HDMI显示（Binary格式用于测试）
 assign freq_min_out = freq_min;
 assign freq_max_out = freq_max;
 assign amp_min_out  = amp_min;
@@ -306,6 +499,48 @@ always @(posedge clk or negedge rst_n) begin
         all_pass    <= 1'b0;
     end
 end
+
+//=============================================================================
+// BCD输出assign
+//=============================================================================
+assign freq_min_d0_out = freq_min_d0;
+assign freq_min_d1_out = freq_min_d1;
+assign freq_min_d2_out = freq_min_d2;
+assign freq_min_d3_out = freq_min_d3;
+assign freq_min_d4_out = freq_min_d4;
+assign freq_min_d5_out = freq_min_d5;
+
+assign freq_max_d0_out = freq_max_d0;
+assign freq_max_d1_out = freq_max_d1;
+assign freq_max_d2_out = freq_max_d2;
+assign freq_max_d3_out = freq_max_d3;
+assign freq_max_d4_out = freq_max_d4;
+assign freq_max_d5_out = freq_max_d5;
+
+assign amp_min_d0_out = amp_min_d0;
+assign amp_min_d1_out = amp_min_d1;
+assign amp_min_d2_out = amp_min_d2;
+assign amp_min_d3_out = amp_min_d3;
+
+assign amp_max_d0_out = amp_max_d0;
+assign amp_max_d1_out = amp_max_d1;
+assign amp_max_d2_out = amp_max_d2;
+assign amp_max_d3_out = amp_max_d3;
+
+assign duty_min_d0_out = duty_min_d0;
+assign duty_min_d1_out = duty_min_d1;
+assign duty_min_d2_out = duty_min_d2;
+assign duty_min_d3_out = duty_min_d3;
+
+assign duty_max_d0_out = duty_max_d0;
+assign duty_max_d1_out = duty_max_d1;
+assign duty_max_d2_out = duty_max_d2;
+assign duty_max_d3_out = duty_max_d3;
+
+assign thd_max_d0_out = thd_max_d0;
+assign thd_max_d1_out = thd_max_d1;
+assign thd_max_d2_out = thd_max_d2;
+assign thd_max_d3_out = thd_max_d3;
 
 //=============================================================================
 // LED输出映射
