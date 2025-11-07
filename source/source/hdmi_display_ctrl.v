@@ -2733,7 +2733,7 @@ always @(posedge clk_pixel or negedge rst_n) begin
                             case (param_adjust_mode)
                                 ADJUST_FREQ: char_code <= (freq_min_d5 < 10) ? digit_to_ascii(freq_min_d5) : 8'd32;
                                 ADJUST_AMP:  char_code <= (amp_min_d3 < 10) ? digit_to_ascii(amp_min_d3) : 8'd32;
-                                ADJUST_DUTY: char_code <= (duty_min_d2 < 10) ? digit_to_ascii(duty_min_d2) : 8'd32;
+                                ADJUST_DUTY: char_code <= (duty_min_d2 == 0) ? 8'd32 : digit_to_ascii(duty_min_d2);  // 前导零抑制
                                 default:     char_code <= 8'd32;
                             endcase
                         end
@@ -2775,6 +2775,26 @@ always @(posedge clk_pixel or negedge rst_n) begin
                                 default:     char_code <= 8'd32;
                             endcase
                         end
+                        11: begin
+                            case (param_adjust_mode)
+                                ADJUST_FREQ: char_code <= 8'd32;  // 空格
+                                default:     char_code <= 8'd32;
+                            endcase
+                        end
+                        12: begin
+                            case (param_adjust_mode)
+                                ADJUST_FREQ: char_code <= 8'd72;  // 'H'
+                                ADJUST_AMP:  char_code <= 8'd109; // 'm'
+                                default:     char_code <= 8'd32;
+                            endcase
+                        end
+                        13: begin
+                            case (param_adjust_mode)
+                                ADJUST_FREQ: char_code <= 8'd122; // 'z'
+                                ADJUST_AMP:  char_code <= 8'd86;  // 'V'
+                                default:     char_code <= 8'd32;
+                            endcase
+                        end
                         default: char_code <= 8'd32;
                     endcase
                     char_col <= auto_test_char_col;
@@ -2795,8 +2815,8 @@ always @(posedge clk_pixel or negedge rst_n) begin
                             case (param_adjust_mode)
                                 ADJUST_FREQ: char_code <= (freq_max_d5 < 10) ? digit_to_ascii(freq_max_d5) : 8'd32;
                                 ADJUST_AMP:  char_code <= (amp_max_d3 < 10) ? digit_to_ascii(amp_max_d3) : 8'd32;
-                                ADJUST_DUTY: char_code <= (duty_max_d2 < 10) ? digit_to_ascii(duty_max_d2) : 8'd32;
-                                ADJUST_THD:  char_code <= (thd_max_d2 < 10) ? digit_to_ascii(thd_max_d2) : 8'd32;
+                                ADJUST_DUTY: char_code <= (duty_max_d2 == 0) ? 8'd32 : digit_to_ascii(duty_max_d2);  // 前导零抑制
+                                ADJUST_THD:  char_code <= (thd_max_d2 == 0) ? 8'd32 : digit_to_ascii(thd_max_d2);   // 前导零抑制
                                 default:     char_code <= 8'd32;
                             endcase
                         end
@@ -2839,6 +2859,26 @@ always @(posedge clk_pixel or negedge rst_n) begin
                         10: begin
                             case (param_adjust_mode)
                                 ADJUST_FREQ: char_code <= (freq_max_d0 < 10) ? digit_to_ascii(freq_max_d0) : 8'd32;
+                                default:     char_code <= 8'd32;
+                            endcase
+                        end
+                        11: begin
+                            case (param_adjust_mode)
+                                ADJUST_FREQ: char_code <= 8'd32;  // 空格
+                                default:     char_code <= 8'd32;
+                            endcase
+                        end
+                        12: begin
+                            case (param_adjust_mode)
+                                ADJUST_FREQ: char_code <= 8'd72;  // 'H'
+                                ADJUST_AMP:  char_code <= 8'd109; // 'm'
+                                default:     char_code <= 8'd32;
+                            endcase
+                        end
+                        13: begin
+                            case (param_adjust_mode)
+                                ADJUST_FREQ: char_code <= 8'd122; // 'z'
+                                ADJUST_AMP:  char_code <= 8'd86;  // 'V'
                                 default:     char_code <= 8'd32;
                             endcase
                         end
