@@ -249,6 +249,9 @@ reg [4:0]   char_row_d1;
 reg [11:0]  char_col_d1;
 reg         in_char_area_d1;
 
+// �?自动测试区域标志延迟（用于正确的层次显示）
+reg         in_auto_test_area_d1, in_auto_test_area_d2, in_auto_test_area_d3;
+
 // 数字分解
 reg [3:0]   digit_0, digit_1, digit_2, digit_3, digit_4;
 
@@ -745,6 +748,11 @@ always @(posedge clk_pixel or negedge rst_n) begin
         char_row_d1 <= 5'd0;
         char_col_d1 <= 12'd0;
         in_char_area_d1 <= 1'b0;
+        
+        // �?自动测试区域标志延迟链
+        in_auto_test_area_d1 <= 1'b0;
+        in_auto_test_area_d2 <= 1'b0;
+        in_auto_test_area_d3 <= 1'b0;
     end else begin
         // 延迟4拍（时序优化后延迟链�?
         pixel_x_d1 <= pixel_x;
@@ -769,6 +777,12 @@ always @(posedge clk_pixel or negedge rst_n) begin
         char_row_d1 <= char_row;
         char_col_d1 <= char_col;
         in_char_area_d1 <= in_char_area;
+        
+        // �?自动测试区域标志延迟链（匹配pixel坐标延迟）
+        in_auto_test_area_d1 <= in_auto_test_area;
+        in_auto_test_area_d2 <= in_auto_test_area_d1;
+        in_auto_test_area_d3 <= in_auto_test_area_d2;
+        
         grid_x_flag_d1 <= grid_x_flag;
         grid_x_flag_d2 <= grid_x_flag_d1;
         grid_x_flag_d3 <= grid_x_flag_d2;
@@ -1063,11 +1077,13 @@ always @(posedge clk_pixel or negedge rst_n) begin
         char_row <= 5'd0;
         char_col <= 12'd0;
         in_char_area <= 1'b0;
+        in_auto_test_area <= 1'b0;
     end else begin
         char_code <= 8'd32;  // 默认空格 (ASCII 32)
         char_row <= 5'd0;
         char_col <= 12'd0;
         in_char_area <= 1'b0;
+        in_auto_test_area <= 1'b0;  // 默认不在自动测试区域
     
     // ========== �?Y轴标度数字显示（使用预计算结果，无组合逻辑�?==========
     if (y_axis_char_valid) begin
@@ -2240,6 +2256,9 @@ always @(posedge clk_pixel or negedge rst_n) begin
              pixel_x_d1 >= AUTO_TEST_X_START && 
              pixel_x_d1 < (AUTO_TEST_X_START + AUTO_TEST_WIDTH)) begin
         
+        // 设置自动测试区域标志
+        in_auto_test_area <= 1'b1;
+        
         // 计算行号和列�?
         auto_test_char_row <= (pixel_y_d1 - AUTO_TEST_Y_START) % AUTO_LINE_HEIGHT;
         auto_test_char_col <= (pixel_x_d1 - AUTO_TEST_X_START) % AUTO_CHAR_WIDTH;
@@ -2428,39 +2447,39 @@ always @(posedge clk_pixel or negedge rst_n) begin
                         // 根据模式显示不同的数�?
                         5: begin
                             case (param_adjust_mode)
-                                ADJUST_FREQ: char_code <= 8'd48 + freq_min_d5;
-                                ADJUST_AMP:  char_code <= 8'd48 + amp_min_d3;
-                                ADJUST_DUTY: char_code <= 8'd48 + duty_min_d2;
+                                ADJUST_FREQ: char_code <= (freq_min_d5 < 10) ? digit_to_ascii(freq_min_d5) : 8'd32;
+                                ADJUST_AMP:  char_code <= (amp_min_d3 < 10) ? digit_to_ascii(amp_min_d3) : 8'd32;
+                                ADJUST_DUTY: char_code <= (duty_min_d2 < 10) ? digit_to_ascii(duty_min_d2) : 8'd32;
                                 default:     char_code <= 8'd32;
                             endcase
                         end
                         6: begin
                             case (param_adjust_mode)
-                                ADJUST_FREQ: char_code <= 8'd48 + freq_min_d4;
-                                ADJUST_AMP:  char_code <= 8'd48 + amp_min_d2;
-                                ADJUST_DUTY: char_code <= 8'd48 + duty_min_d1;
+                                ADJUST_FREQ: char_code <= (freq_min_d4 < 10) ? digit_to_ascii(freq_min_d4) : 8'd32;
+                                ADJUST_AMP:  char_code <= (amp_min_d2 < 10) ? digit_to_ascii(amp_min_d2) : 8'd32;
+                                ADJUST_DUTY: char_code <= (duty_min_d1 < 10) ? digit_to_ascii(duty_min_d1) : 8'd32;
                                 default:     char_code <= 8'd32;
                             endcase
                         end
                         7: begin
                             case (param_adjust_mode)
-                                ADJUST_FREQ: char_code <= 8'd48 + freq_min_d3;
-                                ADJUST_AMP:  char_code <= 8'd48 + amp_min_d1;
+                                ADJUST_FREQ: char_code <= (freq_min_d3 < 10) ? digit_to_ascii(freq_min_d3) : 8'd32;
+                                ADJUST_AMP:  char_code <= (amp_min_d1 < 10) ? digit_to_ascii(amp_min_d1) : 8'd32;
                                 ADJUST_DUTY: char_code <= 8'd46;  // '.'
                                 default:     char_code <= 8'd32;
                             endcase
                         end
                         8: begin
                             case (param_adjust_mode)
-                                ADJUST_FREQ: char_code <= 8'd48 + freq_min_d2;
-                                ADJUST_AMP:  char_code <= 8'd48 + amp_min_d0;
-                                ADJUST_DUTY: char_code <= 8'd48 + duty_min_d0;
+                                ADJUST_FREQ: char_code <= (freq_min_d2 < 10) ? digit_to_ascii(freq_min_d2) : 8'd32;
+                                ADJUST_AMP:  char_code <= (amp_min_d0 < 10) ? digit_to_ascii(amp_min_d0) : 8'd32;
+                                ADJUST_DUTY: char_code <= (duty_min_d0 < 10) ? digit_to_ascii(duty_min_d0) : 8'd32;
                                 default:     char_code <= 8'd32;
                             endcase
                         end
                         9: begin
                             case (param_adjust_mode)
-                                ADJUST_FREQ: char_code <= 8'd48 + freq_min_d1;
+                                ADJUST_FREQ: char_code <= (freq_min_d1 < 10) ? digit_to_ascii(freq_min_d1) : 8'd32;
                                 ADJUST_AMP:  char_code <= 8'd32;
                                 ADJUST_DUTY: char_code <= 8'd37;  // '%'
                                 default:     char_code <= 8'd32;
@@ -2468,7 +2487,7 @@ always @(posedge clk_pixel or negedge rst_n) begin
                         end
                         10: begin
                             case (param_adjust_mode)
-                                ADJUST_FREQ: char_code <= 8'd48 + freq_min_d0;
+                                ADJUST_FREQ: char_code <= (freq_min_d0 < 10) ? digit_to_ascii(freq_min_d0) : 8'd32;
                                 default:     char_code <= 8'd32;
                             endcase
                         end
@@ -2490,26 +2509,26 @@ always @(posedge clk_pixel or negedge rst_n) begin
                         4: char_code <= 8'd32;  // ' '
                         5: begin
                             case (param_adjust_mode)
-                                ADJUST_FREQ: char_code <= 8'd48 + freq_max_d5;
-                                ADJUST_AMP:  char_code <= 8'd48 + amp_max_d3;
-                                ADJUST_DUTY: char_code <= 8'd48 + duty_max_d2;
-                                ADJUST_THD:  char_code <= 8'd48 + thd_max_d2;
+                                ADJUST_FREQ: char_code <= (freq_max_d5 < 10) ? digit_to_ascii(freq_max_d5) : 8'd32;
+                                ADJUST_AMP:  char_code <= (amp_max_d3 < 10) ? digit_to_ascii(amp_max_d3) : 8'd32;
+                                ADJUST_DUTY: char_code <= (duty_max_d2 < 10) ? digit_to_ascii(duty_max_d2) : 8'd32;
+                                ADJUST_THD:  char_code <= (thd_max_d2 < 10) ? digit_to_ascii(thd_max_d2) : 8'd32;
                                 default:     char_code <= 8'd32;
                             endcase
                         end
                         6: begin
                             case (param_adjust_mode)
-                                ADJUST_FREQ: char_code <= 8'd48 + freq_max_d4;
-                                ADJUST_AMP:  char_code <= 8'd48 + amp_max_d2;
-                                ADJUST_DUTY: char_code <= 8'd48 + duty_max_d1;
-                                ADJUST_THD:  char_code <= 8'd48 + thd_max_d1;
+                                ADJUST_FREQ: char_code <= (freq_max_d4 < 10) ? digit_to_ascii(freq_max_d4) : 8'd32;
+                                ADJUST_AMP:  char_code <= (amp_max_d2 < 10) ? digit_to_ascii(amp_max_d2) : 8'd32;
+                                ADJUST_DUTY: char_code <= (duty_max_d1 < 10) ? digit_to_ascii(duty_max_d1) : 8'd32;
+                                ADJUST_THD:  char_code <= (thd_max_d1 < 10) ? digit_to_ascii(thd_max_d1) : 8'd32;
                                 default:     char_code <= 8'd32;
                             endcase
                         end
                         7: begin
                             case (param_adjust_mode)
-                                ADJUST_FREQ: char_code <= 8'd48 + freq_max_d3;
-                                ADJUST_AMP:  char_code <= 8'd48 + amp_max_d1;
+                                ADJUST_FREQ: char_code <= (freq_max_d3 < 10) ? digit_to_ascii(freq_max_d3) : 8'd32;
+                                ADJUST_AMP:  char_code <= (amp_max_d1 < 10) ? digit_to_ascii(amp_max_d1) : 8'd32;
                                 ADJUST_DUTY: char_code <= 8'd46;  // '.'
                                 ADJUST_THD:  char_code <= 8'd46;  // '.'
                                 default:     char_code <= 8'd32;
@@ -2517,16 +2536,16 @@ always @(posedge clk_pixel or negedge rst_n) begin
                         end
                         8: begin
                             case (param_adjust_mode)
-                                ADJUST_FREQ: char_code <= 8'd48 + freq_max_d2;
-                                ADJUST_AMP:  char_code <= 8'd48 + amp_max_d0;
-                                ADJUST_DUTY: char_code <= 8'd48 + duty_max_d0;
-                                ADJUST_THD:  char_code <= 8'd48 + thd_max_d0;
+                                ADJUST_FREQ: char_code <= (freq_max_d2 < 10) ? digit_to_ascii(freq_max_d2) : 8'd32;
+                                ADJUST_AMP:  char_code <= (amp_max_d0 < 10) ? digit_to_ascii(amp_max_d0) : 8'd32;
+                                ADJUST_DUTY: char_code <= (duty_max_d0 < 10) ? digit_to_ascii(duty_max_d0) : 8'd32;
+                                ADJUST_THD:  char_code <= (thd_max_d0 < 10) ? digit_to_ascii(thd_max_d0) : 8'd32;
                                 default:     char_code <= 8'd32;
                             endcase
                         end
                         9: begin
                             case (param_adjust_mode)
-                                ADJUST_FREQ: char_code <= 8'd48 + freq_max_d1;
+                                ADJUST_FREQ: char_code <= (freq_max_d1 < 10) ? digit_to_ascii(freq_max_d1) : 8'd32;
                                 ADJUST_AMP:  char_code <= 8'd32;
                                 ADJUST_DUTY: char_code <= 8'd37;  // '%'
                                 ADJUST_THD:  char_code <= 8'd37;  // '%'
@@ -2535,7 +2554,7 @@ always @(posedge clk_pixel or negedge rst_n) begin
                         end
                         10: begin
                             case (param_adjust_mode)
-                                ADJUST_FREQ: char_code <= 8'd48 + freq_max_d0;
+                                ADJUST_FREQ: char_code <= (freq_max_d0 < 10) ? digit_to_ascii(freq_max_d0) : 8'd32;
                                 default:     char_code <= 8'd32;
                             endcase
                         end
@@ -2822,7 +2841,10 @@ always @(*) begin
         
         // ========== 参数显示区域 ==========
         // �?时序优化：由于char_code增加了一级延迟，这里使用d4坐标
-        else if (pixel_y_d4 >= PARAM_Y_START && pixel_y_d4 < PARAM_Y_END) begin
+        // ✅ 修复：当自动测试启用时，避免在自动测试区域绘制参数
+        else if (pixel_y_d4 >= PARAM_Y_START && pixel_y_d4 < PARAM_Y_END &&
+                 !(auto_test_enable && pixel_x_d4 >= AUTO_TEST_X_START && 
+                   pixel_y_d4 >= AUTO_TEST_Y_START && pixel_y_d4 < (AUTO_TEST_Y_START + AUTO_TEST_HEIGHT))) begin
             // 背景渐变
             rgb_data = {8'd15, 8'd15, 8'd30};  // 深蓝色背�?
             
@@ -2842,12 +2864,8 @@ always @(*) begin
             end
         end
         
-        // ========== �?自动测试显示区域（右下角浮窗�?==========
-        if (auto_test_enable && 
-            pixel_y_d4 >= AUTO_TEST_Y_START && 
-            pixel_y_d4 < (AUTO_TEST_Y_START + AUTO_TEST_HEIGHT) &&
-            pixel_x_d4 >= AUTO_TEST_X_START && 
-            pixel_x_d4 < (AUTO_TEST_X_START + AUTO_TEST_WIDTH)) begin
+        // ========== �?自动测试显示区域（右下角浮窗，最高优先级覆盖�?==========
+        if (in_auto_test_area_d3) begin  // 使用延迟3拍的标志，匹配pixel_y_d4
             
             // 边框绘制�?像素宽）
             if (pixel_y_d4 < (AUTO_TEST_Y_START + 2) ||                              // 上边�?
