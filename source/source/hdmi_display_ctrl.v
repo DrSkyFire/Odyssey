@@ -47,6 +47,19 @@ module hdmi_display_ctrl (
     
     input  wire [1:0]   work_mode,
     
+    // ✅ 自动测试模式显示
+    input  wire         auto_test_enable,       // 自动测试模式使能
+    input  wire [2:0]   param_adjust_mode,      // 参数调整模式 (0=IDLE, 1=FREQ, 2=AMP, 3=DUTY, 4=THD)
+    input  wire [1:0]   adjust_step_mode,       // 步进模式 (0=细调, 1=中调, 2=粗调)
+    input  wire [31:0]  freq_min_display,       // 频率下限
+    input  wire [31:0]  freq_max_display,       // 频率上限
+    input  wire [15:0]  amp_min_display,        // 幅度下限
+    input  wire [15:0]  amp_max_display,        // 幅度上限
+    input  wire [15:0]  duty_min_display,       // 占空比下限
+    input  wire [15:0]  duty_max_display,       // 占空比上限
+    input  wire [15:0]  thd_max_display,        // THD上限
+    input  wire [7:0]   auto_test_result,       // 自动测试结果
+    
     // HDMI输出
     output wire [23:0]  rgb_out,
     output wire         de_out,
@@ -109,6 +122,23 @@ localparam COL_AMPL_WIDTH   = 120;
 localparam COL_DUTY_WIDTH   = 120;
 localparam COL_THD_WIDTH    = 120;
 localparam COL_WAVE_WIDTH   = 600;
+
+//=============================================================================
+// 自动测试显示区域参数 (屏幕右下角)
+//=============================================================================
+localparam AUTO_TEST_X_START = 900;     // 自动测试区域X起始
+localparam AUTO_TEST_Y_START = 400;     // 自动测试区域Y起始
+localparam AUTO_TEST_WIDTH   = 360;     // 自动测试区域宽度
+localparam AUTO_TEST_HEIGHT  = 300;     // 自动测试区域高度
+localparam AUTO_LINE_HEIGHT  = 28;      // 行高
+localparam AUTO_CHAR_WIDTH   = 16;      // 字符宽度
+
+// 自动测试模式状态
+localparam ADJUST_IDLE = 3'd0;
+localparam ADJUST_FREQ = 3'd1;
+localparam ADJUST_AMP  = 3'd2;
+localparam ADJUST_DUTY = 3'd3;
+localparam ADJUST_THD  = 3'd4;
 
 //=============================================================================
 // 信号定义
@@ -237,6 +267,22 @@ reg [1:0]   ch1_freq_unit;      // 0=Hz, 1=kHz, 2=MHz
 reg [15:0]  ch1_freq_display;   // 显示数值（已转换单位）
 reg [1:0]   ch2_freq_unit;
 reg [15:0]  ch2_freq_display;
+
+// ✅ 自动测试显示相关信号
+reg         in_auto_test_area;      // 在自动测试显示区域内
+reg [7:0]   auto_test_char_code;    // 自动测试字符编码
+reg [4:0]   auto_test_char_row;     // 自动测试字符行号
+reg [11:0]  auto_test_char_col;     // 自动测试字符列号
+reg         auto_test_char_valid;   // 自动测试字符有效
+reg [31:0]  freq_min_khz, freq_max_khz;  // 频率显示为kHz
+reg [15:0]  amp_min_mv, amp_max_mv;      // 幅度显示为mV
+reg [3:0]   freq_min_d0, freq_min_d1, freq_min_d2, freq_min_d3, freq_min_d4, freq_min_d5;
+reg [3:0]   freq_max_d0, freq_max_d1, freq_max_d2, freq_max_d3, freq_max_d4, freq_max_d5;
+reg [3:0]   amp_min_d0, amp_min_d1, amp_min_d2, amp_min_d3;
+reg [3:0]   amp_max_d0, amp_max_d1, amp_max_d2, amp_max_d3;
+reg [3:0]   duty_min_d0, duty_min_d1, duty_min_d2;
+reg [3:0]   duty_max_d0, duty_max_d1, duty_max_d2;
+reg [3:0]   thd_max_d0, thd_max_d1, thd_max_d2;
 
 //=============================================================================
 // 行计数器
@@ -650,6 +696,72 @@ always @(posedge clk_pixel or negedge rst_n) begin
         end
         if (v_cnt == 12'd0 && h_cnt == 12'd200) begin
             phase_d3 <= (phase_abs / 1000) % 10;
+        end
+        
+        // ✅ 自动测试参数预计算 (从h_cnt=210开始)
+        if (v_cnt == 12'd0 && h_cnt == 12'd210) begin
+            // 频率转换为kHz显示 (32位频率 / 1000)
+            freq_min_khz <= freq_min_display / 1000;
+            freq_max_khz <= freq_max_display / 1000;
+            // 幅度保持mV单位
+            amp_min_mv <= amp_min_display;
+            amp_max_mv <= amp_max_display;
+        end
+        
+        // 频率下限BCD转换 (6位数字，最大500kHz)
+        if (v_cnt == 12'd0 && h_cnt == 12'd215) begin
+            freq_min_d0 <= freq_min_khz % 10;
+            freq_min_d1 <= (freq_min_khz / 10) % 10;
+            freq_min_d2 <= (freq_min_khz / 100) % 10;
+            freq_min_d3 <= (freq_min_khz / 1000) % 10;
+            freq_min_d4 <= (freq_min_khz / 10000) % 10;
+            freq_min_d5 <= (freq_min_khz / 100000) % 10;
+        end
+        
+        // 频率上限BCD转换
+        if (v_cnt == 12'd0 && h_cnt == 12'd220) begin
+            freq_max_d0 <= freq_max_khz % 10;
+            freq_max_d1 <= (freq_max_khz / 10) % 10;
+            freq_max_d2 <= (freq_max_khz / 100) % 10;
+            freq_max_d3 <= (freq_max_khz / 1000) % 10;
+            freq_max_d4 <= (freq_max_khz / 10000) % 10;
+            freq_max_d5 <= (freq_max_khz / 100000) % 10;
+        end
+        
+        // 幅度下限BCD转换 (4位数字，最大9999mV)
+        if (v_cnt == 12'd0 && h_cnt == 12'd225) begin
+            amp_min_d0 <= amp_min_mv % 10;
+            amp_min_d1 <= (amp_min_mv / 10) % 10;
+            amp_min_d2 <= (amp_min_mv / 100) % 10;
+            amp_min_d3 <= (amp_min_mv / 1000) % 10;
+        end
+        
+        // 幅度上限BCD转换
+        if (v_cnt == 12'd0 && h_cnt == 12'd230) begin
+            amp_max_d0 <= amp_max_mv % 10;
+            amp_max_d1 <= (amp_max_mv / 10) % 10;
+            amp_max_d2 <= (amp_max_mv / 100) % 10;
+            amp_max_d3 <= (amp_max_mv / 1000) % 10;
+        end
+        
+        // 占空比上下限BCD转换 (3位数字，0-100.0%)
+        if (v_cnt == 12'd0 && h_cnt == 12'd235) begin
+            duty_min_d0 <= duty_min_display % 10;
+            duty_min_d1 <= (duty_min_display / 10) % 10;
+            duty_min_d2 <= (duty_min_display / 100) % 10;
+        end
+        
+        if (v_cnt == 12'd0 && h_cnt == 12'd240) begin
+            duty_max_d0 <= duty_max_display % 10;
+            duty_max_d1 <= (duty_max_display / 10) % 10;
+            duty_max_d2 <= (duty_max_display / 100) % 10;
+        end
+        
+        // THD上限BCD转换 (3位数字，0-100.0%)
+        if (v_cnt == 12'd0 && h_cnt == 12'd245) begin
+            thd_max_d0 <= thd_max_display % 10;
+            thd_max_d1 <= (thd_max_display / 10) % 10;
+            thd_max_d2 <= (thd_max_display / 100) % 10;
         end
     end
 end
@@ -2176,6 +2288,399 @@ always @(posedge clk_pixel or negedge rst_n) begin
             end  // 结束 if (pixel_y_d1 < TABLE_Y_PHASE + 32)
         end
     end  // 结束 if (pixel_y_d1 >= PARAM_Y_START && pixel_y_d1 < PARAM_Y_END)
+    
+    // ========== ✅ 自动测试显示区域（屏幕右下角） ==========
+    else if (auto_test_enable && pixel_y_d1 >= AUTO_TEST_Y_START && 
+             pixel_y_d1 < (AUTO_TEST_Y_START + AUTO_TEST_HEIGHT) &&
+             pixel_x_d1 >= AUTO_TEST_X_START && 
+             pixel_x_d1 < (AUTO_TEST_X_START + AUTO_TEST_WIDTH)) begin
+        
+        // 计算行号和列号
+        auto_test_char_row = (pixel_y_d1 - AUTO_TEST_Y_START) % AUTO_LINE_HEIGHT;
+        auto_test_char_col = (pixel_x_d1 - AUTO_TEST_X_START) % AUTO_CHAR_WIDTH;
+        
+        // 标题行：第0行
+        if (pixel_y_d1 < (AUTO_TEST_Y_START + AUTO_LINE_HEIGHT)) begin
+            char_row = auto_test_char_row;
+            if (pixel_x_d1 >= AUTO_TEST_X_START && pixel_x_d1 < AUTO_TEST_X_START + 16*AUTO_CHAR_WIDTH) begin
+                // "Auto Test Mode"
+                case ((pixel_x_d1 - AUTO_TEST_X_START) / AUTO_CHAR_WIDTH)
+                    0: char_code = 8'd65;  // 'A'
+                    1: char_code = 8'd117; // 'u'
+                    2: char_code = 8'd116; // 't'
+                    3: char_code = 8'd111; // 'o'
+                    4: char_code = 8'd32;  // ' '
+                    5: char_code = 8'd84;  // 'T'
+                    6: char_code = 8'd101; // 'e'
+                    7: char_code = 8'd115; // 's'
+                    8: char_code = 8'd116; // 't'
+                    default: char_code = 8'd32;
+                endcase
+                char_col = auto_test_char_col;
+                in_char_area = 1'b1;
+            end
+        end
+        
+        // 参数选择界面（param_adjust_mode == IDLE）
+        else if (param_adjust_mode == ADJUST_IDLE) begin
+            char_row = auto_test_char_row;
+            
+            // 第1行："[0]Freq [1]Amp"
+            if (pixel_y_d1 < (AUTO_TEST_Y_START + 2*AUTO_LINE_HEIGHT)) begin
+                if (pixel_x_d1 >= AUTO_TEST_X_START && pixel_x_d1 < AUTO_TEST_X_START + 16*AUTO_CHAR_WIDTH) begin
+                    case ((pixel_x_d1 - AUTO_TEST_X_START) / AUTO_CHAR_WIDTH)
+                        0: char_code = 8'd91;  // '['
+                        1: char_code = 8'd48;  // '0'
+                        2: char_code = 8'd93;  // ']'
+                        3: char_code = 8'd70;  // 'F'
+                        4: char_code = 8'd114; // 'r'
+                        5: char_code = 8'd101; // 'e'
+                        6: char_code = 8'd113; // 'q'
+                        7: char_code = 8'd32;  // ' '
+                        8: char_code = 8'd91;  // '['
+                        9: char_code = 8'd49;  // '1'
+                        10: char_code = 8'd93; // ']'
+                        11: char_code = 8'd65; // 'A'
+                        12: char_code = 8'd109; // 'm'
+                        13: char_code = 8'd112; // 'p'
+                        default: char_code = 8'd32;
+                    endcase
+                    char_col = auto_test_char_col;
+                    in_char_area = 1'b1;
+                end
+            end
+            
+            // 第2行："[2]Duty [3]THD"
+            else if (pixel_y_d1 < (AUTO_TEST_Y_START + 3*AUTO_LINE_HEIGHT)) begin
+                if (pixel_x_d1 >= AUTO_TEST_X_START && pixel_x_d1 < AUTO_TEST_X_START + 16*AUTO_CHAR_WIDTH) begin
+                    case ((pixel_x_d1 - AUTO_TEST_X_START) / AUTO_CHAR_WIDTH)
+                        0: char_code = 8'd91;  // '['
+                        1: char_code = 8'd50;  // '2'
+                        2: char_code = 8'd93;  // ']'
+                        3: char_code = 8'd68;  // 'D'
+                        4: char_code = 8'd117; // 'u'
+                        5: char_code = 8'd116; // 't'
+                        6: char_code = 8'd121; // 'y'
+                        7: char_code = 8'd32;  // ' '
+                        8: char_code = 8'd91;  // '['
+                        9: char_code = 8'd51;  // '3'
+                        10: char_code = 8'd93; // ']'
+                        11: char_code = 8'd84; // 'T'
+                        12: char_code = 8'd72; // 'H'
+                        13: char_code = 8'd68; // 'D'
+                        default: char_code = 8'd32;
+                    endcase
+                    char_col = auto_test_char_col;
+                    in_char_area = 1'b1;
+                end
+            end
+            
+            // 第3行："[7]Exit"
+            else if (pixel_y_d1 < (AUTO_TEST_Y_START + 4*AUTO_LINE_HEIGHT)) begin
+                if (pixel_x_d1 >= AUTO_TEST_X_START && pixel_x_d1 < AUTO_TEST_X_START + 8*AUTO_CHAR_WIDTH) begin
+                    case ((pixel_x_d1 - AUTO_TEST_X_START) / AUTO_CHAR_WIDTH)
+                        0: char_code = 8'd91;  // '['
+                        1: char_code = 8'd55;  // '7'
+                        2: char_code = 8'd93;  // ']'
+                        3: char_code = 8'd69;  // 'E'
+                        4: char_code = 8'd120; // 'x'
+                        5: char_code = 8'd105; // 'i'
+                        6: char_code = 8'd116; // 't'
+                        default: char_code = 8'd32;
+                    endcase
+                    char_col = auto_test_char_col;
+                    in_char_area = 1'b1;
+                end
+            end
+        end
+        
+        // 参数调整界面（param_adjust_mode != IDLE）
+        else begin
+            char_row = auto_test_char_row;
+            
+            // 第1行：显示当前调整参数名称
+            if (pixel_y_d1 < (AUTO_TEST_Y_START + 2*AUTO_LINE_HEIGHT)) begin
+                if (pixel_x_d1 >= AUTO_TEST_X_START && pixel_x_d1 < AUTO_TEST_X_START + 20*AUTO_CHAR_WIDTH) begin
+                    case (param_adjust_mode)
+                        ADJUST_FREQ: begin
+                            case ((pixel_x_d1 - AUTO_TEST_X_START) / AUTO_CHAR_WIDTH)
+                                0: char_code = 8'd70;  // 'F'
+                                1: char_code = 8'd114; // 'r'
+                                2: char_code = 8'd101; // 'e'
+                                3: char_code = 8'd113; // 'q'
+                                4: char_code = 8'd32;  // ' '
+                                5: char_code = 8'd65;  // 'A'
+                                6: char_code = 8'd100; // 'd'
+                                7: char_code = 8'd106; // 'j'
+                                8: char_code = 8'd117; // 'u'
+                                9: char_code = 8'd115; // 's'
+                                10: char_code = 8'd116; // 't'
+                                default: char_code = 8'd32;
+                            endcase
+                        end
+                        ADJUST_AMP: begin
+                            case ((pixel_x_d1 - AUTO_TEST_X_START) / AUTO_CHAR_WIDTH)
+                                0: char_code = 8'd65;  // 'A'
+                                1: char_code = 8'd109; // 'm'
+                                2: char_code = 8'd112; // 'p'
+                                3: char_code = 8'd32;  // ' '
+                                4: char_code = 8'd65;  // 'A'
+                                5: char_code = 8'd100; // 'd'
+                                6: char_code = 8'd106; // 'j'
+                                7: char_code = 8'd117; // 'u'
+                                8: char_code = 8'd115; // 's'
+                                9: char_code = 8'd116; // 't'
+                                default: char_code = 8'd32;
+                            endcase
+                        end
+                        ADJUST_DUTY: begin
+                            case ((pixel_x_d1 - AUTO_TEST_X_START) / AUTO_CHAR_WIDTH)
+                                0: char_code = 8'd68;  // 'D'
+                                1: char_code = 8'd117; // 'u'
+                                2: char_code = 8'd116; // 't'
+                                3: char_code = 8'd121; // 'y'
+                                4: char_code = 8'd32;  // ' '
+                                5: char_code = 8'd65;  // 'A'
+                                6: char_code = 8'd100; // 'd'
+                                7: char_code = 8'd106; // 'j'
+                                8: char_code = 8'd117; // 'u'
+                                9: char_code = 8'd115; // 's'
+                                10: char_code = 8'd116; // 't'
+                                default: char_code = 8'd32;
+                            endcase
+                        end
+                        ADJUST_THD: begin
+                            case ((pixel_x_d1 - AUTO_TEST_X_START) / AUTO_CHAR_WIDTH)
+                                0: char_code = 8'd84;  // 'T'
+                                1: char_code = 8'd72;  // 'H'
+                                2: char_code = 8'd68;  // 'D'
+                                3: char_code = 8'd32;  // ' '
+                                4: char_code = 8'd65;  // 'A'
+                                5: char_code = 8'd100; // 'd'
+                                6: char_code = 8'd106; // 'j'
+                                7: char_code = 8'd117; // 'u'
+                                8: char_code = 8'd115; // 's'
+                                9: char_code = 8'd116; // 't'
+                                default: char_code = 8'd32;
+                            endcase
+                        end
+                        default: char_code = 8'd32;
+                    endcase
+                    char_col = auto_test_char_col;
+                    in_char_area = 1'b1;
+                end
+            end
+            
+            // 第2行："Min: XXXX"
+            else if (pixel_y_d1 < (AUTO_TEST_Y_START + 3*AUTO_LINE_HEIGHT)) begin
+                if (pixel_x_d1 >= AUTO_TEST_X_START && pixel_x_d1 < AUTO_TEST_X_START + 16*AUTO_CHAR_WIDTH) begin
+                    case ((pixel_x_d1 - AUTO_TEST_X_START) / AUTO_CHAR_WIDTH)
+                        0: char_code = 8'd77;  // 'M'
+                        1: char_code = 8'd105; // 'i'
+                        2: char_code = 8'd110; // 'n'
+                        3: char_code = 8'd58;  // ':'
+                        4: char_code = 8'd32;  // ' '
+                        // 根据模式显示不同的数值
+                        5: begin
+                            case (param_adjust_mode)
+                                ADJUST_FREQ: char_code = 8'd48 + freq_min_d5;
+                                ADJUST_AMP:  char_code = 8'd48 + amp_min_d3;
+                                ADJUST_DUTY: char_code = 8'd48 + duty_min_d2;
+                                default:     char_code = 8'd32;
+                            endcase
+                        end
+                        6: begin
+                            case (param_adjust_mode)
+                                ADJUST_FREQ: char_code = 8'd48 + freq_min_d4;
+                                ADJUST_AMP:  char_code = 8'd48 + amp_min_d2;
+                                ADJUST_DUTY: char_code = 8'd48 + duty_min_d1;
+                                default:     char_code = 8'd32;
+                            endcase
+                        end
+                        7: begin
+                            case (param_adjust_mode)
+                                ADJUST_FREQ: char_code = 8'd48 + freq_min_d3;
+                                ADJUST_AMP:  char_code = 8'd48 + amp_min_d1;
+                                ADJUST_DUTY: char_code = 8'd46;  // '.'
+                                default:     char_code = 8'd32;
+                            endcase
+                        end
+                        8: begin
+                            case (param_adjust_mode)
+                                ADJUST_FREQ: char_code = 8'd48 + freq_min_d2;
+                                ADJUST_AMP:  char_code = 8'd48 + amp_min_d0;
+                                ADJUST_DUTY: char_code = 8'd48 + duty_min_d0;
+                                default:     char_code = 8'd32;
+                            endcase
+                        end
+                        9: begin
+                            case (param_adjust_mode)
+                                ADJUST_FREQ: char_code = 8'd48 + freq_min_d1;
+                                ADJUST_AMP:  char_code = 8'd32;
+                                ADJUST_DUTY: char_code = 8'd37;  // '%'
+                                default:     char_code = 8'd32;
+                            endcase
+                        end
+                        10: begin
+                            case (param_adjust_mode)
+                                ADJUST_FREQ: char_code = 8'd48 + freq_min_d0;
+                                default:     char_code = 8'd32;
+                            endcase
+                        end
+                        default: char_code = 8'd32;
+                    endcase
+                    char_col = auto_test_char_col;
+                    in_char_area = 1'b1;
+                end
+            end
+            
+            // 第3行："Max: XXXX"（THD模式不显示Min，只显示Max）
+            else if (pixel_y_d1 < (AUTO_TEST_Y_START + 4*AUTO_LINE_HEIGHT)) begin
+                if (pixel_x_d1 >= AUTO_TEST_X_START && pixel_x_d1 < AUTO_TEST_X_START + 16*AUTO_CHAR_WIDTH) begin
+                    case ((pixel_x_d1 - AUTO_TEST_X_START) / AUTO_CHAR_WIDTH)
+                        0: char_code = 8'd77;  // 'M'
+                        1: char_code = 8'd97;  // 'a'
+                        2: char_code = 8'd120; // 'x'
+                        3: char_code = 8'd58;  // ':'
+                        4: char_code = 8'd32;  // ' '
+                        5: begin
+                            case (param_adjust_mode)
+                                ADJUST_FREQ: char_code = 8'd48 + freq_max_d5;
+                                ADJUST_AMP:  char_code = 8'd48 + amp_max_d3;
+                                ADJUST_DUTY: char_code = 8'd48 + duty_max_d2;
+                                ADJUST_THD:  char_code = 8'd48 + thd_max_d2;
+                                default:     char_code = 8'd32;
+                            endcase
+                        end
+                        6: begin
+                            case (param_adjust_mode)
+                                ADJUST_FREQ: char_code = 8'd48 + freq_max_d4;
+                                ADJUST_AMP:  char_code = 8'd48 + amp_max_d2;
+                                ADJUST_DUTY: char_code = 8'd48 + duty_max_d1;
+                                ADJUST_THD:  char_code = 8'd48 + thd_max_d1;
+                                default:     char_code = 8'd32;
+                            endcase
+                        end
+                        7: begin
+                            case (param_adjust_mode)
+                                ADJUST_FREQ: char_code = 8'd48 + freq_max_d3;
+                                ADJUST_AMP:  char_code = 8'd48 + amp_max_d1;
+                                ADJUST_DUTY: char_code = 8'd46;  // '.'
+                                ADJUST_THD:  char_code = 8'd46;  // '.'
+                                default:     char_code = 8'd32;
+                            endcase
+                        end
+                        8: begin
+                            case (param_adjust_mode)
+                                ADJUST_FREQ: char_code = 8'd48 + freq_max_d2;
+                                ADJUST_AMP:  char_code = 8'd48 + amp_max_d0;
+                                ADJUST_DUTY: char_code = 8'd48 + duty_max_d0;
+                                ADJUST_THD:  char_code = 8'd48 + thd_max_d0;
+                                default:     char_code = 8'd32;
+                            endcase
+                        end
+                        9: begin
+                            case (param_adjust_mode)
+                                ADJUST_FREQ: char_code = 8'd48 + freq_max_d1;
+                                ADJUST_AMP:  char_code = 8'd32;
+                                ADJUST_DUTY: char_code = 8'd37;  // '%'
+                                ADJUST_THD:  char_code = 8'd37;  // '%'
+                                default:     char_code = 8'd32;
+                            endcase
+                        end
+                        10: begin
+                            case (param_adjust_mode)
+                                ADJUST_FREQ: char_code = 8'd48 + freq_max_d0;
+                                default:     char_code = 8'd32;
+                            endcase
+                        end
+                        default: char_code = 8'd32;
+                    endcase
+                    char_col = auto_test_char_col;
+                    in_char_area = 1'b1;
+                end
+            end
+            
+            // 第4行：显示步进模式
+            else if (pixel_y_d1 < (AUTO_TEST_Y_START + 5*AUTO_LINE_HEIGHT)) begin
+                if (pixel_x_d1 >= AUTO_TEST_X_START && pixel_x_d1 < AUTO_TEST_X_START + 16*AUTO_CHAR_WIDTH) begin
+                    case ((pixel_x_d1 - AUTO_TEST_X_START) / AUTO_CHAR_WIDTH)
+                        0: char_code = 8'd83;  // 'S'
+                        1: char_code = 8'd116; // 't'
+                        2: char_code = 8'd101; // 'e'
+                        3: char_code = 8'd112; // 'p'
+                        4: char_code = 8'd58;  // ':'
+                        5: char_code = 8'd32;  // ' '
+                        6: begin
+                            case (adjust_step_mode)
+                                2'd0: char_code = 8'd70;  // 'F' (Fine)
+                                2'd1: char_code = 8'd77;  // 'M' (Mid)
+                                2'd2: char_code = 8'd67;  // 'C' (Coarse)
+                                default: char_code = 8'd32;
+                            endcase
+                        end
+                        7: begin
+                            case (adjust_step_mode)
+                                2'd0: char_code = 8'd105; // 'i'
+                                2'd1: char_code = 8'd105; // 'i'
+                                2'd2: char_code = 8'd111; // 'o'
+                                default: char_code = 8'd32;
+                            endcase
+                        end
+                        8: begin
+                            case (adjust_step_mode)
+                                2'd0: char_code = 8'd110; // 'n'
+                                2'd1: char_code = 8'd100; // 'd'
+                                2'd2: char_code = 8'd97;  // 'a'
+                                default: char_code = 8'd32;
+                            endcase
+                        end
+                        9: begin
+                            case (adjust_step_mode)
+                                2'd0: char_code = 8'd101; // 'e'
+                                2'd2: char_code = 8'd114; // 'r'
+                                default: char_code = 8'd32;
+                            endcase
+                        end
+                        10: begin
+                            case (adjust_step_mode)
+                                2'd2: char_code = 8'd115; // 's'
+                                default: char_code = 8'd32;
+                            endcase
+                        end
+                        11: begin
+                            case (adjust_step_mode)
+                                2'd2: char_code = 8'd101; // 'e'
+                                default: char_code = 8'd32;
+                            endcase
+                        end
+                        default: char_code = 8'd32;
+                    endcase
+                    char_col = auto_test_char_col;
+                    in_char_area = 1'b1;
+                end
+            end
+            
+            // 第5行："[7]Back"
+            else if (pixel_y_d1 < (AUTO_TEST_Y_START + 6*AUTO_LINE_HEIGHT)) begin
+                if (pixel_x_d1 >= AUTO_TEST_X_START && pixel_x_d1 < AUTO_TEST_X_START + 8*AUTO_CHAR_WIDTH) begin
+                    case ((pixel_x_d1 - AUTO_TEST_X_START) / AUTO_CHAR_WIDTH)
+                        0: char_code = 8'd91;  // '['
+                        1: char_code = 8'd55;  // '7'
+                        2: char_code = 8'd93;  // ']'
+                        3: char_code = 8'd66;  // 'B'
+                        4: char_code = 8'd97;  // 'a'
+                        5: char_code = 8'd99;  // 'c'
+                        6: char_code = 8'd107; // 'k'
+                        default: char_code = 8'd32;
+                    endcase
+                    char_col = auto_test_char_col;
+                    in_char_area = 1'b1;
+                end
+            end
+        end
+    end  // 结束自动测试显示区域
+    
     end  // ✅ 结束 else begin (char_code时序逻辑块)
 end  // 结束 always @(posedge clk_pixel)
 
@@ -2389,6 +2894,39 @@ always @(*) begin
                 else
                     char_color = 24'hFF00FF;
                 rgb_data = char_color;
+            end
+        end
+        
+        // ========== ✅ 自动测试显示区域（右下角浮窗） ==========
+        if (auto_test_enable && 
+            pixel_y_d4 >= AUTO_TEST_Y_START && 
+            pixel_y_d4 < (AUTO_TEST_Y_START + AUTO_TEST_HEIGHT) &&
+            pixel_x_d4 >= AUTO_TEST_X_START && 
+            pixel_x_d4 < (AUTO_TEST_X_START + AUTO_TEST_WIDTH)) begin
+            
+            // 边框绘制（2像素宽）
+            if (pixel_y_d4 < (AUTO_TEST_Y_START + 2) ||                              // 上边框
+                pixel_y_d4 >= (AUTO_TEST_Y_START + AUTO_TEST_HEIGHT - 2) ||          // 下边框
+                pixel_x_d4 < (AUTO_TEST_X_START + 2) ||                              // 左边框
+                pixel_x_d4 >= (AUTO_TEST_X_START + AUTO_TEST_WIDTH - 2)) begin
+                rgb_data = 24'h00FFFF;  // 青色边框
+            end
+            // 内部区域
+            else begin
+                // 半透明背景（深蓝色）
+                rgb_data = 24'h0A0A20;  // 深色背景
+                
+                // 字符显示
+                if (in_char_area_d1 && char_pixel_row[15 - char_col_d1[3:0]]) begin
+                    // 标题行使用黄色
+                    if (pixel_y_d4 < (AUTO_TEST_Y_START + AUTO_LINE_HEIGHT)) begin
+                        rgb_data = 24'hFFFF00;  // 黄色标题
+                    end
+                    // 其他行使用白色
+                    else begin
+                        rgb_data = 24'hFFFFFF;  // 白色文字
+                    end
+                end
             end
         end
         

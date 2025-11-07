@@ -1950,6 +1950,19 @@ hdmi_display_ctrl u_hdmi_ctrl (
     // 控制
     .work_mode          (work_mode),
     
+    // ✅ 自动测试模式显示
+    .auto_test_enable   (auto_test_enable),
+    .param_adjust_mode  (param_adjust_mode),
+    .adjust_step_mode   (adjust_step_mode),
+    .freq_min_display   (freq_min_display),
+    .freq_max_display   (freq_max_display),
+    .amp_min_display    (amp_min_display),
+    .amp_max_display    (amp_max_display),
+    .duty_min_display   (duty_min_display),
+    .duty_max_display   (duty_max_display),
+    .thd_max_display    (thd_max_display),
+    .auto_test_result   (auto_test_result),
+    
     // HDMI时序输出
     .rgb_out            (hdmi_rgb),
     .de_out             (hdmi_de),
@@ -2214,14 +2227,6 @@ end
 //=============================================================================
 // 13. LED状态指示（双通道状态 / 自动测试结果切换）
 //=============================================================================
-// 自动测试使能控制
-always @(posedge clk_100m or negedge rst_n) begin
-    if (!rst_n)
-        auto_test_enable <= 1'b0;
-    else if (btn_auto_test)
-        auto_test_enable <= ~auto_test_enable;
-end
-
 // LED输出选择：自动测试模式显示测试结果，否则显示系统状态
 assign user_led = auto_test_enable ? auto_test_result : user_led_reg;
 
