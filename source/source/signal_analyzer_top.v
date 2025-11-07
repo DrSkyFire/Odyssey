@@ -1706,6 +1706,28 @@ phase_diff_calc_v4 u_phase_diff (
 //=============================================================================
 // 9.6 自动测试模块
 //=============================================================================
+// 自动测试参数格式转换（CH1参数 → auto_test模块格式）
+// 修复问题：原代码中 signal_freq/amplitude/duty/thd 未定义，导致自动测试无法工作
+
+// 1. 频率转换：16位+单位标志 → 32位Hz值
+reg [31:0] signal_freq;
+always @(*) begin
+    if (ch1_freq_is_mhz)
+        signal_freq = {16'd0, ch1_freq} * 32'd1000000;  // MHz → Hz
+    else if (ch1_freq_is_khz)
+        signal_freq = {16'd0, ch1_freq} * 32'd1000;     // kHz → Hz
+    else
+        signal_freq = {16'd0, ch1_freq};                // Hz
+end
+
+// 2. 其他参数直接映射（格式已匹配）
+wire [15:0] signal_amplitude = ch1_amplitude;
+wire [15:0] signal_duty      = ch1_duty;
+wire [15:0] signal_thd       = ch1_thd;
+
+// 3. 参数有效标志：持续有效（参数实时更新）
+wire param_valid = 1'b1;
+
 // 自动测试阈值输出（用于HDMI显示）
 wire [31:0] freq_min_display, freq_max_display;  // 频率使用32位
 wire [15:0] amp_min_display, amp_max_display;
@@ -1993,6 +2015,15 @@ hdmi_display_ctrl u_hdmi_ctrl (
     .duty_min_d0(duty_min_d0), .duty_min_d1(duty_min_d1), .duty_min_d2(duty_min_d2), .duty_min_d3(duty_min_d3),
     .duty_max_d0(duty_max_d0), .duty_max_d1(duty_max_d1), .duty_max_d2(duty_max_d2), .duty_max_d3(duty_max_d3),
     .thd_max_d0(thd_max_d0), .thd_max_d1(thd_max_d1), .thd_max_d2(thd_max_d2), .thd_max_d3(thd_max_d3),
+    
+    // ✨ 锁相放大显示
+    .weak_sig_enable    (weak_sig_enable),      // 微弱信号模式使能
+    .lia_ref_freq       (weak_sig_ref_freq),    // 参考频率 (Hz)
+    .lia_ref_mode       (weak_sig_ref_mode),    // 参考模式 (0=DDS, 1=CH2, 2=外部)
+    .ch1_lia_magnitude  (ch1_lia_magnitude),    // CH1幅度 (24-bit有符号数)
+    .ch1_lia_phase      (ch1_lia_phase),        // CH1相位 (0-65535 -> 0-360°)
+    .ch1_lia_locked     (ch1_lia_locked),       // CH1锁定状态
+    .lia_snr_estimate   (weak_sig_snr),         // SNR估计 (dB, 8.8定点)
     
     // HDMI时序输出
     .rgb_out            (hdmi_rgb),

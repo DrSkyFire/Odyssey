@@ -153,17 +153,6 @@ localparam AUTO_TEST_HEIGHT  = 300;     // 自动测试区域高度
 localparam AUTO_LINE_HEIGHT  = 28;      // 行高
 localparam AUTO_CHAR_WIDTH   = 16;      // 字符宽度
 
-//=============================================================================
-// 锁相放大显示区域参数 (屏幕左上角)
-//=============================================================================
-localparam LIA_X_START = 20;            // 锁相放大区域X起始
-localparam LIA_Y_START = 60;            // 锁相放大区域Y起始
-localparam LIA_WIDTH   = 360;           // 锁相放大区域宽度
-localparam LIA_HEIGHT  = 200;           // 锁相放大区域高度
-localparam LIA_LINE_HEIGHT = 28;        // 行高
-localparam LIA_CHAR_WIDTH  = 16;        // 字符宽度
-
-
 // 自动测试模式状�?
 localparam ADJUST_IDLE = 3'd0;
 localparam ADJUST_FREQ = 3'd1;
@@ -308,21 +297,6 @@ reg [7:0]   auto_test_char_code;    // 自动测试字符编码
 reg [4:0]   auto_test_char_row;     // 自动测试字符行号
 reg [11:0]  auto_test_char_col;     // 自动测试字符列号
 reg         auto_test_char_valid;   // 自动测试字符有效
-
-// 锁相放大显示相关信号
-reg         in_lia_area;            // 在锁相放大显示区域内
-reg         in_lia_area_d1, in_lia_area_d2, in_lia_area_d3;  // 延迟链
-reg [4:0]   lia_char_row;           // 锁相放大字符行号
-reg [11:0]  lia_char_col;           // 锁相放大字符列号
-
-// 锁相放大显示数据（预处理）
-reg [31:0]  lia_freq_display;       // 参考频率显示值
-reg [3:0]   lia_freq_d0, lia_freq_d1, lia_freq_d2, lia_freq_d3, lia_freq_d4, lia_freq_d5;
-reg [3:0]   lia_mag_d0, lia_mag_d1, lia_mag_d2, lia_mag_d3;  // 幅度（mV）
-reg [3:0]   lia_phase_d0, lia_phase_d1, lia_phase_d2;  // 相位（度）
-reg [3:0]   lia_snr_d0, lia_snr_d1, lia_snr_d2;  // SNR（dB）
-reg         lia_phase_sign;         // 相位符号（0=正，1=负）
-
 
 // ✨ 注意：freq_min_d0~d5, freq_max_d0~d5, amp_min/max_d0~d3, duty_min/max_d0~d3, thd_max_d0~d3
 //          现在都是输入端口（来自auto_test模块的BCD格式），不再需要内部寄存器
@@ -741,44 +715,7 @@ always @(posedge clk_pixel or negedge rst_n) begin
         if (v_cnt == 12'd0 && h_cnt == 12'd200) begin
             phase_d3 <= (phase_abs / 1000) % 10;
         end
-        // ========== 锁相放大参数BCD转换 ==========
-        // 时序：分散在h_cnt = 210~250，避免单周期大量计算
-        if (v_cnt == 12'd0 && h_cnt == 12'd210) begin
-            // 参考频率BCD转换（6位，支持0~999999 Hz）
-            lia_freq_d5 <= (lia_ref_freq / 100000) % 10;
-            lia_freq_d4 <= (lia_ref_freq / 10000) % 10;
-            lia_freq_d3 <= (lia_ref_freq / 1000) % 10;
-        end
         
-        if (v_cnt == 12'd0 && h_cnt == 12'd220) begin
-            lia_freq_d2 <= (lia_ref_freq / 100) % 10;
-            lia_freq_d1 <= (lia_ref_freq / 10) % 10;
-            lia_freq_d0 <= lia_ref_freq % 10;
-        end
-        
-        if (v_cnt == 12'd0 && h_cnt == 12'd230) begin
-            // 幅度BCD转换（4位mV，24位有符号数→mV）
-            // 转换：signed[23:0] → [23:14] ≈ 1024倍，取绝对值
-            lia_mag_d3 <= (ch1_lia_magnitude[23] ? 4'd0 : ((ch1_lia_magnitude >> 14) / 1000) % 10);
-            lia_mag_d2 <= (ch1_lia_magnitude[23] ? 4'd0 : ((ch1_lia_magnitude >> 14) / 100) % 10);
-            lia_mag_d1 <= (ch1_lia_magnitude[23] ? 4'd0 : ((ch1_lia_magnitude >> 14) / 10) % 10);
-            lia_mag_d0 <= (ch1_lia_magnitude[23] ? 4'd0 : (ch1_lia_magnitude >> 14) % 10);
-        end
-        
-        if (v_cnt == 12'd0 && h_cnt == 12'd240) begin
-            // 相位BCD转换（3位度，16位无符号数→0~359°）
-            // 转换：unsigned[15:0] → * 360 / 65536
-            lia_phase_d2 <= ((ch1_lia_phase * 360) >> 16) / 100;
-            lia_phase_d1 <= (((ch1_lia_phase * 360) >> 16) / 10) % 10;
-            lia_phase_d0 <= ((ch1_lia_phase * 360) >> 16) % 10;
-        end
-        
-        if (v_cnt == 12'd0 && h_cnt == 12'd250) begin
-            // SNR BCD转换（3位dB，16位无符号数→[15:8]=整数部分）
-            lia_snr_d2 <= (lia_snr_estimate >> 8) / 100;
-            lia_snr_d1 <= ((lia_snr_estimate >> 8) / 10) % 10;
-            lia_snr_d0 <= (lia_snr_estimate >> 8) % 10;
-        end
         // ✨ 自动测试参数BCD转换已删除！
         // 原因：BCD值现在直接来自auto_test模块的输入端口，无需内部计算
         // 优势：完全消除了HDMI域的除法运算，时序改善约20ns
@@ -825,10 +762,6 @@ always @(posedge clk_pixel or negedge rst_n) begin
         in_auto_test_area_d1 <= 1'b0;
         in_auto_test_area_d2 <= 1'b0;
         in_auto_test_area_d3 <= 1'b0;
-        // 锁相放大区域标志延迟链
-        in_lia_area_d1 <= 1'b0;
-        in_lia_area_d2 <= 1'b0;
-        in_lia_area_d3 <= 1'b0;
     end else begin
         // 延迟4拍（时序优化后延迟链�?
         pixel_x_d1 <= pixel_x;
@@ -858,11 +791,7 @@ always @(posedge clk_pixel or negedge rst_n) begin
         in_auto_test_area_d1 <= in_auto_test_area;
         in_auto_test_area_d2 <= in_auto_test_area_d1;
         in_auto_test_area_d3 <= in_auto_test_area_d2;
-        // 锁相放大区域标志延迟
-        in_lia_area_d1 <= in_lia_area;
-        in_lia_area_d2 <= in_lia_area_d1;
-        in_lia_area_d3 <= in_lia_area_d2;
-        // 网格标志延迟链
+        
         grid_x_flag_d1 <= grid_x_flag;
         grid_x_flag_d2 <= grid_x_flag_d1;
         grid_x_flag_d3 <= grid_x_flag_d2;
@@ -1158,14 +1087,12 @@ always @(posedge clk_pixel or negedge rst_n) begin
         char_col <= 12'd0;
         in_char_area <= 1'b0;
         in_auto_test_area <= 1'b0;
-        in_lia_area <= 1'b0;  // 默认不在锁相放大区域
     end else begin
         char_code <= 8'd32;  // 默认空格 (ASCII 32)
         char_row <= 5'd0;
         char_col <= 12'd0;
         in_char_area <= 1'b0;
         in_auto_test_area <= 1'b0;  // 默认不在自动测试区域
-        in_lia_area <= 1'b0;  // 默认不在锁相放大区域
     
     // ========== �?Y轴标度数字显示（使用预计算结果，无组合逻辑�?==========
     if (y_axis_char_valid) begin
@@ -2331,209 +2258,7 @@ always @(posedge clk_pixel or negedge rst_n) begin
             end  // 结束 if (pixel_y_d1 < TABLE_Y_PHASE + 32)
         end
     end  // 结束 if (pixel_y_d1 >= PARAM_Y_START && pixel_y_d1 < PARAM_Y_END)
-        // ========== 锁相放大显示区域（屏幕左上角）==========
-    else if (weak_sig_enable && pixel_y_d1 >= LIA_Y_START && 
-             pixel_y_d1 < (LIA_Y_START + LIA_HEIGHT) &&
-             pixel_x_d1 >= LIA_X_START && 
-             pixel_x_d1 < (LIA_X_START + LIA_WIDTH)) begin
-        
-        // 设置锁相放大区域标志
-        in_lia_area <= 1'b1;
-        
-        // 计算行号和列号
-        lia_char_row <= (pixel_y_d1 - LIA_Y_START) % LIA_LINE_HEIGHT;
-        lia_char_col <= (pixel_x_d1 - LIA_X_START) % LIA_CHAR_WIDTH;
-        char_row <= lia_char_row;
-        
-        // ===== 第1行：标题 "Lock-in Amp" =====
-        if (pixel_y_d1 < (LIA_Y_START + LIA_LINE_HEIGHT)) begin
-            if (pixel_x_d1 >= LIA_X_START && pixel_x_d1 < LIA_X_START + 12*LIA_CHAR_WIDTH) begin
-                case ((pixel_x_d1 - LIA_X_START) / LIA_CHAR_WIDTH)
-                    0: char_code <= 8'd76;  // 'L'
-                    1: char_code <= 8'd111; // 'o'
-                    2: char_code <= 8'd99;  // 'c'
-                    3: char_code <= 8'd107; // 'k'
-                    4: char_code <= 8'd45;  // '-'
-                    5: char_code <= 8'd105; // 'i'
-                    6: char_code <= 8'd110; // 'n'
-                    7: char_code <= 8'd32;  // ' '
-                    8: char_code <= 8'd65;  // 'A'
-                    9: char_code <= 8'd109; // 'm'
-                    10: char_code <= 8'd112; // 'p'
-                    default: char_code <= 8'd32;
-                endcase
-                char_col <= lia_char_col;
-                in_char_area <= 1'b1;
-            end else begin
-                in_char_area <= 1'b0;
-            end
-        end
-        
-        // ===== 第2行："Ref: 001000 Hz" =====
-        else if (pixel_y_d1 < (LIA_Y_START + 2*LIA_LINE_HEIGHT)) begin
-            if (pixel_x_d1 >= LIA_X_START && pixel_x_d1 < LIA_X_START + 18*LIA_CHAR_WIDTH) begin
-                case ((pixel_x_d1 - LIA_X_START) / LIA_CHAR_WIDTH)
-                    0: char_code <= 8'd82;  // 'R'
-                    1: char_code <= 8'd101; // 'e'
-                    2: char_code <= 8'd102; // 'f'
-                    3: char_code <= 8'd58;  // ':'
-                    4: char_code <= 8'd32;  // ' '
-                    5: char_code <= (lia_freq_d5 < 10) ? (8'd48 + lia_freq_d5) : 8'd32;
-                    6: char_code <= (lia_freq_d4 < 10) ? (8'd48 + lia_freq_d4) : 8'd32;
-                    7: char_code <= (lia_freq_d3 < 10) ? (8'd48 + lia_freq_d3) : 8'd32;
-                    8: char_code <= (lia_freq_d2 < 10) ? (8'd48 + lia_freq_d2) : 8'd32;
-                    9: char_code <= (lia_freq_d1 < 10) ? (8'd48 + lia_freq_d1) : 8'd32;
-                    10: char_code <= (lia_freq_d0 < 10) ? (8'd48 + lia_freq_d0) : 8'd32;
-                    11: char_code <= 8'd32;  // ' '
-                    12: char_code <= 8'd72;  // 'H'
-                    13: char_code <= 8'd122; // 'z'
-                    default: char_code <= 8'd32;
-                endcase
-                char_col <= lia_char_col;
-                in_char_area <= 1'b1;
-            end else begin
-                in_char_area <= 1'b0;
-            end
-        end
-        
-        // ===== 第3行："Mode: DDS/CH2/Ext" =====
-        else if (pixel_y_d1 < (LIA_Y_START + 3*LIA_LINE_HEIGHT)) begin
-            if (pixel_x_d1 >= LIA_X_START && pixel_x_d1 < LIA_X_START + 15*LIA_CHAR_WIDTH) begin
-                case ((pixel_x_d1 - LIA_X_START) / LIA_CHAR_WIDTH)
-                    0: char_code <= 8'd77;  // 'M'
-                    1: char_code <= 8'd111; // 'o'
-                    2: char_code <= 8'd100; // 'd'
-                    3: char_code <= 8'd101; // 'e'
-                    4: char_code <= 8'd58;  // ':'
-                    5: char_code <= 8'd32;  // ' '
-                    // DDS模式
-                    6: char_code <= (lia_ref_mode == 2'd0) ? 8'd68 : 8'd32;  // 'D'
-                    7: char_code <= (lia_ref_mode == 2'd0) ? 8'd68 : 8'd32;  // 'D'
-                    8: char_code <= (lia_ref_mode == 2'd0) ? 8'd83 : 8'd32;  // 'S'
-                    // CH2模式
-                    9: char_code <= (lia_ref_mode == 2'd1) ? 8'd67 : 8'd32;  // 'C'
-                    10: char_code <= (lia_ref_mode == 2'd1) ? 8'd72 : 8'd32;  // 'H'
-                    11: char_code <= (lia_ref_mode == 2'd1) ? 8'd50 : 8'd32;  // '2'
-                    // Ext模式
-                    12: char_code <= (lia_ref_mode == 2'd2) ? 8'd69 : 8'd32;  // 'E'
-                    13: char_code <= (lia_ref_mode == 2'd2) ? 8'd120 : 8'd32; // 'x'
-                    14: char_code <= (lia_ref_mode == 2'd2) ? 8'd116 : 8'd32; // 't'
-                    default: char_code <= 8'd32;
-                endcase
-                char_col <= lia_char_col;
-                in_char_area <= 1'b1;
-            end else begin
-                in_char_area <= 1'b0;
-            end
-        end
-        
-        // ===== 第4行："Mag: 0000 mV" =====
-        else if (pixel_y_d1 < (LIA_Y_START + 4*LIA_LINE_HEIGHT)) begin
-            if (pixel_x_d1 >= LIA_X_START && pixel_x_d1 < LIA_X_START + 14*LIA_CHAR_WIDTH) begin
-                case ((pixel_x_d1 - LIA_X_START) / LIA_CHAR_WIDTH)
-                    0: char_code <= 8'd77;  // 'M'
-                    1: char_code <= 8'd97;  // 'a'
-                    2: char_code <= 8'd103; // 'g'
-                    3: char_code <= 8'd58;  // ':'
-                    4: char_code <= 8'd32;  // ' '
-                    5: char_code <= (lia_mag_d3 < 10) ? (8'd48 + lia_mag_d3) : 8'd32;
-                    6: char_code <= (lia_mag_d2 < 10) ? (8'd48 + lia_mag_d2) : 8'd32;
-                    7: char_code <= (lia_mag_d1 < 10) ? (8'd48 + lia_mag_d1) : 8'd32;
-                    8: char_code <= (lia_mag_d0 < 10) ? (8'd48 + lia_mag_d0) : 8'd32;
-                    9: char_code <= 8'd32;  // ' '
-                    10: char_code <= 8'd109; // 'm'
-                    11: char_code <= 8'd86;  // 'V'
-                    default: char_code <= 8'd32;
-                endcase
-                char_col <= lia_char_col;
-                in_char_area <= 1'b1;
-            end else begin
-                in_char_area <= 1'b0;
-            end
-        end
-        
-        // ===== 第5行："Phase: 000 deg" =====
-        else if (pixel_y_d1 < (LIA_Y_START + 5*LIA_LINE_HEIGHT)) begin
-            if (pixel_x_d1 >= LIA_X_START && pixel_x_d1 < LIA_X_START + 16*LIA_CHAR_WIDTH) begin
-                case ((pixel_x_d1 - LIA_X_START) / LIA_CHAR_WIDTH)
-                    0: char_code <= 8'd80;  // 'P'
-                    1: char_code <= 8'd104; // 'h'
-                    2: char_code <= 8'd97;  // 'a'
-                    3: char_code <= 8'd115; // 's'
-                    4: char_code <= 8'd101; // 'e'
-                    5: char_code <= 8'd58;  // ':'
-                    6: char_code <= 8'd32;  // ' '
-                    7: char_code <= (lia_phase_d2 < 10) ? (8'd48 + lia_phase_d2) : 8'd32;
-                    8: char_code <= (lia_phase_d1 < 10) ? (8'd48 + lia_phase_d1) : 8'd32;
-                    9: char_code <= (lia_phase_d0 < 10) ? (8'd48 + lia_phase_d0) : 8'd32;
-                    10: char_code <= 8'd32;  // ' '
-                    11: char_code <= 8'd100; // 'd'
-                    12: char_code <= 8'd101; // 'e'
-                    13: char_code <= 8'd103; // 'g'
-                    default: char_code <= 8'd32;
-                endcase
-                char_col <= lia_char_col;
-                in_char_area <= 1'b1;
-            end else begin
-                in_char_area <= 1'b0;
-            end
-        end
-        
-        // ===== 第6行："SNR: 00 dB" =====
-        else if (pixel_y_d1 < (LIA_Y_START + 6*LIA_LINE_HEIGHT)) begin
-            if (pixel_x_d1 >= LIA_X_START && pixel_x_d1 < LIA_X_START + 12*LIA_CHAR_WIDTH) begin
-                case ((pixel_x_d1 - LIA_X_START) / LIA_CHAR_WIDTH)
-                    0: char_code <= 8'd83;  // 'S'
-                    1: char_code <= 8'd78;  // 'N'
-                    2: char_code <= 8'd82;  // 'R'
-                    3: char_code <= 8'd58;  // ':'
-                    4: char_code <= 8'd32;  // ' '
-                    5: char_code <= (lia_snr_d1 < 10) ? (8'd48 + lia_snr_d1) : 8'd32;
-                    6: char_code <= (lia_snr_d0 < 10) ? (8'd48 + lia_snr_d0) : 8'd32;
-                    7: char_code <= 8'd32;  // ' '
-                    8: char_code <= 8'd100; // 'd'
-                    9: char_code <= 8'd66;  // 'B'
-                    default: char_code <= 8'd32;
-                endcase
-                char_col <= lia_char_col;
-                in_char_area <= 1'b1;
-            end else begin
-                in_char_area <= 1'b0;
-            end
-        end
-        
-        // ===== 第7行："Status: LOCKED/UNLOCK" =====
-        else if (pixel_y_d1 < (LIA_Y_START + 7*LIA_LINE_HEIGHT)) begin
-            if (pixel_x_d1 >= LIA_X_START && pixel_x_d1 < LIA_X_START + 18*LIA_CHAR_WIDTH) begin
-                case ((pixel_x_d1 - LIA_X_START) / LIA_CHAR_WIDTH)
-                    0: char_code <= 8'd83;  // 'S'
-                    1: char_code <= 8'd116; // 't'
-                    2: char_code <= 8'd97;  // 'a'
-                    3: char_code <= 8'd116; // 't'
-                    4: char_code <= 8'd117; // 'u'
-                    5: char_code <= 8'd115; // 's'
-                    6: char_code <= 8'd58;  // ':'
-                    7: char_code <= 8'd32;  // ' '
-                    // LOCKED or UNLOCK
-                    8: char_code <= ch1_lia_locked ? 8'd76 : 8'd85;  // 'L' or 'U'
-                    9: char_code <= ch1_lia_locked ? 8'd79 : 8'd78;  // 'O' or 'N'
-                    10: char_code <= ch1_lia_locked ? 8'd67 : 8'd76; // 'C' or 'L'
-                    11: char_code <= ch1_lia_locked ? 8'd75 : 8'd79; // 'K' or 'O'
-                    12: char_code <= ch1_lia_locked ? 8'd69 : 8'd67; // 'E' or 'C'
-                    13: char_code <= ch1_lia_locked ? 8'd68 : 8'd75; // 'D' or 'K'
-                    default: char_code <= 8'd32;
-                endcase
-                char_col <= lia_char_col;
-                in_char_area <= 1'b1;
-            end else begin
-                in_char_area <= 1'b0;
-            end
-        end
-        
-        else begin
-            in_char_area <= 1'b0;
-        end
-    end
+    
     // ========== �?自动测试显示区域（屏幕右下角�?==========
     else if (auto_test_enable && pixel_y_d1 >= AUTO_TEST_Y_START && 
              pixel_y_d1 < (AUTO_TEST_Y_START + AUTO_TEST_HEIGHT) &&
@@ -3172,43 +2897,6 @@ always @(*) begin
                     // 其他行使用白�?
                     else begin
                         rgb_data = 24'hFFFFFF;  // 白色文字
-                    end
-                end
-            end
-        end
-        // ========== 🔬 锁相放大显示区域（左上角浮窗，高优先级覆盖）==========
-        if (in_lia_area_d3 && weak_sig_enable) begin  // 使用延迟3拍的标志，匹配pixel_y_d4
-            
-            // 边框绘制（2像素宽）
-            if (pixel_y_d4 < (LIA_Y_START + 2) ||                              // 上边框
-                pixel_y_d4 >= (LIA_Y_START + LIA_HEIGHT - 2) ||                // 下边框
-                pixel_x_d4 < (LIA_X_START + 2) ||                              // 左边框
-                pixel_x_d4 >= (LIA_X_START + LIA_WIDTH - 2)) begin
-                rgb_data = 24'h00FF00;  // 绿色边框（与锁相放大主题一致）
-            end
-            // 内部区域
-            else begin
-                // 深绿色背景（专业仪器风格）
-                rgb_data = 24'h0A2010;  // 深绿色背景 (R=10, G=32, B=16)
-                
-                // 字符显示
-                if (in_char_area_d1 && char_pixel_row[15 - char_col_d1[3:0]]) begin
-                    // 标题行使用亮绿色
-                    if (pixel_y_d4 < (LIA_Y_START + LIA_LINE_HEIGHT)) begin
-                        rgb_data = 24'h00FF00;  // 亮绿色标题 "Lock-in Amp"
-                    end
-                    // 锁定状态行使用不同颜色
-                    else if (pixel_y_d4 >= (LIA_Y_START + LIA_LINE_HEIGHT * 6)) begin
-                        // 第7行：Status显示
-                        if (ch1_lia_locked) begin
-                            rgb_data = 24'h00FF00;  // 绿色 - LOCKED
-                        end else begin
-                            rgb_data = 24'hFF0000;  // 红色 - UNLOCK
-                        end
-                    end
-                    // 其他参数行使用白色
-                    else begin
-                        rgb_data = 24'hFFFFFF;  // 白色文字（频率、模式、幅度、相位、SNR）
                     end
                 end
             end
