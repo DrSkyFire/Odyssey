@@ -1,5 +1,14 @@
 `timescale 1ns / 1ps
 //////////////////////////////////////////////////////////////////////////////////
+// Copyright 2025 DrSkyFire
+// Licensed under the Apache License, Version 2.0 (the "License");
+// you may not use this file except in compliance with the License.
+// You may obtain a copy of the License at
+//     http://www.apache.org/licenses/LICENSE-2.0
+// Unless required by applicable law or agreed to in writing, software
+// distributed under the License is distributed on an "AS IS" BASIS,
+// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+//////////////////////////////////////////////////////////////////////////////////
 // Company:Meyesemi 
 // Engineer: Will
 // 
@@ -15,9 +24,9 @@
 // 
 // Revision:
 // Revision 1.0 - File Created
-// Additional Comments: ÐÞ¸ÄIIC×´Ì¬»ú£¬µÚ¶þ¶ÎÎª×éºÏÂß¼­£¬¸³ÖµÓ¦Ê¹ÓÃ¡°=¡±£¬½«¡°=¡±Ìæ»»¡°<= `UD¡±
-//                       ÐÞ¸ÄbusyÇø¼ä£¬ÓÉÓÚiic_dri²»ÄÜ»º³åÃüÁî£¬Ó¦ÔÚ½ÓÊÕÒ»´Î´¥·¢ºó¾Í½øÈëbusy×´Ì¬£¬
-//                                ÐÞ¸ÄÓï¾ä£ºif(start_en)       busy <= `UD 1'b1;   
+// Additional Comments: ï¿½Þ¸ï¿½IIC×´Ì¬ï¿½ï¿½ï¿½ï¿½ï¿½Ú¶ï¿½ï¿½ï¿½Îªï¿½ï¿½ï¿½ï¿½ß¼ï¿½ï¿½ï¿½ï¿½ï¿½ÖµÓ¦Ê¹ï¿½Ã¡ï¿½=ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½=ï¿½ï¿½ï¿½æ»»ï¿½ï¿½<= `UDï¿½ï¿½
+//                       ï¿½Þ¸ï¿½busyï¿½ï¿½ï¿½ä£¬ï¿½ï¿½ï¿½ï¿½iic_driï¿½ï¿½ï¿½Ü»ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½î£¬Ó¦ï¿½Ú½ï¿½ï¿½ï¿½Ò»ï¿½Î´ï¿½ï¿½ï¿½ï¿½ï¿½Í½ï¿½ï¿½ï¿½busy×´Ì¬ï¿½ï¿½
+//                                ï¿½Þ¸ï¿½ï¿½ï¿½ä£ºif(start_en)       busy <= `UD 1'b1;   
 //////////////////////////////////////////////////////////////////////////////////
 `define UD #1
 module iic_dri #(
@@ -49,9 +58,9 @@ module iic_dri #(
     output               sda_out_en
 );
 
-    localparam CLK_DIV = CLK_FRE/IIC_FREQ;  //¼ÆÊýÆ÷¼ÆÊý×î´óÖµ£¬²úÉúÊ±ÖÓÓÃ
-    localparam ID_ADDR_BYTE = ADDR_BYTE + 1'b1;//µØÖ·¼ÓdeviceID×Ö½ÚÊý
-    localparam DATA_SET = CLK_DIV>>2;//Êä³ödata±ä»¯Î»ÖÃ
+    localparam CLK_DIV = CLK_FRE/IIC_FREQ;  //ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½Öµï¿½ï¿½ï¿½ï¿½ï¿½ï¿½Ê±ï¿½ï¿½ï¿½ï¿½
+    localparam ID_ADDR_BYTE = ADDR_BYTE + 1'b1;//ï¿½ï¿½Ö·ï¿½ï¿½deviceIDï¿½Ö½ï¿½ï¿½ï¿½
+    localparam DATA_SET = CLK_DIV>>2;//ï¿½ï¿½ï¿½dataï¿½ä»¯Î»ï¿½ï¿½
     localparam T_WR_DELAY = T_WR*CLK_FRE/1000_000;
 
     //  iic clock time counter
@@ -68,13 +77,13 @@ module iic_dri #(
     
     wire  full_cycle;
     wire  half_cycle;
-    assign full_cycle = (fre_cnt == CLK_DIV - 1'b1) ? 1'b1 : 1'b0;  //SCLÉÏÉýÑØ£º1¸öSCLÖÜÆÚÎ»ÖÃ
-    assign half_cycle = (fre_cnt == (CLK_DIV>>1'b1) - 1'b1) ? 1'b1 : 1'b0;//SCLÏÂ½µÑØ£º1/2¸öSCLÖÜÆÚÎ»ÖÃ
+    assign full_cycle = (fre_cnt == CLK_DIV - 1'b1) ? 1'b1 : 1'b0;  //SCLï¿½ï¿½ï¿½ï¿½ï¿½Ø£ï¿½1ï¿½ï¿½SCLï¿½ï¿½ï¿½ï¿½Î»ï¿½ï¿½
+    assign half_cycle = (fre_cnt == (CLK_DIV>>1'b1) - 1'b1) ? 1'b1 : 1'b0;//SCLï¿½Â½ï¿½ï¿½Ø£ï¿½1/2ï¿½ï¿½SCLï¿½ï¿½ï¿½ï¿½Î»ï¿½ï¿½
     
     wire start_h;
     wire dsu;
-    assign start_h = (fre_cnt == DATA_SET - 1'b1) ? 1'b1 : 1'b0; //¿ªÊ¼Í£Ö¹±êÖ¾SDA·­×ªÎ»ÖÃ £º1/4¸öSCLÖÜÆÚÎ»ÖÃ
-    assign dsu = (fre_cnt == (CLK_DIV>>1'b1) + DATA_SET - 1'b1) ? 1'b1 : 1'b0; //Êý¾Ý´«Êä¹ý³ÌSDA±ä»¯Î»ÖÃ£º3/4¸öSCLÖÜÆÚÎ»ÖÃ
+    assign start_h = (fre_cnt == DATA_SET - 1'b1) ? 1'b1 : 1'b0; //ï¿½ï¿½Ê¼Í£Ö¹ï¿½ï¿½Ö¾SDAï¿½ï¿½×ªÎ»ï¿½ï¿½ ï¿½ï¿½1/4ï¿½ï¿½SCLï¿½ï¿½ï¿½ï¿½Î»ï¿½ï¿½
+    assign dsu = (fre_cnt == (CLK_DIV>>1'b1) + DATA_SET - 1'b1) ? 1'b1 : 1'b0; //ï¿½ï¿½ï¿½Ý´ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½SDAï¿½ä»¯Î»ï¿½Ã£ï¿½3/4ï¿½ï¿½SCLï¿½ï¿½ï¿½ï¿½Î»ï¿½ï¿½
     
     //============================================================================
     //pluse trige the iic bus transmit start
@@ -92,16 +101,16 @@ module iic_dri #(
         else
         begin
             pluse_1d <= `UD pluse   ;
-            pluse_2d <= `UD pluse_1d;//Í¬²½
-            pluse_3d <= `UD pluse_2d;//È¡±ßÑØÓÃ
+            pluse_2d <= `UD pluse_1d;//Í¬ï¿½ï¿½
+            pluse_3d <= `UD pluse_2d;//È¡ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½
         end
     end
     
     always @ (posedge clk)
     begin
-        if(start || (!rstn))//¿ªÊ¼ºó¿ªÊ¼Ê¹ÄÜÐÅºÅÀ­µÍ
+        if(start || (!rstn))//ï¿½ï¿½Ê¼ï¿½ï¿½Ê¼Ê¹ï¿½ï¿½ï¿½Åºï¿½ï¿½ï¿½ï¿½ï¿½
             start_en <= `UD 1'b0;
-        else if(~pluse_3d & pluse_2d)//ÉÏÉýÑØ
+        else if(~pluse_3d & pluse_2d)//ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½
             start_en <= `UD 1'b1;
         else
             start_en <= `UD start_en;
@@ -155,15 +164,15 @@ module iic_dri #(
     //transmit status
     always @ (posedge clk)
     begin
-        if(start)//´«Êä²Ù×÷¿ªÊ¼±êÖ¾
+        if(start)//ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½Ê¼ï¿½ï¿½Ö¾
             trans_en <= `UD 1'b1;
-        else if(state == STOP && start_h)//´«ÊäSTOP±êÖ¾Êä³öÍê³É
+        else if(state == STOP && start_h)//ï¿½ï¿½ï¿½ï¿½STOPï¿½ï¿½Ö¾ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½
             trans_en <= `UD 1'b0;
         else
             trans_en <= `UD trans_en;
     end
     
-//    always @(posedge clk)//ÈßÓà
+//    always @(posedge clk)//ï¿½ï¿½ï¿½ï¿½
 //    begin
 //        if(start)
 //            trans_over <= `UD 1'b0;
@@ -179,9 +188,9 @@ module iic_dri #(
     reg  [26:0]   twr_cnt=0;
     always @(posedge clk)
     begin
-        if(state == STOP && dsu)//STOP×´Ì¬ºó¿ªÊ¼ÑÓÊ±
+        if(state == STOP && dsu)//STOP×´Ì¬ï¿½ï¿½Ê¼ï¿½ï¿½Ê±
             twr_en <= `UD 1'b1;
-        else if(twr_cnt == T_WR_DELAY)//ÑÓÊ±Âú5ms
+        else if(twr_cnt == T_WR_DELAY)//ï¿½ï¿½Ê±ï¿½ï¿½5ms
             twr_en <= `UD 1'b0;
         else
             twr_en <= `UD twr_en;    
@@ -191,7 +200,7 @@ module iic_dri #(
     begin
         if(twr_en)
         begin
-            if(twr_cnt == T_WR_DELAY)//ÑÓÊ±Âú5ms
+            if(twr_cnt == T_WR_DELAY)//ï¿½ï¿½Ê±ï¿½ï¿½5ms
                 twr_cnt <= `UD 1'b0;
             else
                 twr_cnt <= `UD twr_cnt + 1'b1; 
@@ -202,9 +211,9 @@ module iic_dri #(
     
     always @(posedge clk)
     begin
-        if(start_en)  //½ÓÊÕ¿ªÊ¼Ö¸Áî½øÈëbusy
+        if(start_en)  //ï¿½ï¿½ï¿½Õ¿ï¿½Ê¼Ö¸ï¿½ï¿½ï¿½ï¿½ï¿½busy
             busy <= `UD 1'b1;
-        else if(twr_cnt == T_WR_DELAY)//busyÑÓÊ±Íê³É
+        else if(twr_cnt == T_WR_DELAY)//busyï¿½ï¿½Ê±ï¿½ï¿½ï¿½
             busy <= `UD 1'b0;
         else
             busy <= `UD busy;
@@ -230,13 +239,13 @@ module iic_dri #(
     //tx data control
     always @(posedge clk)
     begin
-        if(start)//¿ªÊ¼´«ÊäÊ±ÌáÇ°×¼±¸µÚÒ»¸öÉè±¸ID+Ð´±êÖ¾
-            send_data <= `UD {device_id[7:1],1'b0};//{Éè±¸ID£¬¶ÁÐ´±êÖ¾}   ´«Êä¸ßÎ»ÔÚÇ°
-        else if(state == S_ACK && full_cycle) //ÔÚSACK×´Ì¬ÖÐÈ¡Ò»¸öµãÌáÇ°×¼±¸Êý¾Ý
+        if(start)//ï¿½ï¿½Ê¼ï¿½ï¿½ï¿½ï¿½Ê±ï¿½ï¿½Ç°×¼ï¿½ï¿½ï¿½ï¿½Ò»ï¿½ï¿½ï¿½è±¸ID+Ð´ï¿½ï¿½Ö¾
+            send_data <= `UD {device_id[7:1],1'b0};//{ï¿½è±¸IDï¿½ï¿½ï¿½ï¿½Ð´ï¿½ï¿½Ö¾}   ï¿½ï¿½ï¿½ï¿½ï¿½Î»ï¿½ï¿½Ç°
+        else if(state == S_ACK && full_cycle) //ï¿½ï¿½SACK×´Ì¬ï¿½ï¿½È¡Ò»ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½Ç°×¼ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½
         begin
         	if(ADDR_BYTE == 2'd1)
         	begin
-                case(trans_byte)//´«ÊäÄÚÈÝ±ä»¯
+                case(trans_byte)//ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½Ý±ä»¯
                     5'd0 : send_data <= `UD {device_id[7:1],1'b0};
                     5'd1 : send_data <= `UD addr[7:0];
                     5'd2 : send_data <= `UD (w_r_2d) ? data_in : {device_id[7:1],1'b1};
@@ -245,7 +254,7 @@ module iic_dri #(
             end
             else
             begin
-            	case(trans_byte)//´«ÊäÄÚÈÝ±ä»¯
+            	case(trans_byte)//ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½Ý±ä»¯
                     5'd0 : send_data <= `UD {device_id[7:1],1'b0};
                     5'd1 : send_data <= `UD addr[ 7:0];
                     5'd2 : send_data <= `UD addr[15:8];
@@ -258,7 +267,7 @@ module iic_dri #(
             send_data <= `UD send_data;
     end
     
-    //transmit byte number,contain device ID£¬ADDR£¬DATA
+    //transmit byte number,contain device IDï¿½ï¿½ADDRï¿½ï¿½DATA
     always @(posedge clk)
     begin
         if(start)
@@ -276,45 +285,45 @@ module iic_dri #(
     always @(posedge clk)
     begin
         case(state)
-            IDLE  ://¿ÕÏÐ×´Ì¬
+            IDLE  ://ï¿½ï¿½ï¿½ï¿½×´Ì¬
             begin
                 sda_out <= `UD 1'b1;
             end
-            S_START ://¿ªÊ¼×´Ì¬
+            S_START ://ï¿½ï¿½Ê¼×´Ì¬
             begin
-                if(start_h)//¿ªÊ¼±êÖ¾²úÉú
+                if(start_h)//ï¿½ï¿½Ê¼ï¿½ï¿½Ö¾ï¿½ï¿½ï¿½ï¿½
                     sda_out <= `UD 1'b0;
-                else if(dsu)//Êý¾ÝÔÚSCLÉÏÉýÑØÇ°·¢³ö
-                    sda_out <= `UD send_data[7-trans_bit];//¸ßÎ»ÏÈ·¢
+                else if(dsu)//ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½SCLï¿½ï¿½ï¿½ï¿½ï¿½ï¿½Ç°ï¿½ï¿½ï¿½ï¿½
+                    sda_out <= `UD send_data[7-trans_bit];//ï¿½ï¿½Î»ï¿½È·ï¿½
                 else
                     sda_out <= `UD sda_out;
             end
             SEND  :
             begin
-                sda_out <= `UD send_data[7-trans_bit];//±ä»¯Êý¾Ý£¬¸ßÎ»ÏÈ·¢
+                sda_out <= `UD send_data[7-trans_bit];//ï¿½ä»¯ï¿½ï¿½ï¿½Ý£ï¿½ï¿½ï¿½Î»ï¿½È·ï¿½
             end
             S_ACK :
             begin
-                if(trans_byte == ID_ADDR_BYTE && dsu && !w_r_2d)//¶Á×´Ì¬ÏÂµØÖ·´«ÊäÍê³É£¬×¼±¸½øÈëµÚ¶þ´ÎS_START
+                if(trans_byte == ID_ADDR_BYTE && dsu && !w_r_2d)//ï¿½ï¿½×´Ì¬ï¿½Âµï¿½Ö·ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½É£ï¿½×¼ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½Ú¶ï¿½ï¿½ï¿½S_START
                     sda_out <= `UD 1'b1;
                 else
                     sda_out <= `UD 1'h0;
             end
             R_ACK :
             begin
-                if(trans_byte < trans_byte_max)//¼ÌÐø¶ÁÈ¡»Ø¸´ACK
+                if(trans_byte < trans_byte_max)//ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½È¡ï¿½Ø¸ï¿½ACK
                     sda_out <= `UD 1'b0;
                 else
                 begin
-                    if(dsu)//·´À¡ACK½áÊø£¬½øÈëSTOP×´Ì¬£¬ÌáÇ°½«SDAÀ­µÍ
+                    if(dsu)//ï¿½ï¿½ï¿½ï¿½ACKï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½STOP×´Ì¬ï¿½ï¿½ï¿½ï¿½Ç°ï¿½ï¿½SDAï¿½ï¿½ï¿½ï¿½
                         sda_out <= `UD 1'b0;
-                    else//·´À¡²»ÔÙ¼ÌÐø¶Á£¬ÌáÊ¾ÇÐ»»´«Êä·½Ïò£»
+                    else//ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½Ù¼ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½Ê¾ï¿½Ð»ï¿½ï¿½ï¿½ï¿½ä·½ï¿½ï¿½
                         sda_out <= `UD 1'b1;
                 end
             end
             STOP  :
             begin
-                if(start_h)//Í£Ö¹±êÖ¾£¬
+                if(start_h)//Í£Ö¹ï¿½ï¿½Ö¾ï¿½ï¿½
                     sda_out <= `UD 1'b1;
                 else
                     sda_out <= `UD sda_out;
@@ -328,7 +337,7 @@ module iic_dri #(
     begin
         if(state == RECEIV)
         begin
-            if(full_cycle)//ÉÏÉýÑØÎ»ÖÃ½ÓÊÕÊäÈëÊý¾Ý
+            if(full_cycle)//ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½Î»ï¿½Ã½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½
                 receiv_data <= `UD {receiv_data[6:0],sda_in};
             else
                 receiv_data <= `UD receiv_data;
@@ -339,7 +348,7 @@ module iic_dri #(
     
     always @(posedge clk)
     begin
-        if(state == RECEIV && trans_bit == 3'd7 && half_cycle)//½ÓÊÕ1byteÊý¾Ýºó£¬½«Êý¾Ý´«³ö
+        if(state == RECEIV && trans_bit == 3'd7 && half_cycle)//ï¿½ï¿½ï¿½ï¿½1byteï¿½ï¿½ï¿½Ýºó£¬½ï¿½ï¿½ï¿½ï¿½Ý´ï¿½ï¿½ï¿½
             data_out <= `UD receiv_data;
         else
             data_out <= `UD data_out;
@@ -350,14 +359,14 @@ module iic_dri #(
     begin
         if(w_r_2d)
         begin
-            if(trans_byte > ID_ADDR_BYTE - 1'b1 && dsu && trans_bit == 3'd7)//Ð´µØÖ·Íê³ÉºóÔÙ´«Êä×Ö½Ú½øÐÐ±êÊ¶
+            if(trans_byte > ID_ADDR_BYTE - 1'b1 && dsu && trans_bit == 3'd7)//Ð´ï¿½ï¿½Ö·ï¿½ï¿½Éºï¿½ï¿½Ù´ï¿½ï¿½ï¿½ï¿½Ö½Ú½ï¿½ï¿½Ð±ï¿½Ê¶
                 byte_over <= `UD 1'b1;
             else
                 byte_over <= `UD 1'b0;
         end
         else
         begin
-            if(trans_byte > ID_ADDR_BYTE && dsu && trans_bit == 3'd7)//Ð´ÍêµÚ¶þ´ÎIDºó£¬ÔÙ´«Êä×Ö½Ú½øÐÐ±êÊ¶
+            if(trans_byte > ID_ADDR_BYTE && dsu && trans_bit == 3'd7)//Ð´ï¿½ï¿½Ú¶ï¿½ï¿½ï¿½IDï¿½ï¿½ï¿½Ù´ï¿½ï¿½ï¿½ï¿½Ö½Ú½ï¿½ï¿½Ð±ï¿½Ê¶
                 byte_over <= `UD 1'b1;
             else
                 byte_over <= `UD 1'b0;
@@ -379,16 +388,16 @@ module iic_dri #(
     
     always @(posedge clk)
     begin
-        if(start)//Ã¿´Î¿ªÊ¼´«ÊäÊ±ÇåÁãbyte¼ÆÊý
+        if(start)//Ã¿ï¿½Î¿ï¿½Ê¼ï¿½ï¿½ï¿½ï¿½Ê±ï¿½ï¿½ï¿½ï¿½byteï¿½ï¿½ï¿½ï¿½
             trans_byte <= `UD 5'd0;
-        else if(state == SEND || state == RECEIV)//¶ÁÐ´×´Ì¬ÐèÒª¼ÆÊý
+        else if(state == SEND || state == RECEIV)//ï¿½ï¿½Ð´×´Ì¬ï¿½ï¿½Òªï¿½ï¿½ï¿½ï¿½
         begin
-            if(dsu && trans_bit == 3'd7)//´«ÊäÂú1byteÊ±¼ÆÊý¼Ó1
+            if(dsu && trans_bit == 3'd7)//ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½1byteÊ±ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½1
                 trans_byte <= `UD trans_byte + 1'b1;
-            else//ÆäËûÊ±ºò±£³Ö×´Ì¬
+            else//ï¿½ï¿½ï¿½ï¿½Ê±ï¿½ò±£³ï¿½×´Ì¬
                 trans_byte <= `UD trans_byte;
         end
-        else//ÆäËûÊ±ºò±£³Ö×´Ì¬
+        else//ï¿½ï¿½ï¿½ï¿½Ê±ï¿½ò±£³ï¿½×´Ì¬
             trans_byte <= `UD trans_byte;
     end
     
@@ -417,9 +426,9 @@ module iic_dri #(
             end
             S_START :
             begin
-//                if(full_cycle && trans_byte == 3'd0) //¶ÁÐ´²Ù×÷µÚÒ»´Î
+//                if(full_cycle && trans_byte == 3'd0) //ï¿½ï¿½Ð´ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½Ò»ï¿½ï¿½
 //                    state_n = SEND;
-//                else if(!w_r_2d && trans_byte == ID_ADDR_BYTE && dsu)//¶Á²Ù×÷µÚ¶þ´Î
+//                else if(!w_r_2d && trans_byte == ID_ADDR_BYTE && dsu)//ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½Ú¶ï¿½ï¿½ï¿½
 //                    state_n = SEND;
                 if(dsu) 
                     state_n = SEND;
@@ -439,20 +448,20 @@ module iic_dri #(
                 begin
                     if(w_r_2d)
                     begin
-                        if(trans_byte < ID_ADDR_BYTE)//Ð´ÈëID+ADDR
+                        if(trans_byte < ID_ADDR_BYTE)//Ð´ï¿½ï¿½ID+ADDR
                             state_n = SEND;
-                        else if(trans_byte < trans_byte_max)//Ð´ÈëÊý¾Ý
+                        else if(trans_byte < trans_byte_max)//Ð´ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½
                             state_n = SEND;
-                        else//Ð´ÈëÊý¾ÝÍê³É
+                        else//Ð´ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½
                             state_n = STOP;
                     end
                     else
                     begin
-                        if(trans_byte < ID_ADDR_BYTE)//Ð´ÈëID+ADDR
+                        if(trans_byte < ID_ADDR_BYTE)//Ð´ï¿½ï¿½ID+ADDR
                             state_n = SEND;
-                        else if(trans_byte == ID_ADDR_BYTE)//ÖØÐÂ¿ªÊ¼£¬Ð´ÈëIDºÍ¶Á±êÖ¾Î»
+                        else if(trans_byte == ID_ADDR_BYTE)//ï¿½ï¿½ï¿½Â¿ï¿½Ê¼ï¿½ï¿½Ð´ï¿½ï¿½IDï¿½Í¶ï¿½ï¿½ï¿½Ö¾Î»
                             state_n = S_START;
-                        else//½øÈë¶Á×´Ì¬
+                        else//ï¿½ï¿½ï¿½ï¿½ï¿½×´Ì¬
                             state_n = RECEIV;
                     end
                 end

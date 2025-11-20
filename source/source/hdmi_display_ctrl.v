@@ -1,4 +1,13 @@
 //=============================================================================
+// Copyright 2025 DrSkyFire
+// Licensed under the Apache License, Version 2.0 (the "License");
+// you may not use this file except in compliance with the License.
+// You may obtain a copy of the License at
+//     http://www.apache.org/licenses/LICENSE-2.0
+// Unless required by applicable law or agreed to in writing, software
+// distributed under the License is distributed on an "AS IS" BASIS,
+// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+//=============================================================================
 // 文件�? hdmi_display_ctrl.v (美化增强�?- 带参数显�?+ 双通道独立控制)
 // 描述: 720p@60Hz HDMI显示控制�?(时序优化�?
 //       - 分辨�? 1280×720 @ 74.25MHz (降低带宽满足时序要求)

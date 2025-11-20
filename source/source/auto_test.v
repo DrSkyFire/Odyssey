@@ -1,4 +1,13 @@
 //=============================================================================
+// Copyright 2025 DrSkyFire
+// Licensed under the Apache License, Version 2.0 (the "License");
+// you may not use this file except in compliance with the License.
+// You may obtain a copy of the License at
+//     http://www.apache.org/licenses/LICENSE-2.0
+// Unless required by applicable law or agreed to in writing, software
+// distributed under the License is distributed on an "AS IS" BASIS,
+// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+//=============================================================================
 // 文件名: auto_test.v
 // 描述: 自动测试模块 - 参数阈值判断与LED指示（层级化设计）
 //       根据测试要求判断各参数是否合格，通过LED反馈结果

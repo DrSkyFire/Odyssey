@@ -69,7 +69,7 @@ ms9280
 ```markdown
 <div align="center">
 
-![License](https://img.shields.io/badge/License-MIT-blue.svg)
+![License](https://img.shields.io/badge/License-Apache_2.0-blue.svg)
 ![FPGA](https://img.shields.io/badge/FPGA-Pango%20PGL50H-orange.svg)
 ![HDL](https://img.shields.io/badge/HDL-Verilog-green.svg)
 ![Status](https://img.shields.io/badge/Status-Competition%20Project-red.svg)
@@ -169,7 +169,7 @@ v2.0 - 时序优化版 ⚡
 
 **完整更新日志**：[CHANGELOG.md](docs/CHANGELOG.md)
 
-**比赛项目** | **MIT License** | **© 2025 DrSkyFire**
+**比赛项目** | **Apache License 2.0** | **© 2025 DrSkyFire**
 ```
 
 4. **Attach binaries（上传文件，可选）**：

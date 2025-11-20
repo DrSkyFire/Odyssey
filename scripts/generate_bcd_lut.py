@@ -1,3 +1,10 @@
+# Copyright 2025 DrSkyFire
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at http://www.apache.org/licenses/LICENSE-2.0
+# Unless required by applicable law or agreed to in writing, software distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+
 # BCD查找表生成脚本
 # 为自动测试参数生成预计算的BCD数值
 # 解决HDMI域除法运算导致的时序违例
